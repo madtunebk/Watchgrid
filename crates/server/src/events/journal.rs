@@ -5,7 +5,8 @@
 //! camera stopped  → closes the outage (disabled or deleted)
 //! recording start → opens a recording event linked to the recording
 //! recording stop  → closes it with the recording's real end time
-//! ONVIF detection → opens/closes a motion/person/… event (origin "onvif")
+//! ONVIF detection → opens/closes a motion/person/… event (origin "onvif");
+//!                   shorter than the camera's "minimum event" → dropped
 
 use std::collections::HashMap;
 
@@ -73,7 +74,10 @@ pub async fn handle(db: &PgPool, links: &mut Links, event: &BusEvent) -> sqlx::R
             let recording = links.0.get(camera_id).map(String::as_str);
             repo::open_from(db, camera_id, *kind, *at, &format!("ONVIF: {topic}"), recording, "onvif").await
         }
-        BusEvent::DetectionEnded { camera_id, kind, at } => repo::close(db, camera_id, *kind, *at).await,
+        BusEvent::DetectionEnded { camera_id, kind, at } => {
+            let min = crate::cameras::repo_get(db, camera_id).await.ok().flatten().map_or(0, |c| c.recording.min_event_seconds);
+            repo::close_detection(db, camera_id, *kind, *at, min).await
+        }
         BusEvent::RecordingStopped { camera_id, recording_id, error, at } => {
             if let Some(started) = links.0.remove(camera_id) {
                 if recording_id.is_none() {

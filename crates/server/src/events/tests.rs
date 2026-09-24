@@ -182,3 +182,29 @@ async fn events_with_a_clip_point_at_their_moment_in_it(db: PgPool) {
     assert_eq!(motion.thumbnail.as_deref(), Some("/api/v1/recordings/rec-1/media#t=6.5"));
     assert!(events.iter().find(|e| e.kind == EventType::CameraOnline).unwrap().thumbnail.is_none(), "no clip, no thumbnail");
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn detections_shorter_than_the_minimum_are_dropped(db: PgPool) {
+    let at = t("2026-09-24T22:00:00Z");
+    for (kind, secs) in [(EventType::Motion, 1), (EventType::Person, 5)] {
+        repo::open_from(&db, "cam-a", kind, at, "ONVIF: x", None, "onvif").await.unwrap();
+        repo::close_detection(&db, "cam-a", kind, at + Duration::seconds(secs), 2).await.unwrap();
+    }
+    let kinds: Vec<EventType> = all(&db).await.iter().map(|e| e.kind).collect();
+    assert_eq!(kinds, [EventType::Person], "the 1 s motion blip is gone, the 5 s person stays");
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn old_finished_unprotected_events_are_purged(db: PgPool) {
+    let old = chrono::Utc::now() - Duration::days(40);
+    repo::instant(&db, "cam-a", EventType::CameraOnline, old, "old").await.unwrap();
+    repo::instant(&db, "cam-a", EventType::CameraOnline, old, "old but protected").await.unwrap();
+    sqlx::query("UPDATE events SET protected = TRUE WHERE source = 'old but protected'").execute(&db).await.unwrap();
+    repo::open(&db, "cam-b", EventType::CameraOffline, old, "still offline", None).await.unwrap();
+    repo::instant(&db, "cam-a", EventType::CameraOnline, chrono::Utc::now(), "new").await.unwrap();
+
+    assert_eq!(repo::purge_older_than(&db, 30).await.unwrap(), 1);
+    let mut left: Vec<String> = all(&db).await.into_iter().map(|e| e.source).collect();
+    left.sort();
+    assert_eq!(left, ["new", "old but protected", "still offline"]);
+}

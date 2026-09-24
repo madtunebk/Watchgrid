@@ -91,6 +91,25 @@ pub async fn close(db: &PgPool, camera_id: &str, kind: EventType, at: DateTime<U
     Ok(r.rows_affected() > 0)
 }
 
+/// End an open detection; if it lasted less than `min_secs` (and isn't
+/// protected), drop it — too short to matter. Returns whether anything changed.
+pub async fn close_detection(db: &PgPool, camera_id: &str, kind: EventType, at: DateTime<Utc>, min_secs: u32) -> sqlx::Result<bool> {
+    let closed: Option<(String, f64, bool)> = sqlx::query_as(
+        "UPDATE events SET end_time = GREATEST($3, start_time) WHERE camera_id = $1 AND kind = $2 AND end_time IS NULL
+         RETURNING id, EXTRACT(EPOCH FROM (end_time - start_time))::float8, protected",
+    )
+    .bind(camera_id)
+    .bind(kinds::name(kind))
+    .bind(at)
+    .fetch_optional(db)
+    .await?;
+    let Some((id, secs, protected)) = closed else { return Ok(false) };
+    if !protected && secs < f64::from(min_secs) {
+        sqlx::query("DELETE FROM events WHERE id = $1").bind(&id).execute(db).await?;
+    }
+    Ok(true)
+}
+
 /// End the open recording event of a camera. Uses the recording's own end
 /// time when it was saved; without a file the event loses its recording link.
 pub async fn close_recording(db: &PgPool, camera_id: &str, recording_id: Option<&str>, at: DateTime<Utc>, error: Option<&str>) -> sqlx::Result<bool> {
@@ -123,6 +142,15 @@ pub async fn link_open_detections(db: &PgPool, camera_id: &str, recording_id: &s
 /// The recording was not saved: drop the links to it.
 pub async fn unlink_recording(db: &PgPool, recording_id: &str) -> sqlx::Result<()> {
     sqlx::query("UPDATE events SET recording_id = NULL WHERE recording_id = $1").bind(recording_id).execute(db).await.map(|_| ())
+}
+
+/// Delete finished, unprotected events older than `days`. Returns how many.
+pub async fn purge_older_than(db: &PgPool, days: u32) -> sqlx::Result<u64> {
+    let r = sqlx::query("DELETE FROM events WHERE NOT protected AND end_time IS NOT NULL AND end_time < now() - make_interval(days => $1)")
+        .bind(days as i32)
+        .execute(db)
+        .await?;
+    Ok(r.rows_affected())
 }
 
 /// After a restart: finish recording events left open by the previous run
