@@ -3,6 +3,20 @@
 A ~7 MB image (static binary + web UI, no OS inside) next to your
 existing PostgreSQL.
 
+## Quick path: existing PostgreSQL container
+
+```sh
+head -c 24 /dev/urandom | base64 | tr -d '/+=\n' > db-password   # the watchgrid DB user's password
+sudo sh setup.sh
+```
+
+`setup.sh` finds the PostgreSQL container, creates the `watchgrid` user and
+database, picks how to reach it (published port → host network, otherwise
+the container's network), writes `watchgrid.env` + `compose.nas.yml`, builds
+and starts. Safe to re-run (e.g. after an upgrade).
+
+The manual steps below do the same by hand.
+
 ## 1. Database (in your PostgreSQL container)
 
 ```sh

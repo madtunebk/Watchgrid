@@ -12,6 +12,6 @@ rm -rf "$out"
 mkdir -p "$out"
 cp target/x86_64-unknown-linux-musl/release/watchgrid "$out/"
 cp -r dist "$out/ui"
-cp deploy/docker/Dockerfile deploy/docker/compose.yml deploy/docker/watchgrid.env.example deploy/docker/README.md "$out/"
+cp deploy/docker/Dockerfile deploy/docker/compose.yml deploy/docker/watchgrid.env.example deploy/docker/README.md deploy/docker/setup.sh "$out/"
 tar -czf target/watchgrid-docker.tar.gz -C target watchgrid-docker
 echo "bundle: target/watchgrid-docker.tar.gz ($(du -h target/watchgrid-docker.tar.gz | cut -f1))"
