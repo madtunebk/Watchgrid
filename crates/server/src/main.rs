@@ -26,6 +26,7 @@ mod settings;
 mod state;
 mod storage;
 mod supervisor;
+mod system;
 mod timezone;
 mod ws;
 
@@ -40,13 +41,16 @@ const USAGE: &str = "usage:\n  watchgrid [serve]\n  watchgrid probe <camera-id> 
 #[tokio::main]
 async fn main() -> ExitCode {
     let _ = dotenvy::dotenv();
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "watchgrid=info".into()))
-        .init();
+    let logs = system::logs::LogBuffer::default();
+    {
+        use tracing_subscriber::prelude::*;
+        let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "watchgrid=info".into());
+        tracing_subscriber::registry().with(filter).with(tracing_subscriber::fmt::layer()).with(system::logs::CaptureLayer(logs.clone())).init();
+    }
 
     let args: Vec<String> = std::env::args().skip(1).collect();
     let result = match args.first().map(String::as_str) {
-        None | Some("serve") => serve().await,
+        None | Some("serve") => serve(logs).await,
         Some("probe") => match args.get(1) {
             Some(id) => {
                 let seconds = args.iter().position(|a| a == "--seconds").and_then(|i| args.get(i + 1)).and_then(|s| s.parse().ok()).unwrap_or(5);
@@ -98,9 +102,11 @@ async fn probe(id: &str, sub: bool, seconds: u64) -> Result<(), String> {
     Ok(())
 }
 
-async fn serve() -> Result<(), String> {
+async fn serve(logs: system::logs::LogBuffer) -> Result<(), String> {
     let config = Config::from_env()?;
-    let state = open_state(&config).await?;
+    let mut state = open_state(&config).await?;
+    state.logs = logs;
+    tokio::spawn(state.metrics.clone().run());
     state.recording_files.prepare().map_err(|e| format!("recordings directory: {e}"))?;
     // Before the supervisor starts, so no transition is missed.
     events::start_journal(state.db.clone(), state.bus.clone());

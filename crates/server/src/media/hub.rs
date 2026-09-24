@@ -52,6 +52,11 @@ impl MediaHub {
         Subscription { frames: channels.frames.subscribe(), state: channels.state.subscribe() }
     }
 
+    /// Feeds currently open (live viewers and recordings).
+    pub fn active_feeds(&self) -> usize {
+        self.feeds.lock().expect("media hub lock").len()
+    }
+
     /// Make a camera's running feeds reconnect with its current settings
     /// (or stop delivering video if it was disabled or deleted).
     pub fn reload(&self, camera_id: &str) {

@@ -2,7 +2,9 @@
 
 pub mod cameras;
 pub mod events;
+pub mod logs;
 mod client;
 pub mod probes;
 pub mod recordings;
 pub mod storage;
+pub mod system;

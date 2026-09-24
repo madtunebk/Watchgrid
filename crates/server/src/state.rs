@@ -10,6 +10,8 @@ use crate::media::MediaHub;
 use crate::recorder::{self, Recorder};
 use crate::recordings::RecordingFiles;
 use crate::storage::Sweeper;
+use crate::system::Sampler;
+use crate::system::logs::LogBuffer;
 use crate::supervisor::{Deps, Supervisor};
 
 /// Shared by all request handlers.
@@ -27,6 +29,9 @@ pub struct AppState {
     pub recording_files: Arc<RecordingFiles>,
     /// Retention enforcement (started by `serve`).
     pub retention: Arc<Sweeper>,
+    pub started_at: chrono::DateTime<chrono::Utc>,
+    pub metrics: Sampler,
+    pub logs: LogBuffer,
 }
 
 impl AppState {
@@ -55,6 +60,9 @@ impl AppState {
             supervisor: Arc::new(supervisor),
             media,
             retention,
+            started_at: chrono::Utc::now(),
+            metrics: Sampler::default(),
+            logs: LogBuffer::default(),
             recorder: Arc::new(recorder),
             recording_files: files,
         }
