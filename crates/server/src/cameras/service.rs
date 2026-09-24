@@ -229,6 +229,11 @@ pub async fn stored_onvif_login(state: &AppState, url: &str) -> ApiResult<Option
     Ok(Some((config.0.username, password)))
 }
 
+/// Stored configuration only (no live state), for background tasks.
+pub async fn stored(db: &PgPool, id: &str) -> sqlx::Result<Option<Camera>> {
+    Ok(repo::get(db, id).await?.map(repo::CameraRow::into_model))
+}
+
 /// What the ONVIF event watcher needs. `None` when the camera is gone.
 pub struct OnvifWatch {
     /// Enabled, with ONVIF settings and motion taken from ONVIF events.
@@ -265,6 +270,7 @@ fn changed(state: &AppState, id: &str, enabled: Option<bool>) {
         None => state.supervisor.stop(id),
     }
     state.onvif.apply(id, enabled.is_some());
+    state.auto_record.apply(id, enabled.is_some());
     if enabled != Some(true) {
         state.bus.publish(BusEvent::CameraStopped { camera_id: id.to_string(), at: chrono::Utc::now() });
     }

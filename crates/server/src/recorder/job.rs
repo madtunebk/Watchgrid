@@ -10,9 +10,9 @@ use tokio::time::Instant;
 use watchgrid_model::RecordingReason;
 
 use super::writer::{Finished, Mp4Writer};
-use super::{Deps, Phase};
+use super::{Deps, Phase, Spec};
 use crate::bus::BusEvent;
-use crate::media::{FeedState, StreamKind, Subscription, TrackInfo};
+use crate::media::{FeedState, Subscription, TrackInfo};
 use crate::recordings::{self, NewRecording, RecordingFiles};
 
 /// Time allowed to get the stream and its first keyframe.
@@ -29,10 +29,10 @@ enum End {
     Failed(String),
 }
 
-pub async fn run(deps: Deps, camera_id: String, mut stop: watch::Receiver<bool>, phase: watch::Sender<Phase>) {
+pub async fn run(deps: Deps, camera_id: String, spec: Spec, mut stop: watch::Receiver<bool>, phase: watch::Sender<Phase>) {
     let started_at = Utc::now();
     let id = format!("rec-{camera_id}-{}", started_at.format("%Y%m%d-%H%M%S%3f"));
-    let result = record(&deps, &camera_id, &id, &mut stop, &phase).await;
+    let result = record(&deps, &camera_id, &id, spec, &mut stop, &phase).await;
     let (recording_id, error) = match result {
         Ok(recording_id) => (recording_id, None),
         Err(e) => {
@@ -45,8 +45,8 @@ pub async fn run(deps: Deps, camera_id: String, mut stop: watch::Receiver<bool>,
 }
 
 /// Returns the published recording id (None if nothing was recorded).
-async fn record(deps: &Deps, camera_id: &str, id: &str, stop: &mut watch::Receiver<bool>, phase: &watch::Sender<Phase>) -> Result<Option<String>, String> {
-    let mut sub = deps.hub.subscribe(camera_id, StreamKind::Main);
+async fn record(deps: &Deps, camera_id: &str, id: &str, spec: Spec, stop: &mut watch::Receiver<bool>, phase: &watch::Sender<Phase>) -> Result<Option<String>, String> {
+    let mut sub = deps.hub.subscribe(camera_id, spec.stream);
     let track = match wait_for_track(&mut sub, stop).await {
         Ok(track) => track,
         Err(End::Stopped) => return Ok(None),
@@ -55,7 +55,9 @@ async fn record(deps: &Deps, camera_id: &str, id: &str, stop: &mut watch::Receiv
     let partial = deps.files.partial_path(id);
     let mut writer = Mp4Writer::create(partial.clone()).await.map_err(|e| format!("cannot create {}: {e}", partial.display()))?;
 
-    let (end, first_frame_at) = capture(deps, camera_id, id, &track, &mut sub, &mut writer, stop, phase).await;
+    // Subscribed first, then snapshot: no gap; overlaps are skipped by pts.
+    let preroll = if spec.preroll_secs > 0 { deps.hub.preroll(camera_id, spec.stream, spec.preroll_secs) } else { Vec::new() };
+    let (end, first_frame_at) = capture(deps, camera_id, id, spec.reason, preroll, &track, &mut sub, &mut writer, stop, phase).await;
     drop(sub); // let the live feed close if nobody else watches
     phase.send_replace(Phase::Finalizing);
 
@@ -73,7 +75,7 @@ async fn record(deps: &Deps, camera_id: &str, id: &str, stop: &mut watch::Receiv
             return Err(format!("cannot finalize the recording: {e}"));
         }
     };
-    let published = publish(deps, camera_id, id, &track, start_time, finished).await?;
+    let published = publish(deps, camera_id, id, spec.reason, &track, start_time, finished).await?;
     if let End::Failed(e) = end {
         // The footage up to the failure is saved; still report why it stopped.
         tracing::warn!(camera = %camera_id, recording = %id, "recording ended early: {e}");
@@ -110,6 +112,8 @@ async fn capture(
     deps: &Deps,
     camera_id: &str,
     recording_id: &str,
+    reason: RecordingReason,
+    preroll: Vec<crate::media::Frame>,
     track: &TrackInfo,
     sub: &mut Subscription,
     writer: &mut Mp4Writer,
@@ -120,6 +124,25 @@ async fn capture(
     let start_deadline = Instant::now() + START_TIMEOUT;
     let mut last_frame = Instant::now();
     let mut recording_since = None::<Instant>;
+    // Pre-record: write the buffered frames first, dated back from now.
+    if let (Some(first), Some(last)) = (preroll.first(), preroll.last()) {
+        let back_ms = (last.pts - first.pts) * 1000 / i64::from(crate::media::TIMESCALE);
+        let started = Utc::now() - chrono::Duration::milliseconds(back_ms.max(0));
+        for frame in preroll {
+            match writer.push(frame).await {
+                Ok(true) if recording_since.is_none() => {
+                    recording_since = Some(Instant::now());
+                    first_frame_at = Some(started);
+                    phase.send_replace(Phase::Recording);
+                    deps.bus.publish(BusEvent::RecordingStarted { camera_id: camera_id.to_string(), recording_id: recording_id.to_string(), reason, at: started });
+                    tracing::info!(camera = %camera_id, ?reason, pre_ms = back_ms, "recording started");
+                }
+                Ok(_) => {}
+                Err(e) => return (End::Failed(write_error(e)), first_frame_at),
+            }
+        }
+        last_frame = Instant::now();
+    }
     loop {
         let stall_at = if recording_since.is_some() { last_frame + STALL_TIMEOUT } else { start_deadline };
         let end = tokio::select! {
@@ -142,11 +165,11 @@ async fn capture(
                             let now = Utc::now();
                             first_frame_at = Some(now);
                             phase.send_replace(Phase::Recording);
-                            tracing::info!(camera = %camera_id, "recording started");
+                            tracing::info!(camera = %camera_id, ?reason, "recording started");
                             deps.bus.publish(BusEvent::RecordingStarted {
                                 camera_id: camera_id.to_string(),
                                 recording_id: recording_id.to_string(),
-                                reason: RecordingReason::Manual,
+                                reason,
                                 at: now,
                             });
                         }
@@ -181,7 +204,7 @@ fn write_error(e: std::io::Error) -> String {
 }
 
 /// Move the file into place and record it in the database.
-async fn publish(deps: &Deps, camera_id: &str, id: &str, track: &TrackInfo, start_time: chrono::DateTime<Utc>, f: Finished) -> Result<String, String> {
+async fn publish(deps: &Deps, camera_id: &str, id: &str, reason: RecordingReason, track: &TrackInfo, start_time: chrono::DateTime<Utc>, f: Finished) -> Result<String, String> {
     let relative = RecordingFiles::final_relative(camera_id, id, start_time);
     let path = deps.files.publish(&f.path, &relative).await.map_err(|e| {
         format!("cannot move the recording into place: {e} (kept at {})", f.path.display())
@@ -190,7 +213,7 @@ async fn publish(deps: &Deps, camera_id: &str, id: &str, track: &TrackInfo, star
     let row = NewRecording {
         id: id.to_string(),
         camera_id: camera_id.to_string(),
-        reason: RecordingReason::Manual,
+        reason,
         start_time,
         end_time: start_time + chrono::Duration::milliseconds(duration_ms),
         duration_ms,

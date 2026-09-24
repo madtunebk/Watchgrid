@@ -7,6 +7,7 @@ mod feed;
 mod fmp4;
 mod fragmenter;
 mod hub;
+mod preroll;
 pub mod mp4;
 mod timing;
 mod ws;

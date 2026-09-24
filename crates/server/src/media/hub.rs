@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use sqlx::PgPool;
 use tokio::sync::{Notify, broadcast, watch};
 
+use super::preroll::Preroll;
 use super::{FeedState, Frame, StreamKind, feed};
 use crate::credentials::CredentialStore;
 
@@ -21,6 +22,8 @@ pub struct Channels {
     pub state: watch::Sender<FeedState>,
     /// Camera settings changed: drop the session and reconnect.
     pub reload: Notify,
+    /// Recent frames for pre-record (empty unless requested).
+    pub preroll: Preroll,
 }
 
 /// A viewer's handle on a feed.
@@ -45,11 +48,26 @@ impl MediaHub {
         let key = (camera_id.to_string(), kind);
         let mut feeds = self.feeds.lock().expect("media hub lock");
         let channels = feeds.entry(key.clone()).or_insert_with(|| {
-            let channels = Arc::new(Channels { frames: broadcast::channel(FRAME_BUFFER).0, state: watch::channel(FeedState::Connecting).0, reload: Notify::new() });
+            let channels = Arc::new(Channels { frames: broadcast::channel(FRAME_BUFFER).0, state: watch::channel(FeedState::Connecting).0, reload: Notify::new(), preroll: Preroll::default() });
             tokio::spawn(feed::run(self.clone(), key, channels.clone()));
             channels
         });
         Subscription { frames: channels.frames.subscribe(), state: channels.state.subscribe() }
+    }
+
+    /// Join a feed and keep `keep_secs` of recent frames for pre-record.
+    pub fn subscribe_with_preroll(self: &Arc<Self>, camera_id: &str, kind: StreamKind, keep_secs: u32) -> Subscription {
+        let sub = self.subscribe(camera_id, kind);
+        if let Some(ch) = self.feeds.lock().expect("media hub lock").get(&(camera_id.to_string(), kind)) {
+            ch.preroll.set_keep(keep_secs);
+        }
+        sub
+    }
+
+    /// The last `secs` of frames (from a keyframe), if pre-record is kept.
+    pub fn preroll(&self, camera_id: &str, kind: StreamKind, secs: u32) -> Vec<Frame> {
+        let feeds = self.feeds.lock().expect("media hub lock");
+        feeds.get(&(camera_id.to_string(), kind)).map(|ch| ch.preroll.snapshot(secs)).unwrap_or_default()
     }
 
     /// Feeds currently open (live viewers and recordings).

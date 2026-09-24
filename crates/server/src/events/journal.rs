@@ -7,6 +7,8 @@
 //! recording stop  → closes it with the recording's real end time
 //! ONVIF detection → opens/closes a motion/person/… event (origin "onvif")
 
+use std::collections::HashMap;
+
 use sqlx::PgPool;
 use tokio::sync::broadcast::error::RecvError;
 use watchgrid_model::{EventType, RecordingReason};
@@ -24,9 +26,10 @@ pub fn start(db: PgPool, bus: Bus) {
             Ok(n) => tracing::info!("closed {n} recording event(s) left open by the previous run"),
             Err(e) => tracing::warn!("cannot close stale events: {e}"),
         }
+        let mut links = Links::default();
         loop {
             match events.recv().await {
-                Ok(event) => match handle(&db, &event).await {
+                Ok(event) => match handle(&db, &mut links, &event).await {
                     Ok(true) => bus.publish(BusEvent::EventsChanged),
                     Ok(false) => {}
                     Err(e) => tracing::warn!(?event, "cannot store event: {e}"),
@@ -38,8 +41,13 @@ pub fn start(db: PgPool, bus: Bus) {
     });
 }
 
+/// Event recordings in progress, per camera: detections that start while
+/// one runs are linked to its clip.
+#[derive(Default)]
+pub struct Links(HashMap<String, String>);
+
 /// Store one transition. Returns whether anything changed.
-pub async fn handle(db: &PgPool, event: &BusEvent) -> sqlx::Result<bool> {
+pub async fn handle(db: &PgPool, links: &mut Links, event: &BusEvent) -> sqlx::Result<bool> {
     match event {
         BusEvent::CameraOffline { camera_id, reason, at } => {
             repo::open(db, camera_id, EventType::CameraOffline, *at, &format!("Supervisor: {reason}"), None).await
@@ -52,18 +60,27 @@ pub async fn handle(db: &PgPool, event: &BusEvent) -> sqlx::Result<bool> {
             Ok(was_down)
         }
         BusEvent::CameraStopped { camera_id, at } => repo::close(db, camera_id, EventType::CameraOffline, *at).await,
-        BusEvent::RecordingStarted { camera_id, recording_id, reason, at } => {
-            let (kind, source) = match reason {
-                RecordingReason::Scheduled => (EventType::Scheduled, "Scheduled recording"),
-                _ => (EventType::Manual, "Manual recording"),
-            };
-            repo::open(db, camera_id, kind, *at, source, Some(recording_id)).await
-        }
+        BusEvent::RecordingStarted { camera_id, recording_id, reason, at } => match reason {
+            RecordingReason::Manual | RecordingReason::Api => repo::open(db, camera_id, EventType::Manual, *at, "Manual recording", Some(recording_id)).await,
+            RecordingReason::Scheduled => repo::open(db, camera_id, EventType::Scheduled, *at, "Scheduled recording", Some(recording_id)).await,
+            // Event recordings belong to the detections that caused them.
+            _ => {
+                links.0.insert(camera_id.clone(), recording_id.clone());
+                repo::link_open_detections(db, camera_id, recording_id).await
+            }
+        },
         BusEvent::DetectionStarted { camera_id, kind, topic, at } => {
-            repo::open_from(db, camera_id, *kind, *at, &format!("ONVIF: {topic}"), None, "onvif").await
+            let recording = links.0.get(camera_id).map(String::as_str);
+            repo::open_from(db, camera_id, *kind, *at, &format!("ONVIF: {topic}"), recording, "onvif").await
         }
         BusEvent::DetectionEnded { camera_id, kind, at } => repo::close(db, camera_id, *kind, *at).await,
         BusEvent::RecordingStopped { camera_id, recording_id, error, at } => {
+            if let Some(started) = links.0.remove(camera_id) {
+                if recording_id.is_none() {
+                    repo::unlink_recording(db, &started).await?;
+                }
+                return Ok(true);
+            }
             repo::close_recording(db, camera_id, recording_id.as_deref(), *at, error.as_deref()).await
         }
         _ => Ok(false),

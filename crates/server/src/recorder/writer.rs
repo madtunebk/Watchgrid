@@ -23,6 +23,9 @@ pub struct Mp4Writer {
     pending: Option<Frame>,
     /// Skip frames until a keyframe (at start and after lost frames).
     need_keyframe: bool,
+    /// Newest accepted timestamp: frames at or before it are duplicates
+    /// (pre-record buffer and live frames overlap).
+    last_pts: Option<i64>,
 }
 
 pub struct Finished {
@@ -40,11 +43,14 @@ impl Mp4Writer {
         let start = mp4::file_start();
         file.write_all(&start.bytes).await?;
         let position = start.bytes.len() as u64;
-        Ok(Self { path, file, start, position, table: SampleTable::default(), clock: SampleClock::default(), pending: None, need_keyframe: true })
+        Ok(Self { path, file, start, position, table: SampleTable::default(), clock: SampleClock::default(), pending: None, need_keyframe: true, last_pts: None })
     }
 
     /// Accept a frame. Returns whether it was taken (false while waiting for a keyframe).
     pub async fn push(&mut self, frame: Frame) -> io::Result<bool> {
+        if self.last_pts.is_some_and(|last| frame.pts <= last) {
+            return Ok(false);
+        }
         if self.need_keyframe {
             if !frame.keyframe {
                 return Ok(false);
@@ -55,6 +61,7 @@ impl Mp4Writer {
             let duration = self.clock.duration(prev.pts, frame.pts);
             self.write(prev, duration).await?;
         }
+        self.last_pts = Some(frame.pts);
         self.pending = Some(frame);
         Ok(true)
     }

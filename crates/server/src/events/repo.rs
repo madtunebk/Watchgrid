@@ -105,6 +105,21 @@ pub async fn close_recording(db: &PgPool, camera_id: &str, recording_id: Option<
     Ok(r.rows_affected() > 0)
 }
 
+/// Attach a starting event recording to the camera's detections in progress.
+pub async fn link_open_detections(db: &PgPool, camera_id: &str, recording_id: &str) -> sqlx::Result<bool> {
+    let r = sqlx::query("UPDATE events SET recording_id = $2 WHERE camera_id = $1 AND origin <> 'watchgrid' AND end_time IS NULL")
+        .bind(camera_id)
+        .bind(recording_id)
+        .execute(db)
+        .await?;
+    Ok(r.rows_affected() > 0)
+}
+
+/// The recording was not saved: drop the links to it.
+pub async fn unlink_recording(db: &PgPool, recording_id: &str) -> sqlx::Result<()> {
+    sqlx::query("UPDATE events SET recording_id = NULL WHERE recording_id = $1").bind(recording_id).execute(db).await.map(|_| ())
+}
+
 /// After a restart: finish recording events left open by the previous run
 /// with their recording's end, and detections at their start (their real
 /// end is unknown). Outages stay open — the supervisor closes them when

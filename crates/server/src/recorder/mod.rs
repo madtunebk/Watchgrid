@@ -6,6 +6,7 @@
 //! path — STOP, camera disconnect, write error, server shutdown — goes
 //! through FINALIZING and ends in IDLE, so a camera can't stay stuck in REC.
 
+mod auto;
 mod job;
 mod writer;
 
@@ -18,7 +19,9 @@ use tokio::sync::watch;
 use watchgrid_model::{Camera, RecordingReason};
 
 use crate::bus::Bus;
-use crate::media::MediaHub;
+use crate::media::{MediaHub, StreamKind};
+
+pub use auto::AutoRecorders;
 use crate::recordings::RecordingFiles;
 
 /// How long STOP waits for the file to be finalized.
@@ -43,9 +46,25 @@ pub struct Deps {
     pub bus: Bus,
 }
 
+/// What to record and why.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Spec {
+    pub reason: RecordingReason,
+    pub stream: StreamKind,
+    /// Seconds of already-received video to start with (event recordings).
+    pub preroll_secs: u32,
+}
+
+impl Spec {
+    pub fn manual() -> Self {
+        Self { reason: RecordingReason::Manual, stream: StreamKind::Main, preroll_secs: 0 }
+    }
+}
+
 struct Job {
     phase: watch::Receiver<Phase>,
     stop: watch::Sender<bool>,
+    reason: RecordingReason,
 }
 
 impl Job {
@@ -66,14 +85,33 @@ impl Recorder {
 
     /// Start a manual recording. Does nothing if one is already running.
     pub fn start(&self, camera_id: &str) {
+        self.start_with(camera_id, Spec::manual());
+    }
+
+    /// Start a recording unless one is running. Returns whether it started.
+    pub fn start_with(&self, camera_id: &str, spec: Spec) -> bool {
         let mut jobs = self.jobs.lock().expect("recorder lock");
         if jobs.get(camera_id).is_some_and(Job::running) {
-            return;
+            return false;
         }
         let (phase_tx, phase_rx) = watch::channel(Phase::Starting);
         let (stop_tx, stop_rx) = watch::channel(false);
-        tokio::spawn(job::run(self.deps.clone(), camera_id.to_string(), stop_rx, phase_tx));
-        jobs.insert(camera_id.to_string(), Job { phase: phase_rx, stop: stop_tx });
+        tokio::spawn(job::run(self.deps.clone(), camera_id.to_string(), spec, stop_rx, phase_tx));
+        jobs.insert(camera_id.to_string(), Job { phase: phase_rx, stop: stop_tx, reason: spec.reason });
+        true
+    }
+
+    /// Why the camera is recording right now, if it is.
+    pub fn running_reason(&self, camera_id: &str) -> Option<RecordingReason> {
+        self.jobs.lock().expect("recorder lock").get(camera_id).filter(|j| j.running()).map(|j| j.reason)
+    }
+
+    /// Stop only a recording started for one of `reasons` (manual
+    /// recordings are never ended by events).
+    pub async fn stop_if(&self, camera_id: &str, reasons: &[RecordingReason]) {
+        if self.running_reason(camera_id).is_some_and(|r| reasons.contains(&r)) {
+            self.stop(camera_id).await;
+        }
     }
 
     /// Stop a recording and wait until it is finalized (bounded).
@@ -87,15 +125,12 @@ impl Recorder {
         wait_idle(phase).await;
     }
 
-    pub fn phase(&self, camera_id: &str) -> Phase {
-        self.jobs.lock().expect("recorder lock").get(camera_id).map_or(Phase::Idle, |j| *j.phase.borrow())
-    }
 
     /// Put the recording state onto a camera.
     pub fn overlay(&self, camera: &mut Camera) {
-        if self.phase(&camera.id) != Phase::Idle {
+        if let Some(reason) = self.running_reason(&camera.id) {
             camera.recording_active = true;
-            camera.recording_reason = Some(RecordingReason::Manual);
+            camera.recording_reason = Some(reason);
         }
     }
 

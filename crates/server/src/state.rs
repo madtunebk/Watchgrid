@@ -8,7 +8,7 @@ use crate::credentials::CredentialStore;
 use crate::live::LiveRegistry;
 use crate::media::MediaHub;
 use crate::onvif::{WatchDeps, Watchers};
-use crate::recorder::{self, Recorder};
+use crate::recorder::{self, AutoRecorders, Recorder};
 use crate::recordings::RecordingFiles;
 use crate::auth::LoginLimiter;
 use crate::storage::Sweeper;
@@ -30,6 +30,8 @@ pub struct AppState {
     /// On-demand live video feeds.
     pub media: Arc<MediaHub>,
     pub recorder: Arc<Recorder>,
+    /// Event recording controllers (cameras in "events" mode).
+    pub auto_record: Arc<AutoRecorders>,
     pub recording_files: Arc<RecordingFiles>,
     /// Retention enforcement (started by `serve`).
     pub retention: Arc<Sweeper>,
@@ -45,7 +47,7 @@ impl AppState {
     pub fn new(db: PgPool, credentials: CredentialStore, recordings_dir: PathBuf) -> Self {
         let deps = Deps { db: db.clone(), credentials: Arc::new(credentials), live: Arc::new(LiveRegistry::default()), bus: Bus::new() };
         let watch = WatchDeps { db: deps.db.clone(), credentials: deps.credentials.clone(), live: deps.live.clone(), bus: deps.bus.clone() };
-        Self::with_supervisor(Supervisor::new(deps.clone()), Watchers::new(watch), deps, recordings_dir)
+        Self::with_supervisor(Supervisor::new(deps.clone()), Watchers::new(watch), deps, recordings_dir, true)
     }
 
     /// State whose supervisor never connects to cameras (tests).
@@ -53,13 +55,23 @@ impl AppState {
     pub fn inert(db: PgPool, credentials: CredentialStore) -> Self {
         let deps = Deps { db, credentials: Arc::new(credentials), live: Arc::new(LiveRegistry::default()), bus: Bus::new() };
         let watch = WatchDeps { db: deps.db.clone(), credentials: deps.credentials.clone(), live: deps.live.clone(), bus: deps.bus.clone() };
-        Self::with_supervisor(Supervisor::inert(deps.clone()), Watchers::inert(watch), deps, std::env::temp_dir().join("watchgrid-test-recordings"))
+        Self::with_supervisor(Supervisor::inert(deps.clone()), Watchers::inert(watch), deps, std::env::temp_dir().join("watchgrid-test-recordings"), false)
     }
 
-    fn with_supervisor(supervisor: Supervisor, onvif: Watchers, deps: Deps, recordings_dir: PathBuf) -> Self {
+    fn with_supervisor(supervisor: Supervisor, onvif: Watchers, deps: Deps, recordings_dir: PathBuf, live: bool) -> Self {
         let media = Arc::new(MediaHub::new(deps.db.clone(), deps.credentials.clone()));
         let files = Arc::new(RecordingFiles::new(recordings_dir));
-        let recorder = Recorder::new(recorder::Deps { db: deps.db.clone(), hub: media.clone(), files: files.clone(), bus: deps.bus.clone() });
+        let recorder = Arc::new(Recorder::new(recorder::Deps { db: deps.db.clone(), hub: media.clone(), files: files.clone(), bus: deps.bus.clone() }));
+        let auto_record = if live {
+            AutoRecorders::new(deps.db.clone(), media.clone(), deps.bus.clone(), recorder.clone())
+        } else {
+            #[cfg(test)]
+            {
+                AutoRecorders::inert(deps.db.clone(), media.clone(), deps.bus.clone(), recorder.clone())
+            }
+            #[cfg(not(test))]
+            unreachable!("only tests build inert state")
+        };
         let retention = Arc::new(Sweeper::new(deps.db.clone(), files.clone(), deps.bus.clone()));
         Self {
             db: deps.db,
@@ -75,7 +87,8 @@ impl AppState {
             logs: LogBuffer::default(),
             bind: "127.0.0.1:8090".parse().expect("valid default address"),
             login_limiter: Arc::default(),
-            recorder: Arc::new(recorder),
+            recorder,
+            auto_record: Arc::new(auto_record),
             recording_files: files,
         }
     }

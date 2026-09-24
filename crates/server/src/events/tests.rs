@@ -28,16 +28,16 @@ fn online(cam: &str, at: &str) -> BusEvent {
 
 #[sqlx::test(migrations = "./migrations")]
 async fn an_outage_is_one_event_closed_by_reconnecting(db: PgPool) {
-    assert!(!journal::handle(&db, &online("cam-a", "2026-09-24T09:00:00Z")).await.unwrap(), "first connect is not an event");
-    assert!(journal::handle(&db, &offline("cam-a", "2026-09-24T10:00:00Z")).await.unwrap());
-    assert!(!journal::handle(&db, &offline("cam-a", "2026-09-24T10:00:30Z")).await.unwrap(), "retries don't duplicate the outage");
+    assert!(!journal::handle(&db, &mut journal::Links::default(), &online("cam-a", "2026-09-24T09:00:00Z")).await.unwrap(), "first connect is not an event");
+    assert!(journal::handle(&db, &mut journal::Links::default(), &offline("cam-a", "2026-09-24T10:00:00Z")).await.unwrap());
+    assert!(!journal::handle(&db, &mut journal::Links::default(), &offline("cam-a", "2026-09-24T10:00:30Z")).await.unwrap(), "retries don't duplicate the outage");
 
     let open = all(&db).await;
     assert_eq!(open.len(), 1);
     assert_eq!((open[0].kind, open[0].end_time), (EventType::CameraOffline, None));
     assert_eq!(open[0].source, "Supervisor: connection refused");
 
-    assert!(journal::handle(&db, &online("cam-a", "2026-09-24T10:05:00Z")).await.unwrap());
+    assert!(journal::handle(&db, &mut journal::Links::default(), &online("cam-a", "2026-09-24T10:05:00Z")).await.unwrap());
     let events = all(&db).await;
     assert_eq!(events.iter().map(|e| e.kind).collect::<Vec<_>>(), [EventType::CameraOnline, EventType::CameraOffline], "newest first");
     assert_eq!(events[1].end_time, Some(t("2026-09-24T10:05:00Z")));
@@ -46,8 +46,8 @@ async fn an_outage_is_one_event_closed_by_reconnecting(db: PgPool) {
 
 #[sqlx::test(migrations = "./migrations")]
 async fn disabling_a_camera_closes_its_outage(db: PgPool) {
-    journal::handle(&db, &offline("cam-a", "2026-09-24T10:00:00Z")).await.unwrap();
-    journal::handle(&db, &BusEvent::CameraStopped { camera_id: "cam-a".into(), at: t("2026-09-24T10:01:00Z") }).await.unwrap();
+    journal::handle(&db, &mut journal::Links::default(), &offline("cam-a", "2026-09-24T10:00:00Z")).await.unwrap();
+    journal::handle(&db, &mut journal::Links::default(), &BusEvent::CameraStopped { camera_id: "cam-a".into(), at: t("2026-09-24T10:01:00Z") }).await.unwrap();
     assert_eq!(all(&db).await[0].end_time, Some(t("2026-09-24T10:01:00Z")));
 }
 
@@ -71,13 +71,13 @@ fn rec(id: &str, start: DateTime<Utc>, secs: i64) -> NewRecording {
 async fn a_recording_event_spans_its_recording(db: PgPool) {
     let start = t("2026-09-24T12:00:00Z");
     let started = BusEvent::RecordingStarted { camera_id: "cam-a".into(), recording_id: "rec-1".into(), reason: RecordingReason::Manual, at: start };
-    journal::handle(&db, &started).await.unwrap();
+    journal::handle(&db, &mut journal::Links::default(), &started).await.unwrap();
     let e = &all(&db).await[0];
     assert_eq!((e.kind, e.recording_id.as_deref(), e.end_time), (EventType::Manual, Some("rec-1"), None));
 
     recordings::insert(&db, &rec("rec-1", start, 42)).await.unwrap();
     let stopped = BusEvent::RecordingStopped { camera_id: "cam-a".into(), recording_id: Some("rec-1".into()), error: None, at: start + Duration::seconds(50) };
-    journal::handle(&db, &stopped).await.unwrap();
+    journal::handle(&db, &mut journal::Links::default(), &stopped).await.unwrap();
     let e = &all(&db).await[0];
     assert_eq!(e.end_time, Some(start + Duration::seconds(42)), "the recording's own end, not the stop time");
     assert_eq!(e.duration, 42);
@@ -86,9 +86,9 @@ async fn a_recording_event_spans_its_recording(db: PgPool) {
 #[sqlx::test(migrations = "./migrations")]
 async fn a_failed_recording_keeps_the_event_without_a_clip(db: PgPool) {
     let at = t("2026-09-24T12:00:00Z");
-    journal::handle(&db, &BusEvent::RecordingStarted { camera_id: "cam-a".into(), recording_id: "rec-x".into(), reason: RecordingReason::Scheduled, at }).await.unwrap();
+    journal::handle(&db, &mut journal::Links::default(), &BusEvent::RecordingStarted { camera_id: "cam-a".into(), recording_id: "rec-x".into(), reason: RecordingReason::Scheduled, at }).await.unwrap();
     let stopped = BusEvent::RecordingStopped { camera_id: "cam-a".into(), recording_id: None, error: Some("the disk is full".into()), at: at + Duration::seconds(5) };
-    journal::handle(&db, &stopped).await.unwrap();
+    journal::handle(&db, &mut journal::Links::default(), &stopped).await.unwrap();
     let e = &all(&db).await[0];
     assert_eq!((e.kind, e.recording_id.as_deref()), (EventType::Scheduled, None));
     assert_eq!(e.source, "Scheduled recording — ended early: the disk is full");
@@ -99,9 +99,9 @@ async fn restart_closes_recording_events_left_open(db: PgPool) {
     let at = t("2026-09-24T12:00:00Z");
     for (cam, rec_id) in [("cam-a", "rec-1"), ("cam-b", "rec-lost")] {
         let e = BusEvent::RecordingStarted { camera_id: cam.into(), recording_id: rec_id.into(), reason: RecordingReason::Manual, at };
-        journal::handle(&db, &e).await.unwrap();
+        journal::handle(&db, &mut journal::Links::default(), &e).await.unwrap();
     }
-    journal::handle(&db, &offline("cam-c", "2026-09-24T12:00:00Z")).await.unwrap();
+    journal::handle(&db, &mut journal::Links::default(), &offline("cam-c", "2026-09-24T12:00:00Z")).await.unwrap();
     recordings::insert(&db, &rec("rec-1", at, 30)).await.unwrap();
 
     assert_eq!(repo::close_stale(&db).await.unwrap(), 2);
@@ -143,4 +143,24 @@ async fn queries_filter_page_and_link_neighbours(db: PgPool) {
     let (prev, next) = repo::neighbours(&db, &middle).await.unwrap();
     let all = repo::list(&db, &EventQuery::default(), TZ).await.unwrap().0;
     assert_eq!((prev, next), (Some(all[2].id.clone()), Some(all[0].id.clone())));
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn event_recordings_link_to_their_detections(db: PgPool) {
+    let mut links = journal::Links::default();
+    let at = t("2026-09-24T22:00:00Z");
+    let motion = BusEvent::DetectionStarted { camera_id: "cam-a".into(), kind: EventType::Motion, topic: "RuleEngine/CellMotionDetector/Motion".into(), at };
+    journal::handle(&db, &mut links, &motion).await.unwrap();
+    let started = BusEvent::RecordingStarted { camera_id: "cam-a".into(), recording_id: "rec-m".into(), reason: RecordingReason::Motion, at };
+    journal::handle(&db, &mut links, &started).await.unwrap();
+    let person = BusEvent::DetectionStarted { camera_id: "cam-a".into(), kind: EventType::Person, topic: "RuleEngine/PeopleDetector/People".into(), at: at + Duration::seconds(3) };
+    journal::handle(&db, &mut links, &person).await.unwrap();
+
+    let events = all(&db).await;
+    assert_eq!(events.len(), 2, "no separate 'manual' event for an event recording");
+    assert!(events.iter().all(|e| e.recording_id.as_deref() == Some("rec-m")), "both detections point at the clip");
+
+    let stopped = BusEvent::RecordingStopped { camera_id: "cam-a".into(), recording_id: None, error: Some("x".into()), at };
+    journal::handle(&db, &mut links, &stopped).await.unwrap();
+    assert!(all(&db).await.iter().all(|e| e.recording_id.is_none()), "unsaved clip: links removed");
 }

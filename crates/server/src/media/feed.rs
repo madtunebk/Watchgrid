@@ -66,6 +66,8 @@ async fn open(hub: &MediaHub, id: &str, kind: StreamKind) -> Result<Opened, Stri
 
 /// Forward frames until the stream fails (`Some(reason)`) or the feed goes idle (`None`).
 async fn pump(hub: &MediaHub, key: &Key, ch: &Channels, mut opened: Opened, idle: &mut Idle) -> Option<String> {
+    // Timestamps restart with every session.
+    ch.preroll.clear();
     let mut ticker = tokio::time::interval(TICK);
     loop {
         tokio::select! {
@@ -83,8 +85,12 @@ async fn pump(hub: &MediaHub, key: &Key, ch: &Channels, mut opened: Opened, idle
                     let ts = f.timestamp();
                     let pts = rescale(ts.elapsed(), ts.clock_rate().get());
                     let keyframe = f.is_random_access_point();
+                    let frame = Frame { pts, keyframe, data: f.into_data().into() };
+                    // Cache first, then send: a new recorder that subscribes and
+                    // then snapshots can't miss a frame (duplicates are skipped by pts).
+                    ch.preroll.push(&frame);
                     // No receivers is fine; the idle check handles it.
-                    let _ = ch.frames.send(Frame { pts, keyframe, data: f.into_data().into() });
+                    let _ = ch.frames.send(frame);
                 }
                 Some(Ok(_)) => {}
             },
