@@ -104,12 +104,11 @@ async fn pump(hub: &MediaHub, key: &Key, ch: &Channels, mut opened: Opened, idle
 
 fn track_info(opened: &Opened) -> Result<Option<TrackInfo>, String> {
     let Some(ParametersRef::Video(v)) = opened.stream.streams()[opened.video].parameters() else { return Ok(None) };
+    // Any codec is delivered (the supervisor reports it); live view and the
+    // recorder refuse what they can't repackage.
     let codec = v.rfc6381_codec().to_string();
-    if !codec.starts_with("avc1") {
-        return Err(format!("live view supports H.264 only (camera sends {codec})"));
-    }
     let (width, height) = v.pixel_dimensions();
-    Ok(Some(TrackInfo { codec, track: super::VideoTrack { width, height, avcc: v.extra_data().to_vec() } }))
+    Ok(Some(TrackInfo { codec, audio_codec: opened.facts.audio_codec.clone(), track: super::VideoTrack { width, height, avcc: v.extra_data().to_vec() } }))
 }
 
 /// Convert RTP clock ticks to the 90 kHz MP4 timescale.

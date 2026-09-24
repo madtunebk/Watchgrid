@@ -45,7 +45,9 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(db: PgPool, credentials: CredentialStore, recordings_dir: PathBuf) -> Self {
-        let deps = Deps { db: db.clone(), credentials: Arc::new(credentials), live: Arc::new(LiveRegistry::default()), bus: Bus::new() };
+        let credentials = Arc::new(credentials);
+        let hub = Arc::new(MediaHub::new(db.clone(), credentials.clone()));
+        let deps = Deps { db: db.clone(), credentials, live: Arc::new(LiveRegistry::default()), bus: Bus::new(), hub };
         let watch = WatchDeps { db: deps.db.clone(), credentials: deps.credentials.clone(), live: deps.live.clone(), bus: deps.bus.clone() };
         Self::with_supervisor(Supervisor::new(deps.clone()), Watchers::new(watch), deps, recordings_dir, true)
     }
@@ -53,13 +55,15 @@ impl AppState {
     /// State whose supervisor never connects to cameras (tests).
     #[cfg(test)]
     pub fn inert(db: PgPool, credentials: CredentialStore) -> Self {
-        let deps = Deps { db, credentials: Arc::new(credentials), live: Arc::new(LiveRegistry::default()), bus: Bus::new() };
+        let credentials = Arc::new(credentials);
+        let hub = Arc::new(MediaHub::new(db.clone(), credentials.clone()));
+        let deps = Deps { db, credentials, live: Arc::new(LiveRegistry::default()), bus: Bus::new(), hub };
         let watch = WatchDeps { db: deps.db.clone(), credentials: deps.credentials.clone(), live: deps.live.clone(), bus: deps.bus.clone() };
         Self::with_supervisor(Supervisor::inert(deps.clone()), Watchers::inert(watch), deps, std::env::temp_dir().join("watchgrid-test-recordings"), false)
     }
 
     fn with_supervisor(supervisor: Supervisor, onvif: Watchers, deps: Deps, recordings_dir: PathBuf, live: bool) -> Self {
-        let media = Arc::new(MediaHub::new(deps.db.clone(), deps.credentials.clone()));
+        let media = deps.hub.clone();
         let files = Arc::new(RecordingFiles::new(recordings_dir));
         let recorder = Arc::new(Recorder::new(recorder::Deps { db: deps.db.clone(), hub: media.clone(), files: files.clone(), bus: deps.bus.clone() }));
         let auto_record = if live {

@@ -32,6 +32,15 @@ pub struct TrackInfo {
     /// RFC 6381 codec string for MSE, e.g. `avc1.640028`.
     pub codec: String,
     pub track: VideoTrack,
+    /// Audio encoding announced by the camera (not carried yet).
+    pub audio_codec: Option<String>,
+}
+
+impl TrackInfo {
+    /// Only H.264 can be repackaged for browsers and MP4 files today.
+    pub fn is_h264(&self) -> bool {
+        self.codec.starts_with("avc1")
+    }
 }
 
 /// One encoded video frame (an H.264 access unit, length-prefixed NALs).

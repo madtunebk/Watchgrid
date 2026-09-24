@@ -13,6 +13,7 @@ use tokio::task::JoinHandle;
 use crate::bus::Bus;
 use crate::credentials::CredentialStore;
 use crate::live::{CameraLive, LiveRegistry};
+use crate::media::MediaHub;
 
 /// What camera tasks need; cheap to clone.
 #[derive(Clone)]
@@ -21,6 +22,8 @@ pub struct Deps {
     pub credentials: Arc<CredentialStore>,
     pub live: Arc<LiveRegistry>,
     pub bus: Bus,
+    /// The shared camera feeds (the supervisor watches the main one).
+    pub hub: Arc<MediaHub>,
 }
 
 pub struct Supervisor {

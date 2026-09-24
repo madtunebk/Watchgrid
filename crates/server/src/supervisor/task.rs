@@ -1,114 +1,110 @@
-//! One camera's connection loop: connect, keep reading, measure, reconnect.
-//! Config and credentials are re-read on every attempt, so edits apply on
-//! the next reconnect (the supervisor also restarts the task on changes).
+//! One camera's health: watches the shared main feed from the media hub
+//! (no RTSP session of its own), reports online/offline transitions and
+//! measures fps/bitrate. The feed itself connects and reconnects; the
+//! supervisor's subscription keeps it open while the camera is enabled.
 
 use std::time::{Duration, Instant};
 
 use chrono::Utc;
-use futures::StreamExt;
-use retina::codec::CodecItem;
+use tokio::sync::broadcast::error::RecvError;
 use watchgrid_model::CameraStatus;
 
-use super::{Deps, backoff};
+use super::Deps;
 use crate::bus::BusEvent;
-use crate::cameras;
-use crate::rtsp::session;
+use crate::media::{FeedState, StreamKind, TrackInfo};
 
 /// How often fps/bitrate are recomputed.
 const WINDOW: Duration = Duration::from_secs(2);
 
 pub async fn run(deps: Deps, id: String) {
-    let mut attempt = 0u32;
-    loop {
-        let info = match cameras::connection_info(&deps.db, &deps.credentials, &id).await {
-            Ok(Some(info)) => info,
-            Ok(None) => return, // camera deleted
-            Err(e) => {
-                tracing::warn!(camera = %id, "cannot load camera config: {e}");
-                tokio::time::sleep(backoff::delay(attempt.max(1))).await;
-                continue;
-            }
-        };
-        if !info.enabled {
-            deps.live.remove(&id);
-            return;
-        }
-
-        deps.live.update(&id, |l| {
-            l.status = CameraStatus::Connecting;
-        });
-        let reason = match session::open(&info.main_url, &info.username, info.password.as_deref()).await {
-            Err(e) => e,
-            Ok(opened) => {
-                attempt = 0;
-                on_online(&deps, &id, &opened.facts);
-                stream_until_error(&deps, &id, opened).await
-            }
-        };
-
-        attempt += 1;
-        let was_online = deps.live.get(&id).is_some_and(|l| l.status == CameraStatus::Online);
-        deps.live.update(&id, |l| {
-            l.status = CameraStatus::Offline;
-            l.connected_since = None;
-            l.fps = None;
-            l.bitrate = None;
-            l.last_error = Some(reason.clone());
-        });
-        if was_online || attempt == 1 {
-            tracing::warn!(camera = %id, "offline: {reason}");
-            deps.bus.publish(BusEvent::CameraOffline { camera_id: id.clone(), reason: reason.clone(), at: Utc::now() });
-        }
-        tokio::time::sleep(backoff::delay(attempt)).await;
-    }
-}
-
-fn on_online(deps: &Deps, id: &str, facts: &session::StreamFacts) {
-    deps.live.update(id, |l| {
-        l.status = CameraStatus::Online;
-        l.connected_since = Some(Utc::now());
-        l.codec = facts.video_codec.clone();
-        l.width = facts.width;
-        l.height = facts.height;
-        l.audio_codec = facts.audio_codec.clone();
-        l.last_error = None;
-    });
-    tracing::info!(camera = %id, codec = ?facts.video_codec, "online");
-    deps.bus.publish(BusEvent::CameraOnline { camera_id: id.to_string(), at: Utc::now() });
-}
-
-/// Read frames until the stream fails; returns the reason.
-async fn stream_until_error(deps: &Deps, id: &str, mut opened: session::Opened) -> String {
+    let mut sub = deps.hub.subscribe(&id, StreamKind::Main);
+    let mut online = false;
+    // An offline event was already published for the current outage.
+    let mut outage_reported = false;
     let (mut frames, mut bytes, mut window_start) = (0u32, 0u64, Instant::now());
+    sub.state.mark_changed();
+
     loop {
-        match opened.stream.next().await {
-            None => return "the camera closed the stream".into(),
-            Some(Err(e)) => return format!("stream error: {e}"),
-            Some(Ok(CodecItem::VideoFrame(f))) => {
-                frames += 1;
-                bytes += f.data().len() as u64;
-                // Frames will be handed to live view and the recorder here.
+        tokio::select! {
+            changed = sub.state.changed() => {
+                if changed.is_err() {
+                    return;
+                }
+                let state = sub.state.borrow_and_update().clone();
+                match state {
+                    FeedState::Streaming(info) => {
+                        if !online {
+                            online = true;
+                            outage_reported = false;
+                            (frames, bytes, window_start) = (0, 0, Instant::now());
+                            on_online(&deps, &id, &info);
+                        } else {
+                            update_facts(&deps, &id, &info);
+                        }
+                    }
+                    FeedState::Failed(reason) => {
+                        let was_online = online;
+                        online = false;
+                        deps.live.update(&id, |l| {
+                            l.status = CameraStatus::Offline;
+                            l.connected_since = None;
+                            l.fps = None;
+                            l.bitrate = None;
+                            l.last_error = Some(reason.clone());
+                        });
+                        if was_online || !outage_reported {
+                            outage_reported = true;
+                            tracing::warn!(camera = %id, "offline: {reason}");
+                            deps.bus.publish(BusEvent::CameraOffline { camera_id: id.clone(), reason, at: Utc::now() });
+                        }
+                    }
+                    FeedState::Connecting => {
+                        if !online {
+                            deps.live.update(&id, |l| l.status = CameraStatus::Connecting);
+                        }
+                    }
+                }
             }
-            Some(Ok(_)) => {}
+            frame = sub.frames.recv() => match frame {
+                Ok(f) => {
+                    frames += 1;
+                    bytes += f.data.len() as u64;
+                }
+                // Missed frames only make one window's numbers a bit low.
+                Err(RecvError::Lagged(_)) => {}
+                Err(RecvError::Closed) => return,
+            },
         }
         let elapsed = window_start.elapsed();
-        if elapsed >= WINDOW {
+        if online && elapsed >= WINDOW {
             let secs = elapsed.as_secs_f64();
             let (fps, kbps) = (frames as f64 / secs, bytes as f64 * 8.0 / 1000.0 / secs);
-            let needs_dims = deps.live.get(id).is_some_and(|l| l.width.is_none());
-            let mut facts = session::StreamFacts::default();
-            if needs_dims {
-                session::refresh_dimensions(&mut facts, &opened.stream, opened.video);
-            }
-            deps.live.update(id, |l| {
+            deps.live.update(&id, |l| {
                 l.fps = Some(fps as f32);
                 l.bitrate = Some(kbps.round() as u32);
-                if facts.width.is_some() {
-                    l.width = facts.width;
-                    l.height = facts.height;
-                }
             });
             (frames, bytes, window_start) = (0, 0, Instant::now());
         }
     }
+}
+
+fn on_online(deps: &Deps, id: &str, info: &TrackInfo) {
+    deps.live.update(id, |l| {
+        l.status = CameraStatus::Online;
+        l.connected_since = Some(Utc::now());
+        l.last_error = None;
+    });
+    update_facts(deps, id, info);
+    tracing::info!(camera = %id, codec = %info.codec, "online");
+    deps.bus.publish(BusEvent::CameraOnline { camera_id: id.to_string(), at: Utc::now() });
+}
+
+fn update_facts(deps: &Deps, id: &str, info: &TrackInfo) {
+    let codec = if info.is_h264() { "H264".to_string() } else { info.codec.split('.').next().unwrap_or(&info.codec).to_uppercase() };
+    deps.live.update(id, |l| {
+        l.codec = Some(codec);
+        l.width = Some(info.track.width);
+        l.height = Some(info.track.height);
+        l.audio_codec = info.audio_codec.clone();
+    });
 }
