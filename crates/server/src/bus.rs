@@ -23,6 +23,8 @@ pub enum BusEvent {
     RecordingStarted { camera_id: String, recording_id: String, reason: RecordingReason, at: DateTime<Utc> },
     /// A recording ended; `recording_id` is set when a file was saved.
     RecordingStopped { camera_id: String, recording_id: Option<String>, error: Option<String>, at: DateTime<Utc> },
+    /// The Settings page document changed.
+    SettingsChanged,
     /// The event journal stored or changed events.
     EventsChanged,
 }

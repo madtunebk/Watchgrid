@@ -106,6 +106,7 @@ async fn serve(logs: system::logs::LogBuffer) -> Result<(), String> {
     let config = Config::from_env()?;
     let mut state = open_state(&config).await?;
     state.logs = logs;
+    state.bind = config.bind;
     tokio::spawn(state.metrics.clone().run());
     state.recording_files.prepare().map_err(|e| format!("recordings directory: {e}"))?;
     // Before the supervisor starts, so no transition is missed.

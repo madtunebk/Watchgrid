@@ -6,5 +6,6 @@ pub mod logs;
 mod client;
 pub mod probes;
 pub mod recordings;
+pub mod settings;
 pub mod storage;
 pub mod system;

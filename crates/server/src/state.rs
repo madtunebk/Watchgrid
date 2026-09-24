@@ -32,6 +32,8 @@ pub struct AppState {
     pub started_at: chrono::DateTime<chrono::Utc>,
     pub metrics: Sampler,
     pub logs: LogBuffer,
+    /// Address the server listens on (settings defaults).
+    pub bind: std::net::SocketAddr,
 }
 
 impl AppState {
@@ -63,6 +65,7 @@ impl AppState {
             started_at: chrono::Utc::now(),
             metrics: Sampler::default(),
             logs: LogBuffer::default(),
+            bind: "127.0.0.1:8090".parse().expect("valid default address"),
             recorder: Arc::new(recorder),
             recording_files: files,
         }

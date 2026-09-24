@@ -13,6 +13,7 @@ use crate::events;
 use crate::media;
 use crate::recordings;
 use crate::storage;
+use crate::settings;
 use crate::system;
 use crate::state::AppState;
 use crate::ws;
@@ -26,6 +27,7 @@ pub fn router(state: AppState, ui_dir: &Path) -> Router {
         .nest("/recordings", recordings::router())
         .nest("/storage", storage::router())
         .nest("/system", system::router())
+        .nest("/settings", settings::router())
         .fallback(|| async { ApiError::not_found("API endpoint") });
 
     // Unknown non-API paths are client-side routes: serve the app shell.

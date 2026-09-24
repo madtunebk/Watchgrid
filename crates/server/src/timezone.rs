@@ -21,7 +21,7 @@ fn detect() -> Option<String> {
 }
 
 /// IANA names only: letters, digits and `/_+-`.
-fn valid(name: &str) -> bool {
+pub fn valid(name: &str) -> bool {
     !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || "/_+-".contains(c))
 }
 

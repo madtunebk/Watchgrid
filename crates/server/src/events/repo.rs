@@ -5,7 +5,6 @@ use sqlx::{PgPool, Postgres, QueryBuilder};
 use watchgrid_model::{Event, EventQuery, EventType};
 
 use super::kinds;
-use crate::timezone;
 
 const COLUMNS: &str = "id, camera_id, kind, start_time, end_time, recording_id, source, protected,
     GREATEST(EXTRACT(EPOCH FROM (COALESCE(end_time, now()) - start_time)), 0)::bigint AS duration";
@@ -115,7 +114,8 @@ pub async fn close_stale(db: &PgPool) -> sqlx::Result<u64> {
     .map(|r| r.rows_affected())
 }
 
-fn filtered<'a>(select: &str, q: &'a EventQuery) -> QueryBuilder<'a, Postgres> {
+/// `tz`: IANA zone for the hours-of-day filter.
+fn filtered<'a>(select: &str, q: &'a EventQuery, tz: &'a str) -> QueryBuilder<'a, Postgres> {
     let mut b = QueryBuilder::new(select);
     b.push(" FROM events WHERE TRUE");
     if let Some(camera) = &q.camera_id {
@@ -134,7 +134,7 @@ fn filtered<'a>(select: &str, q: &'a EventQuery) -> QueryBuilder<'a, Postgres> {
     if let Some((start, end)) = q.hours {
         b.push(" AND ");
         let hour = |b: &mut QueryBuilder<'a, Postgres>| {
-            b.push("EXTRACT(HOUR FROM start_time AT TIME ZONE ").push_bind(timezone::name()).push(")");
+            b.push("EXTRACT(HOUR FROM start_time AT TIME ZONE ").push_bind(tz).push(")");
         };
         // `[start, end)` in local hours; wraps past midnight when start > end.
         let join = if start <= end { " AND " } else { " OR " };
@@ -154,9 +154,9 @@ fn filtered<'a>(select: &str, q: &'a EventQuery) -> QueryBuilder<'a, Postgres> {
 }
 
 /// A page of matching events, newest first, and the total count.
-pub async fn list(db: &PgPool, q: &EventQuery) -> sqlx::Result<(Vec<Event>, u32)> {
-    let total: i64 = filtered("SELECT COUNT(*)", q).build_query_scalar().fetch_one(db).await?;
-    let mut b = filtered(&format!("SELECT {COLUMNS}"), q);
+pub async fn list(db: &PgPool, q: &EventQuery, tz: &str) -> sqlx::Result<(Vec<Event>, u32)> {
+    let total: i64 = filtered("SELECT COUNT(*)", q, tz).build_query_scalar().fetch_one(db).await?;
+    let mut b = filtered(&format!("SELECT {COLUMNS}"), q, tz);
     b.push(" ORDER BY start_time DESC, id DESC");
     b.push(" LIMIT ").push_bind(i64::from(q.limit.unwrap_or(100).min(1000)));
     b.push(" OFFSET ").push_bind(i64::from(q.offset.unwrap_or(0)));

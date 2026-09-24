@@ -19,6 +19,7 @@ fn topics(event: &BusEvent) -> &'static [&'static str] {
     match event {
         BusEvent::CameraOnline { .. } | BusEvent::CameraOffline { .. } | BusEvent::CameraStopped { .. } => &["cameras", "system"],
         BusEvent::EventsChanged => &["events"],
+        BusEvent::SettingsChanged => &["settings", "server"],
         BusEvent::CamerasChanged => &["cameras", "system", "storage"],
         BusEvent::StorageChanged => &["storage"],
         BusEvent::RecordingsChanged => &["recordings", "storage", "cameras"],

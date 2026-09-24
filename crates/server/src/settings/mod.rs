@@ -1,25 +1,13 @@
-//! Server-wide settings stored as JSON documents in PostgreSQL, one per
-//! section. Sections own their types and defaults; this is only storage.
+//! Server settings: the generic JSON store plus the Settings page document
+//! (defaults, validation, HTTP API).
 
-use serde::Serialize;
-use serde::de::DeserializeOwned;
-use sqlx::PgPool;
-use sqlx::types::Json;
+mod app;
+mod routes;
+mod store;
 
-/// A stored section, or `None` if it was never saved.
-pub async fn load<T: DeserializeOwned + Send + Unpin + 'static>(db: &PgPool, key: &str) -> sqlx::Result<Option<T>> {
-    let row: Option<Json<T>> = sqlx::query_scalar("SELECT value FROM settings WHERE key = $1").bind(key).fetch_optional(db).await?;
-    Ok(row.map(|j| j.0))
-}
+pub use app::load as load_app;
+pub use routes::router;
+pub use store::{load, save};
 
-pub async fn save<T: Serialize + Sync>(db: &PgPool, key: &str, value: &T) -> sqlx::Result<()> {
-    sqlx::query(
-        "INSERT INTO settings (key, value) VALUES ($1, $2)
-         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()",
-    )
-    .bind(key)
-    .bind(Json(value))
-    .execute(db)
-    .await
-    .map(|_| ())
-}
+#[cfg(test)]
+mod tests;

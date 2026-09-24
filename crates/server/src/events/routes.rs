@@ -66,7 +66,8 @@ fn parse_hours(s: &str) -> Option<(u8, u8)> {
 }
 
 async fn list(State(s): State<AppState>, Query(q): Query<ListQuery>) -> ApiResult<Json<EventPage>> {
-    let (events, total) = repo::list(&s.db, &q.into_query()?).await?;
+    let tz = crate::settings::load_app(&s.db, s.bind).await?.general.timezone;
+    let (events, total) = repo::list(&s.db, &q.into_query()?, &tz).await?;
     Ok(Json(EventPage { events, total }))
 }
 

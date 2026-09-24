@@ -14,8 +14,9 @@ pub fn router() -> Router<AppState> {
     Router::new().route("/info", get(info)).route("/status", get(status)).route("/logs", get(logs))
 }
 
-async fn info(State(s): State<AppState>) -> Json<ServerInfo> {
-    Json(ServerInfo { name: "Watchgrid".into(), version: env!("CARGO_PKG_VERSION").into(), health: ServerHealth::Running, started_at: s.started_at })
+async fn info(State(s): State<AppState>) -> ApiResult<Json<ServerInfo>> {
+    let name = crate::settings::load_app(&s.db, s.bind).await?.general.nvr_name;
+    Ok(Json(ServerInfo { name, version: env!("CARGO_PKG_VERSION").into(), health: ServerHealth::Running, started_at: s.started_at }))
 }
 
 async fn status(State(s): State<AppState>) -> ApiResult<Json<SystemStatus>> {

@@ -8,12 +8,14 @@ use super::{journal, repo};
 use crate::bus::BusEvent;
 use crate::recordings::{self, NewRecording};
 
+const TZ: &str = "Europe/Bucharest";
+
 fn t(s: &str) -> DateTime<Utc> {
     s.parse().unwrap()
 }
 
 async fn all(db: &PgPool) -> Vec<watchgrid_model::Event> {
-    repo::list(db, &EventQuery::default()).await.unwrap().0
+    repo::list(db, &EventQuery::default(), TZ).await.unwrap().0
 }
 
 fn offline(cam: &str, at: &str) -> BusEvent {
@@ -116,29 +118,29 @@ async fn queries_filter_page_and_link_neighbours(db: PgPool) {
         let at = t("2026-09-24T10:00:00Z") + Duration::hours(i as i64);
         repo::instant(&db, cam, if i % 2 == 0 { EventType::CameraOnline } else { EventType::Manual }, at, "x").await.unwrap();
     }
-    let (page, total) = repo::list(&db, &EventQuery { limit: Some(2), offset: Some(1), ..Default::default() }).await.unwrap();
+    let (page, total) = repo::list(&db, &EventQuery { limit: Some(2), offset: Some(1), ..Default::default() }, TZ).await.unwrap();
     assert_eq!(total, 4);
     assert_eq!(page.iter().map(|e| e.start_time).collect::<Vec<_>>(), [t("2026-09-24T12:00:00Z"), t("2026-09-24T11:00:00Z")]);
 
     let q = EventQuery { camera_id: Some("cam-a".into()), kinds: vec![EventType::CameraOnline], ..Default::default() };
-    assert_eq!(repo::list(&db, &q).await.unwrap().1, 2);
+    assert_eq!(repo::list(&db, &q, TZ).await.unwrap().1, 2);
     let q = EventQuery { from: Some(t("2026-09-24T11:00:00Z")), to: Some(t("2026-09-24T13:00:00Z")), ..Default::default() };
-    assert_eq!(repo::list(&db, &q).await.unwrap().1, 2, "from inclusive, to exclusive");
+    assert_eq!(repo::list(&db, &q, TZ).await.unwrap().1, 2, "from inclusive, to exclusive");
 
     // Hours are local to the server: ask PostgreSQL which local hour 10:00Z is.
     let local: f64 = sqlx::query_scalar("SELECT EXTRACT(HOUR FROM $1::timestamptz AT TIME ZONE $2)::float8")
         .bind(t("2026-09-24T10:00:00Z"))
-        .bind(crate::timezone::name())
+        .bind(TZ)
         .fetch_one(&db)
         .await
         .unwrap();
     let h = local as u8;
     let q = EventQuery { hours: Some((h, (h + 1) % 24)), ..Default::default() };
-    let (only, _) = repo::list(&db, &q).await.unwrap();
+    let (only, _) = repo::list(&db, &q, TZ).await.unwrap();
     assert_eq!(only.iter().map(|e| e.start_time).collect::<Vec<_>>(), [t("2026-09-24T10:00:00Z")]);
 
-    let middle = repo::list(&db, &EventQuery::default()).await.unwrap().0[1].clone();
+    let middle = repo::list(&db, &EventQuery::default(), TZ).await.unwrap().0[1].clone();
     let (prev, next) = repo::neighbours(&db, &middle).await.unwrap();
-    let all = repo::list(&db, &EventQuery::default()).await.unwrap().0;
+    let all = repo::list(&db, &EventQuery::default(), TZ).await.unwrap().0;
     assert_eq!((prev, next), (Some(all[2].id.clone()), Some(all[0].id.clone())));
 }
