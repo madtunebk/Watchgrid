@@ -1,0 +1,24 @@
+# Watchgrid on a NAS with Docker (e.g. Synology Container Manager).
+# Uses an existing PostgreSQL (DATABASE_URL in watchgrid.env).
+services:
+  watchgrid:
+    build: .
+    image: watchgrid:latest
+    container_name: watchgrid
+    restart: unless-stopped
+    env_file: watchgrid.env
+    # Owner of the folders below (Synology: your user is usually 1026, group "users" 100).
+    user: "${PUID:-1026}:${PGID:-100}"
+    ports:
+      - "8090:8090"
+    volumes:
+      - ./config:/etc/watchgrid          # master key — back it up with the database
+      - ./state:/var/lib/watchgrid
+      - ${RECORDINGS:-./recordings}:/recordings
+    # Running recordings are finalized on stop (up to ~30 s).
+    stop_grace_period: 45s
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL

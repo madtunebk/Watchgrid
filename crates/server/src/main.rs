@@ -51,7 +51,9 @@ async fn main() -> ExitCode {
     {
         use tracing_subscriber::prelude::*;
         let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "watchgrid=info".into());
-        tracing_subscriber::registry().with(filter).with(tracing_subscriber::fmt::layer()).with(system::logs::CaptureLayer(logs.clone())).init();
+        // Colours only on a terminal (not in journald or `docker logs`).
+        let ansi = std::io::IsTerminal::is_terminal(&std::io::stdout());
+        tracing_subscriber::registry().with(filter).with(tracing_subscriber::fmt::layer().with_ansi(ansi)).with(system::logs::CaptureLayer(logs.clone())).init();
     }
 
     let args: Vec<String> = std::env::args().skip(1).collect();
