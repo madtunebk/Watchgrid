@@ -4,7 +4,7 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use watchgrid_model::{Camera, CameraInput, ConnectionProbe, ConnectionTest, StreamProbe, StreamTest};
+use watchgrid_model::{Camera, CameraInput, ConnectionProbe, ConnectionTest, OnvifConfig, OnvifProbe, StreamProbe, StreamTest};
 
 use super::{probes, service};
 use crate::error::ApiResult;
@@ -15,6 +15,7 @@ pub fn router() -> Router<AppState> {
         .route("/", get(list).post(create))
         .route("/test-connection", post(test_connection))
         .route("/test-stream", post(test_stream))
+        .route("/test-onvif", post(test_onvif))
         .route("/{id}", get(one).put(update).delete(remove))
         .route("/{id}/enable", post(enable))
         .route("/{id}/disable", post(disable))
@@ -65,4 +66,8 @@ async fn test_connection(Json(req): Json<ConnectionTest>) -> ApiResult<Json<Conn
 
 async fn test_stream(State(s): State<AppState>, Json(req): Json<StreamTest>) -> ApiResult<Json<StreamProbe>> {
     probes::stream(&s, req).await.map(Json)
+}
+
+async fn test_onvif(State(s): State<AppState>, Json(config): Json<OnvifConfig>) -> ApiResult<Json<OnvifProbe>> {
+    probes::onvif(&s, config).await.map(Json)
 }

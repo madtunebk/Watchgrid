@@ -2183,6 +2183,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "quick-xml"
+version = "0.38.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b66c2058c55a409d601666cffe35f04333cf1013010882cec174a7467cd4e21c"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3743,14 +3752,17 @@ dependencies = [
  "aes-gcm",
  "argon2",
  "axum",
+ "base64",
  "blake2",
  "chrono",
  "dotenvy",
  "futures",
  "libc",
+ "quick-xml",
  "retina",
  "serde",
  "serde_json",
+ "sha1",
  "sqlx",
  "tokio",
  "tower",

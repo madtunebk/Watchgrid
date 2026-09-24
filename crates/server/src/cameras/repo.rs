@@ -71,6 +71,14 @@ impl Secret {
 }
 
 /// ONVIF settings as stored: never with the password (that is encrypted separately).
+/// Id, ONVIF config and encrypted ONVIF password of the camera using this ONVIF URL.
+pub async fn onvif_by_url(db: &PgPool, url: &str) -> sqlx::Result<Option<(String, Json<OnvifConfig>, Option<Vec<u8>>)>> {
+    sqlx::query_as("SELECT id, onvif, onvif_password_enc FROM cameras WHERE onvif->>'url' = $1 ORDER BY created_at LIMIT 1")
+        .bind(url)
+        .fetch_optional(db)
+        .await
+}
+
 fn public_onvif(o: &Option<OnvifConfig>) -> Option<Json<OnvifConfig>> {
     o.as_ref().map(|o| Json(OnvifConfig { url: o.url.trim().into(), username: o.username.trim().into(), password: None }))
 }

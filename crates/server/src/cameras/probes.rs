@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use tokio::net::TcpStream;
 use tokio::time::timeout;
-use watchgrid_model::{ConnectionProbe, ConnectionTest, StreamProbe, StreamTest};
+use watchgrid_model::{ConnectionProbe, ConnectionTest, OnvifConfig, OnvifProbe, StreamProbe, StreamTest};
 
 use super::{service, url_credentials};
 use crate::error::ApiResult;
@@ -103,4 +103,21 @@ mod tests {
         let r = connection(ConnectionTest { host: "192.0.2.1".into(), username: String::new(), password: None, camera_id: None }).await.unwrap();
         assert!(!r.ok);
     }
+}
+
+/// ONVIF device and event check. A blank password falls back to the one
+/// stored for the camera with this ONVIF URL.
+pub async fn onvif(state: &AppState, config: OnvifConfig) -> ApiResult<OnvifProbe> {
+    let url = config.url.trim().to_string();
+    let mut username = config.username.trim().to_string();
+    let mut password = config.password.filter(|p| !p.is_empty());
+    if password.is_none()
+        && let Some((stored_user, stored_pw)) = service::stored_onvif_login(state, &url).await?
+    {
+        if username.is_empty() {
+            username = stored_user;
+        }
+        password = stored_pw;
+    }
+    Ok(crate::onvif::probe(&url, &username, password).await)
 }

@@ -12,11 +12,6 @@ pub async fn stream(req: StreamTest) -> ApiResult<StreamProbe> {
 }
 
 /// ONVIF arrives with its own milestone; say so instead of pretending.
-pub async fn onvif(_config: &OnvifConfig) -> ApiResult<OnvifProbe> {
-    Ok(OnvifProbe {
-        ok: false,
-        message: "ONVIF testing arrives with ONVIF support in a later milestone".into(),
-        event_topics: vec![],
-        detections: vec![],
-    })
+pub async fn onvif(config: &OnvifConfig) -> ApiResult<OnvifProbe> {
+    client::post("/cameras/test-onvif", Some(config)).await
 }

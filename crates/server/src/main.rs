@@ -22,6 +22,7 @@ mod events;
 mod http;
 mod live;
 mod media;
+mod onvif;
 mod recorder;
 mod recordings;
 mod rtsp;
@@ -39,7 +40,7 @@ use config::Config;
 use credentials::CredentialStore;
 use state::AppState;
 
-const USAGE: &str = "usage:\n  watchgrid [serve]\n  watchgrid probe <camera-id> [--sub] [--seconds N]\n  watchgrid user create|list|passwd|enable|disable|delete <username>\n\nEnvironment (or .env): DATABASE_URL, WATCHGRID_BIND, WATCHGRID_DATA_DIR, WATCHGRID_UI_DIR";
+const USAGE: &str = "usage:\n  watchgrid [serve]\n  watchgrid probe <camera-id> [--sub] [--seconds N]\n  watchgrid probe-onvif <camera-id> [--url URL]\n  watchgrid user create|list|passwd|enable|disable|delete <username>\n\nEnvironment (or .env): DATABASE_URL, WATCHGRID_BIND, WATCHGRID_DATA_DIR, WATCHGRID_UI_DIR";
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -62,6 +63,10 @@ async fn main() -> ExitCode {
             None => Err(format!("probe needs a camera id\n\n{USAGE}")),
         },
         Some("user") => user(&args[1..]).await,
+        Some("probe-onvif") => match args.get(1) {
+            Some(id) => probe_onvif(id, args.iter().position(|a| a == "--url").and_then(|i| args.get(i + 1)).map(String::as_str)).await,
+            None => Err(format!("probe-onvif needs a camera id\n\n{USAGE}")),
+        },
         Some("-h" | "--help" | "help") => {
             println!("{USAGE}");
             Ok(())
@@ -75,6 +80,24 @@ async fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// Diagnostics: ONVIF device info and event topics with the stored login.
+async fn probe_onvif(id: &str, url_override: Option<&str>) -> Result<(), String> {
+    let config = Config::from_env()?;
+    let state = open_state(&config).await?;
+    let camera = cameras::get_camera(&state, id).await.map_err(|_| format!("no camera with id `{id}`"))?;
+    let onvif = camera.onvif.ok_or("this camera has no ONVIF settings")?;
+    let (user, password) = cameras::stored_onvif_login(&state, &onvif.url).await.map_err(|_| "cannot read the ONVIF credentials".to_string())?.unwrap_or_default();
+    let url = url_override.unwrap_or(&onvif.url);
+    println!("{} — {url} (user {})", camera.name, if user.is_empty() { "(none)" } else { &user });
+    let p = onvif::probe(url, &user, password).await;
+    println!("  {}: {}", if p.ok { "ok" } else { "FAILED" }, p.message);
+    for t in &p.event_topics {
+        println!("  topic: {t}");
+    }
+    println!("  detections: {:?}", p.detections);
+    Ok(())
 }
 
 /// `watchgrid user …`: needs only the database.

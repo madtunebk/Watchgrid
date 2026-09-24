@@ -215,6 +215,20 @@ pub async fn connection_info(db: &PgPool, credentials: &CredentialStore, id: &st
     }))
 }
 
+/// Stored ONVIF username and password of the camera configured with this
+/// ONVIF URL (so "Test ONVIF" works while editing without retyping it).
+pub async fn stored_onvif_login(state: &AppState, url: &str) -> ApiResult<Option<(String, Option<String>)>> {
+    let Some((id, config, enc)) = repo::onvif_by_url(&state.db, url).await? else { return Ok(None) };
+    let password = match enc {
+        None => None,
+        Some(bytes) => {
+            let plain = state.credentials.open(&aad(&id, "onvif-password"), &bytes).map_err(ApiError::internal)?;
+            Some(String::from_utf8(plain).map_err(ApiError::internal)?)
+        }
+    };
+    Ok(Some((config.0.username, password)))
+}
+
 /// Username and decrypted password (for `watchgrid probe`).
 pub async fn stream_credentials(state: &AppState, id: &str) -> ApiResult<(String, Option<String>)> {
     let info = connection_info(&state.db, &state.credentials, id).await.map_err(ApiError::internal)?.ok_or_else(|| ApiError::not_found("Camera"))?;
