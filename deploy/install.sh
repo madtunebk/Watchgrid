@@ -2,15 +2,16 @@
 # Install (or upgrade) Watchgrid on this machine. Run from the repository
 # root after building:
 #   cargo build --release -p watchgrid-server
-#   cargo web build --release
+#   cargo web build --release --live
 #   sudo sh deploy/install.sh
 set -eu
 
 BIN=target/release/watchgrid
-UI=dist
+# Built UI (override when staged elsewhere, e.g. UI=target/ui-release).
+UI=${UI:-dist}
 [ "$(id -u)" -eq 0 ] || { echo "run as root: sudo sh deploy/install.sh" >&2; exit 1; }
 [ -x "$BIN" ] || { echo "missing $BIN — run: cargo build --release -p watchgrid-server" >&2; exit 1; }
-[ -f "$UI/index.html" ] || { echo "missing $UI/ — run: cargo web build --release" >&2; exit 1; }
+[ -f "$UI/index.html" ] || { echo "missing $UI/ — run: cargo web build --release --live" >&2; exit 1; }
 
 # Service account (no login, no home directory contents).
 if ! id watchgrid >/dev/null 2>&1; then

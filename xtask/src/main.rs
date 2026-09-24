@@ -25,6 +25,7 @@ commands:
 
 options:
   --release       optimised build (smaller wasm)
+  --live          use the real Watchgrid API (same origin; for installs)
   --port <N>      port for `serve` (default 8080)
   --host <ADDR>   bind address for `serve` (default 127.0.0.1)
   --api <URL>     use the real Watchgrid server for migrated API domains
@@ -38,6 +39,15 @@ pub struct Opts {
     pub host: String,
     /// Backend base URL when running against the real server.
     pub api: Option<String>,
+    /// Build for the real API without a dev proxy (production bundle).
+    pub live: bool,
+}
+
+impl Opts {
+    /// Talk to the real server (instead of the in-browser mock)?
+    pub fn real_api(&self) -> bool {
+        self.live || self.api.is_some()
+    }
 }
 
 fn main() -> ExitCode {
@@ -47,10 +57,11 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     };
 
-    let mut opts = Opts { release: false, port: 8080, host: "127.0.0.1".into(), api: None };
+    let mut opts = Opts { release: false, port: 8080, host: "127.0.0.1".into(), api: None, live: false };
     while let Some(a) = args.next() {
         match a.as_str() {
             "--release" => opts.release = true,
+            "--live" => opts.live = true,
             "--port" => match args.next().and_then(|p| p.parse().ok()) {
                 Some(p) => opts.port = p,
                 None => return fail("--port needs a number"),

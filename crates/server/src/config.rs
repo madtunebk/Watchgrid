@@ -1,9 +1,9 @@
 //! Server configuration from the environment.
 //!
 //! Sources, first found wins per variable: the process environment (e.g.
-//! systemd's `EnvironmentFile=`), `./.env` (development), then
-//! `$WATCHGRID_CONFIG` or `/etc/watchgrid/watchgrid.env` (installed
-//! system, so `sudo watchgrid …` finds the same settings as the service).
+//! systemd's `EnvironmentFile=`), then — for a development build only —
+//! `./.env`, then `$WATCHGRID_CONFIG` or `/etc/watchgrid/watchgrid.env`
+//! (so `sudo watchgrid …` finds the same settings as the service).
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -22,14 +22,26 @@ pub struct Config {
     pub ui_dir: PathBuf,
 }
 
-/// Load `.env` and the system config file into the environment (without
-/// overriding what is already set).
+/// Load config files into the environment (never overriding what is
+/// already set). An installed binary (outside a Cargo `target/` folder)
+/// reads only the system file, so `sudo watchgrid …` run from any
+/// directory — even a source checkout with its own `.env` — manages the
+/// installed server, not a development one.
 pub fn load_env_files() {
-    let _ = dotenvy::dotenv();
     let system = std::env::var("WATCHGRID_CONFIG").unwrap_or_else(|_| SYSTEM_CONFIG.into());
+    if !is_dev_build() {
+        let _ = dotenvy::from_path(&system);
+        return;
+    }
+    let _ = dotenvy::dotenv();
     if std::path::Path::new(&system).exists() {
         let _ = dotenvy::from_path(&system);
     }
+}
+
+/// Running from `…/target/{debug,release}/`?
+fn is_dev_build() -> bool {
+    std::env::current_exe().is_ok_and(|p| p.components().any(|c| c.as_os_str() == "target"))
 }
 
 impl Config {

@@ -16,7 +16,7 @@ sudo -u postgres createdb --owner watchgrid watchgrid
 
 ```sh
 cargo build --release -p watchgrid-server
-cargo web build --release
+cargo web build --release --live
 ```
 
 ## 3. Install

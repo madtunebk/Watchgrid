@@ -14,7 +14,7 @@ const WASM_TARGET: &str = "wasm32-unknown-unknown";
 pub fn build(opts: &Opts) -> Result<String, String> {
     let started = std::time::Instant::now();
     let profile = if opts.release { "release" } else { "debug" };
-    let mode = if opts.api.is_some() { ", live API" } else { ", mock API" };
+    let mode = if opts.real_api() { ", live API" } else { ", mock API" };
     println!("  building {WEB_CRATE} ({profile}, {WASM_TARGET}{mode})");
 
     // 1. Compile to wasm.
@@ -24,7 +24,7 @@ pub fn build(opts: &Opts) -> Result<String, String> {
     if opts.release {
         cmd.arg("--release");
     }
-    if opts.api.is_some() {
+    if opts.real_api() {
         cmd.args(["--features", "live-api"]);
     }
     let status = cmd.status().map_err(|e| format!("failed to run cargo: {e}"))?;
