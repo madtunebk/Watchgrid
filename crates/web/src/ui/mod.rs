@@ -8,6 +8,7 @@ mod empty;
 pub mod clipboard;
 pub mod form;
 pub mod fullscreen;
+pub mod snapshot;
 mod icons;
 mod meter;
 mod page;

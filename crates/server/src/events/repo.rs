@@ -6,8 +6,12 @@ use watchgrid_model::{Event, EventQuery, EventType};
 
 use super::kinds;
 
+/// `thumbnail`: the event's moment inside its clip — the browser shows
+/// that frame (no image decoding on the server).
 const COLUMNS: &str = "id, camera_id, kind, start_time, end_time, recording_id, source, protected,
-    GREATEST(EXTRACT(EPOCH FROM (COALESCE(end_time, now()) - start_time)), 0)::bigint AS duration";
+    GREATEST(EXTRACT(EPOCH FROM (COALESCE(end_time, now()) - start_time)), 0)::bigint AS duration,
+    (SELECT '/api/v1/recordings/' || r.id || '/media#t=' || ROUND(GREATEST(EXTRACT(EPOCH FROM (events.start_time - r.start_time)), 0)::numeric + 0.5, 1)
+       FROM recordings r WHERE r.id = events.recording_id) AS thumbnail";
 
 #[derive(sqlx::FromRow)]
 struct Row {
@@ -20,6 +24,7 @@ struct Row {
     source: String,
     protected: bool,
     duration: i64,
+    thumbnail: Option<String>,
 }
 
 impl Row {
@@ -32,7 +37,7 @@ impl Row {
             end_time: self.end_time,
             duration: self.duration.max(0) as u32,
             recording_id: self.recording_id,
-            thumbnail: None,
+            thumbnail: self.thumbnail,
             protected: self.protected,
             detections: Vec::new(),
             source: self.source,

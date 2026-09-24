@@ -164,3 +164,20 @@ async fn event_recordings_link_to_their_detections(db: PgPool) {
     journal::handle(&db, &mut links, &stopped).await.unwrap();
     assert!(all(&db).await.iter().all(|e| e.recording_id.is_none()), "unsaved clip: links removed");
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn events_with_a_clip_point_at_their_moment_in_it(db: PgPool) {
+    let start = t("2026-09-24T12:00:00Z");
+    recordings::insert(&db, &rec("rec-1", start, 30)).await.unwrap();
+    let mut links = journal::Links::default();
+    let motion = BusEvent::DetectionStarted { camera_id: "cam-a".into(), kind: EventType::Motion, topic: "m".into(), at: start + Duration::seconds(6) };
+    let started = BusEvent::RecordingStarted { camera_id: "cam-a".into(), recording_id: "rec-1".into(), reason: RecordingReason::Motion, at: start };
+    journal::handle(&db, &mut links, &motion).await.unwrap();
+    journal::handle(&db, &mut links, &started).await.unwrap();
+    repo::instant(&db, "cam-a", EventType::CameraOnline, start, "x").await.unwrap();
+
+    let events = all(&db).await;
+    let motion = events.iter().find(|e| e.kind == EventType::Motion).unwrap();
+    assert_eq!(motion.thumbnail.as_deref(), Some("/api/v1/recordings/rec-1/media#t=6.5"));
+    assert!(events.iter().find(|e| e.kind == EventType::CameraOnline).unwrap().thumbnail.is_none(), "no clip, no thumbnail");
+}

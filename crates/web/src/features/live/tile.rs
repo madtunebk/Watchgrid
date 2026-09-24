@@ -8,7 +8,7 @@ use leptos_router::components::A;
 
 use crate::api::{Camera, CameraStatus};
 use crate::features::cameras::{CameraPreview, RecordButton};
-use crate::ui::{I, Icon, fullscreen};
+use crate::ui::{I, Icon, fullscreen, snapshot as snap};
 
 #[component]
 pub fn Tile(
@@ -24,8 +24,14 @@ pub fn Tile(
     let el = NodeRef::<Div>::new();
     let muted = RwSignal::new(true);
     let flash = RwSignal::new(false);
+    let toast = RwSignal::new(String::new());
 
     let snapshot = move |_| {
+        let (Some(el), Some(c)) = (el.get_untracked(), camera.get_untracked()) else { return };
+        match snap::save_frame(&el, &snap::file_name(&c.name)) {
+            Ok(()) => toast.set("Snapshot saved".into()),
+            Err(e) => toast.set(e.into()),
+        }
         flash.set(true);
         set_timeout(move || flash.set(false), Duration::from_millis(1600));
     };
@@ -39,7 +45,7 @@ pub fn Tile(
         <div class="tile" node_ref=el class:tile--flash=flash on:dblclick=move |_| on_focus.run(())>
             {move || camera.get().map(|c| view! { <CameraPreview camera=c substream /> })}
             <Show when=move || flash.get()>
-                <span class="tile__toast">"Snapshot captured (preview)"</span>
+                <span class="tile__toast">{move || toast.get()}</span>
             </Show>
             <div class="tile__controls" on:dblclick=|ev| ev.stop_propagation()>
                 <button class="tile__btn" title="Fullscreen" aria-label="Fullscreen" on:click=go_fullscreen>

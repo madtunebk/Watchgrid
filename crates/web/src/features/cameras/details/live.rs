@@ -4,7 +4,7 @@ use leptos::prelude::*;
 use crate::api::{Camera, CameraStatus};
 use crate::features::cameras::widgets::{CameraPreview, RecordButton};
 use crate::format;
-use crate::ui::{I, Icon, fullscreen};
+use crate::ui::{I, Icon, fullscreen, snapshot as snap};
 
 #[component]
 pub fn LiveTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
@@ -18,8 +18,13 @@ pub fn LiveTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
         }
     };
     let take_snapshot = move |_| {
+        let Some(el) = stage.get_untracked() else { return };
+        let name = snap::file_name(&camera.get_untracked().name);
         let at = chrono::Local::now().format("%H:%M:%S");
-        snapshot.set(Some(format!("Snapshot captured at {at} (preview only — saving arrives with the video backend)")));
+        snapshot.set(Some(match snap::save_frame(&el, &name) {
+            Ok(()) => format!("Snapshot saved at {at} ({name}.jpg)"),
+            Err(e) => e.to_string(),
+        }));
     };
 
     view! {
