@@ -11,6 +11,7 @@ use crate::{auth, cameras};
 use crate::error::ApiError;
 use crate::events;
 use crate::media;
+use crate::notifications;
 use crate::recordings;
 use crate::storage;
 use crate::settings;
@@ -24,6 +25,7 @@ pub fn router(state: AppState, ui_dir: &Path) -> Router {
         .route("/ws", get(ws::upgrade))
         .nest("/cameras", cameras::router().route("/{id}/live", get(media::upgrade)))
         .nest("/events", events::router())
+        .nest("/notifications", notifications::router())
         .nest("/recordings", recordings::router())
         .nest("/storage", storage::router())
         .nest("/system", system::router())

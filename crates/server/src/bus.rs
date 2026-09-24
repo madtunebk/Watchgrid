@@ -29,6 +29,8 @@ pub enum BusEvent {
     RecordingStopped { camera_id: String, recording_id: Option<String>, error: Option<String>, at: DateTime<Utc> },
     /// The Settings page document changed.
     SettingsChanged,
+    /// Notifications were added or marked read.
+    NotificationsChanged,
     /// The event journal stored or changed events.
     EventsChanged,
 }

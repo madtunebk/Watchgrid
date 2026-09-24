@@ -58,6 +58,12 @@ pub async fn post_no_content(path: &str) -> ApiResult<()> {
     if resp.ok() { Ok(()) } else { Err(failure(resp).await) }
 }
 
+/// POST with a JSON body for endpoints that answer `204 No Content`.
+pub async fn post_json_no_content(path: &str, body: &impl Serialize) -> ApiResult<()> {
+    let resp = send(Request::post(&url(path)), Some(body)).await?;
+    if resp.ok() { Ok(()) } else { Err(failure(resp).await) }
+}
+
 /// PUT for endpoints that answer `204 No Content`.
 pub async fn put_no_content(path: &str, body: &impl Serialize) -> ApiResult<()> {
     let resp = send(Request::put(&url(path)), Some(body)).await?;

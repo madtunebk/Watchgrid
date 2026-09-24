@@ -1,5 +1,5 @@
-//! Minimal HTTP/1.1 POST for SOAP: one request per connection. Plain
-//! `http://` only (ONVIF devices on a LAN); no redirects.
+//! Minimal HTTP/1.1 POST client (ONVIF SOAP, webhooks): one request per
+//! connection, plain `http://` only (LAN devices and services), no redirects.
 
 use std::time::Duration;
 
@@ -17,8 +17,12 @@ pub struct Reply {
 }
 
 pub async fn post_soap(url: &Url, action: &str, body: &str) -> Result<Reply, String> {
+    post(url, &format!("application/soap+xml; charset=utf-8; action=\"{action}\""), body).await
+}
+
+pub async fn post(url: &Url, content_type: &str, body: &str) -> Result<Reply, String> {
     if url.scheme() != "http" {
-        return Err("only http:// ONVIF addresses are supported".into());
+        return Err("only http:// addresses are supported".into());
     }
     let host = url.host_str().ok_or("the ONVIF URL has no host")?;
     let port = url.port().unwrap_or(80);
@@ -27,7 +31,7 @@ pub async fn post_soap(url: &Url, action: &str, body: &str) -> Result<Reply, Str
         None => url.path().to_string(),
     };
     let request = format!(
-        "POST {path} HTTP/1.1\r\nHost: {host}:{port}\r\nContent-Type: application/soap+xml; charset=utf-8; action=\"{action}\"\r\nContent-Length: {}\r\nConnection: close\r\nUser-Agent: Watchgrid\r\n\r\n{body}",
+        "POST {path} HTTP/1.1\r\nHost: {host}:{port}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\nUser-Agent: Watchgrid\r\n\r\n{body}",
         body.len()
     );
     let exchange = async {

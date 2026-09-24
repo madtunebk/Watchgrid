@@ -24,6 +24,7 @@ fn topic(name: &str) -> Option<Topic> {
         "events" => Some(Topic::Events),
         "recordings" => Some(Topic::Recordings),
         "settings" => Some(Topic::Settings),
+        "notifications" => Some(Topic::Notifications),
         "server" => Some(Topic::Server),
         _ => None,
     }

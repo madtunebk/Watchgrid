@@ -7,7 +7,8 @@ use chrono::{DateTime, Duration, Utc};
 use sha1::{Digest, Sha1};
 use url::Url;
 
-use super::{http, xml};
+use super::xml;
+use crate::httpc as http;
 
 pub struct Client {
     pub url: Url,

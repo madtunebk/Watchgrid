@@ -20,8 +20,10 @@ mod db;
 mod error;
 mod events;
 mod http;
+mod httpc;
 mod live;
 mod media;
+mod notifications;
 mod onvif;
 mod recorder;
 mod recordings;
@@ -168,6 +170,7 @@ async fn serve(logs: system::logs::LogBuffer) -> Result<(), String> {
     state.recording_files.prepare().map_err(|e| format!("recordings directory: {e}"))?;
     // Before the supervisor starts, so no transition is missed.
     events::start_journal(state.db.clone(), state.bus.clone());
+    notifications::start(state.db.clone(), state.bus.clone(), config.bind, state.recording_files.root().to_path_buf());
     // Start supervising every configured camera.
     for (id, enabled) in cameras::all_ids(&state).await.map_err(|_| "cannot list cameras".to_string())? {
         state.supervisor.apply(&id, enabled);
