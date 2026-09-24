@@ -1,0 +1,159 @@
+//! SQL for recordings. No business rules here.
+
+use chrono::{DateTime, Utc};
+use sqlx::PgPool;
+use watchgrid_model::{CameraStorageUsage, Recording, RecordingReason};
+
+use crate::storage::plan::Candidate;
+
+/// A finalized recording to store.
+pub struct NewRecording {
+    pub id: String,
+    pub camera_id: String,
+    pub reason: RecordingReason,
+    pub start_time: DateTime<Utc>,
+    pub end_time: DateTime<Utc>,
+    pub duration_ms: i64,
+    pub file_size: i64,
+    pub path: String,
+    pub codec: String,
+    pub width: i32,
+    pub height: i32,
+}
+
+pub async fn insert(db: &PgPool, r: &NewRecording) -> sqlx::Result<()> {
+    sqlx::query(
+        "INSERT INTO recordings (id, camera_id, reason, start_time, end_time, duration_ms, file_size, path, codec, width, height)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+    )
+    .bind(&r.id)
+    .bind(&r.camera_id)
+    .bind(reason_name(r.reason))
+    .bind(r.start_time)
+    .bind(r.end_time)
+    .bind(r.duration_ms)
+    .bind(r.file_size)
+    .bind(&r.path)
+    .bind(&r.codec)
+    .bind(r.width)
+    .bind(r.height)
+    .execute(db)
+    .await
+    .map(|_| ())
+}
+
+const COLUMNS: &str = "id, camera_id, reason, start_time, end_time, duration_ms, file_size, protected";
+
+#[derive(sqlx::FromRow)]
+struct Row {
+    id: String,
+    camera_id: String,
+    reason: String,
+    start_time: DateTime<Utc>,
+    end_time: DateTime<Utc>,
+    duration_ms: i64,
+    file_size: i64,
+    protected: bool,
+}
+
+impl Row {
+    fn into_model(self) -> Recording {
+        Recording {
+            id: self.id,
+            camera_id: self.camera_id,
+            start_time: self.start_time,
+            end_time: Some(self.end_time),
+            duration: ((self.duration_ms + 500) / 1000) as u32,
+            reason: parse_reason(&self.reason),
+            file_size: self.file_size as u64,
+            protected: self.protected,
+            event_ids: Vec::new(),
+        }
+    }
+}
+
+/// Recordings overlapping `[from, to)`, oldest first. Empty `camera_ids` = all.
+pub async fn list(db: &PgPool, camera_ids: &[String], from: Option<DateTime<Utc>>, to: Option<DateTime<Utc>>) -> sqlx::Result<Vec<Recording>> {
+    let sql = format!(
+        "SELECT {COLUMNS} FROM recordings
+         WHERE (cardinality($1::text[]) = 0 OR camera_id = ANY($1))
+           AND ($2::timestamptz IS NULL OR end_time > $2)
+           AND ($3::timestamptz IS NULL OR start_time < $3)
+         ORDER BY start_time"
+    );
+    let rows: Vec<Row> = sqlx::query_as(&sql).bind(camera_ids).bind(from).bind(to).fetch_all(db).await?;
+    Ok(rows.into_iter().map(Row::into_model).collect())
+}
+
+pub async fn get(db: &PgPool, id: &str) -> sqlx::Result<Option<Recording>> {
+    let row: Option<Row> = sqlx::query_as(&format!("SELECT {COLUMNS} FROM recordings WHERE id = $1")).bind(id).fetch_optional(db).await?;
+    Ok(row.map(Row::into_model))
+}
+
+/// Recordings per camera, largest first.
+pub async fn usage_by_camera(db: &PgPool) -> sqlx::Result<Vec<CameraStorageUsage>> {
+    let rows: Vec<(String, i64, i64, Option<DateTime<Utc>>)> = sqlx::query_as(
+        "SELECT camera_id, SUM(file_size)::bigint, COUNT(*), MIN(start_time)
+         FROM recordings GROUP BY camera_id ORDER BY 2 DESC, camera_id",
+    )
+    .fetch_all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(camera_id, bytes, count, oldest)| CameraStorageUsage { camera_id, bytes: bytes as u64, recordings: count as u32, oldest })
+        .collect())
+}
+
+/// Bytes in recordings that retention never deletes.
+pub async fn protected_bytes(db: &PgPool) -> sqlx::Result<u64> {
+    let n: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(file_size), 0)::bigint FROM recordings WHERE protected").fetch_one(db).await?;
+    Ok(n as u64)
+}
+
+/// A retention candidate with its file.
+pub struct RetentionCandidate {
+    pub candidate: Candidate,
+    pub path: String,
+}
+
+/// Unprotected recordings, oldest first.
+pub async fn retention_candidates(db: &PgPool) -> sqlx::Result<Vec<RetentionCandidate>> {
+    let rows: Vec<(String, i64, DateTime<Utc>, String)> =
+        sqlx::query_as("SELECT id, file_size, end_time, path FROM recordings WHERE NOT protected ORDER BY start_time, id").fetch_all(db).await?;
+    Ok(rows
+        .into_iter()
+        .map(|(id, bytes, end_time, path)| RetentionCandidate { candidate: Candidate { id, bytes: bytes as u64, end_time }, path })
+        .collect())
+}
+
+/// Remove a recording's row. Never removes protected ones.
+pub async fn delete(db: &PgPool, id: &str) -> sqlx::Result<()> {
+    sqlx::query("DELETE FROM recordings WHERE id = $1 AND NOT protected").bind(id).execute(db).await.map(|_| ())
+}
+
+/// Stored relative file path.
+pub async fn path(db: &PgPool, id: &str) -> sqlx::Result<Option<String>> {
+    sqlx::query_scalar("SELECT path FROM recordings WHERE id = $1").bind(id).fetch_optional(db).await
+}
+
+fn reason_name(r: RecordingReason) -> &'static str {
+    match r {
+        RecordingReason::Motion => "motion",
+        RecordingReason::Event => "event",
+        RecordingReason::Manual => "manual",
+        RecordingReason::Continuous => "continuous",
+        RecordingReason::Scheduled => "scheduled",
+        RecordingReason::Api => "api",
+    }
+}
+
+fn parse_reason(s: &str) -> RecordingReason {
+    match s {
+        "motion" => RecordingReason::Motion,
+        "event" => RecordingReason::Event,
+        "continuous" => RecordingReason::Continuous,
+        "scheduled" => RecordingReason::Scheduled,
+        "api" => RecordingReason::Api,
+        _ => RecordingReason::Manual,
+    }
+}

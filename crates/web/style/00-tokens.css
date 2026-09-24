@@ -1,0 +1,56 @@
+/*
+ * Watchgrid UI stylesheet — design tokens.
+ *
+ * Plain CSS, no preprocessor. `cargo web` joins every style/*.css file in
+ * name order into a single app.css, so number new files by layer.
+ *
+ * Sizes are rem-based; see the fluid root size in 10-base.css.
+ *
+ * Every colour comes from the tokens below. Status colours are deliberately
+ * distinct: an NVR must never confuse online / streaming / motion / recording.
+ */
+
+:root {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --bg: #0a0d11;
+  --surface: #0f1318;
+  --surface-2: #141920;
+  --surface-3: #1a2029;
+  --line: #212833;
+  --line-strong: #2d3643;
+
+  --fg: #d5dbe3;
+  --fg-strong: #f0f3f7;
+  --muted: #8791a0;
+  --faint: #58626f;
+
+  --accent: #3d9bff;
+  --accent-strong: #66b1ff;
+  --accent-soft: rgb(61 155 255 / 0.12);
+
+  /* Semantic NVR states */
+  --online: #22c55e;
+  --offline: #6b7280;
+  --stream: #38bdf8;
+  --motion: #f59e0b;
+  --recording: #ef4444;
+
+  /* Feedback */
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --info: #3d9bff;
+
+  --radius-sm: 0.2rem;
+  --radius: 0.2667rem;
+  --radius-lg: 0.4rem;
+  --shadow-popover: 0 0.5333rem 1.6rem -0.2667rem rgb(0 0 0 / 0.65), 0 0 0 1px var(--line-strong);
+
+  --sidebar-w: 17.6rem;
+  --sidebar-w-collapsed: 4.2667rem;
+  --header-h: 4rem;
+
+  color-scheme: dark;
+}

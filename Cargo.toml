@@ -1,0 +1,47 @@
+[workspace]
+resolver = "3"
+members = ["crates/model", "crates/server", "crates/web", "xtask"]
+# The web crate only builds for wasm32; `cargo web` (xtask) handles it.
+default-members = ["crates/model", "crates/server", "xtask"]
+
+[workspace.package]
+edition = "2024"
+version = "0.1.0"
+license = "MIT OR Apache-2.0"
+rust-version = "1.88"
+
+[workspace.dependencies]
+watchgrid-model = { path = "crates/model" }
+serde = { version = "1", features = ["derive"] }
+chrono = { version = "0.4.45", default-features = false, features = ["std", "clock", "serde"] }
+# wasm-bindgen and its CLI support library must be the exact same version.
+wasm-bindgen = "=0.2.128"
+wasm-bindgen-cli-support = "=0.2.128"
+
+# Patched retina (keepalive fixes for some cameras); see vendor/retina/README.watchgrid.md.
+[patch.crates-io]
+retina = { path = "vendor/retina" }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+# Keep the build tool itself fast to compile and run.
+[profile.release.package.xtask]
+opt-level = 1
+
+# Debug builds keep file/line info for panics but skip full debuginfo, which
+# otherwise makes the dev wasm >100 MB and slow to load.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+opt-level = 1
+debug = false
+
+# Leptos views are very generic; unoptimised they bloat the dev wasm.
+[profile.dev.package.watchgrid-web]
+opt-level = 1

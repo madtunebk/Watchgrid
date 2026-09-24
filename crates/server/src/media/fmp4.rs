@@ -1,0 +1,100 @@
+//! Fragmented MP4 for Media Source Extensions: an init segment
+//! (`ftyp` + `moov`) followed by media segments (`moof` + `mdat`), one
+//! sample each for low latency. Samples are the camera's own H.264 access
+//! units (length-prefixed NAL units) — nothing is decoded.
+
+use super::boxes::{self, Layout, VideoTrack, Writer};
+
+const TRACK_ID: u32 = 1;
+
+/// `ftyp` + `moov` for the track.
+pub fn init_segment(t: &VideoTrack) -> Vec<u8> {
+    let mut w = Writer::new();
+    boxes::ftyp(&mut w);
+    boxes::moov(&mut w, t, Layout::Fragmented);
+    w.0
+}
+
+/// One sample as `moof` + `mdat`.
+/// `decode_time` and `duration` are in [`boxes::TIMESCALE`] units.
+pub fn media_segment(sequence: u32, decode_time: u64, duration: u32, keyframe: bool, data: &[u8]) -> Vec<u8> {
+    // trun flags: data-offset, sample-duration, sample-size, sample-flags.
+    const TRUN_FLAGS: u32 = 0x000001 | 0x000100 | 0x000200 | 0x000400;
+    // Sync sample vs. non-sync sample that depends on others.
+    let sample_flags = if keyframe { 0x0200_0000 } else { 0x0101_0000 };
+
+    let mut w = Writer::new();
+    let mut data_offset_at = 0;
+    w.boxed(b"moof", |w| {
+        w.full(b"mfhd", 0, 0, |w| {
+            w.u32(sequence);
+        });
+        w.boxed(b"traf", |w| {
+            // default-base-is-moof: data offsets are relative to this moof.
+            w.full(b"tfhd", 0, 0x020000, |w| {
+                w.u32(TRACK_ID);
+            });
+            w.full(b"tfdt", 1, 0, |w| {
+                w.u64(decode_time);
+            });
+            w.full(b"trun", 0, TRUN_FLAGS, |w| {
+                w.u32(1);
+                data_offset_at = w.len();
+                w.u32(0).u32(duration).u32(data.len() as u32).u32(sample_flags);
+            });
+        });
+    });
+    // Data starts right after moof and the 8-byte mdat header.
+    let data_offset = (w.len() + 8) as u32;
+    w.patch_u32(data_offset_at, data_offset);
+    w.boxed(b"mdat", |w| {
+        w.bytes(data);
+    });
+    w.0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::media::boxes::TIMESCALE;
+    use crate::media::boxes::test_util::{find, top_level, u32_at};
+
+    #[test]
+    fn init_segment_is_ftyp_then_moov_with_avcc() {
+        let track = VideoTrack { width: 1280, height: 720, avcc: vec![1, 0x64, 0, 0x1f, 0xff] };
+        let init = init_segment(&track);
+        let boxes: Vec<String> = top_level(&init).into_iter().map(|b| b.0).collect();
+        assert_eq!(boxes, ["ftyp", "moov"]);
+        let avcc = find(&init, b"avcC");
+        assert_eq!(&init[avcc + 8..avcc + 13], &[1, 0x64, 0, 0x1f, 0xff]);
+        let mdhd = find(&init, b"mdhd");
+        assert_eq!(u32_at(&init, mdhd + 20), TIMESCALE);
+        find(&init, b"mvex");
+    }
+
+    #[test]
+    fn media_segment_offsets_point_at_the_sample() {
+        let data = [0u8, 0, 0, 3, 0x65, 0xaa, 0xbb];
+        let seg = media_segment(7, 90_000, 3600, true, &data);
+        let boxes = top_level(&seg);
+        assert_eq!(boxes.iter().map(|b| b.0.as_str()).collect::<Vec<_>>(), ["moof", "mdat"]);
+
+        let trun = find(&seg, b"trun");
+        let offset = u32_at(&seg, trun + 16) as usize;
+        assert_eq!(&seg[offset..offset + data.len()], &data, "data offset is relative to moof start");
+        assert_eq!(u32_at(&seg, trun + 20), 3600);
+        assert_eq!(u32_at(&seg, trun + 28), 0x0200_0000, "keyframe is a sync sample");
+
+        let tfdt = find(&seg, b"tfdt");
+        assert_eq!(u64::from_be_bytes(seg[tfdt + 12..tfdt + 20].try_into().unwrap()), 90_000);
+        let mfhd = find(&seg, b"mfhd");
+        assert_eq!(u32_at(&seg, mfhd + 12), 7);
+    }
+
+    #[test]
+    fn non_keyframes_are_marked_dependent() {
+        let seg = media_segment(1, 0, 3000, false, &[0, 0, 0, 1, 0x41]);
+        let trun = find(&seg, b"trun");
+        assert_eq!(u32_at(&seg, trun + 28), 0x0101_0000);
+    }
+}

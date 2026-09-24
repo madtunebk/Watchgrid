@@ -1,0 +1,46 @@
+/* Base element styles and utilities. */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+/* The app is a fixed-viewport shell; only .shell__content scrolls. */
+html, body { height: 100%; margin: 0; overflow: hidden; }
+
+/* Fluid scale. All sizes are in rem, so the whole UI follows this one value:
+   15px at 2560px wide (the 1440p reference design), 14px at 1920, 13px at
+   1280–1366 (floor, so nothing turns microscopic), 17px at 3840. Layout
+   changes (sidebar, grids, toolbars) are handled by breakpoints, not by this. */
+html { font-size: clamp(13px, calc(11px + 0.15625vw), 18px); }
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font: 1rem/1.6rem var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1, h2, h3, h4, p { margin: 0; }
+a { color: inherit; text-decoration: none; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+button:disabled { cursor: default; }
+ul { list-style: none; margin: 0; padding: 0; }
+svg { display: block; flex-shrink: 0; }
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+::selection { background: var(--accent-soft); }
+* { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+.mono { font-family: var(--font-mono); }
+.tabular { font-variant-numeric: tabular-nums; }
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.muted { color: var(--muted); }
+.faint { color: var(--faint); }
+
+.icon { width: 1.3333rem; height: 1.3333rem; }
+.icon--sm { width: 1.0667rem; height: 1.0667rem; }
+.icon--lg { width: 1.4667rem; height: 1.4667rem; }
+.icon--xl { width: 2rem; height: 2rem; }

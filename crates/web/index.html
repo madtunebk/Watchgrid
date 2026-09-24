@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>Watchgrid</title>
+    <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg" />
+    <link rel="stylesheet" href="/style/app.css?v={{BUILD}}" />
+    <link rel="modulepreload" href="/watchgrid_web.js?v={{BUILD}}" />
+  </head>
+  <body>
+    <noscript>Watchgrid needs JavaScript and WebAssembly enabled.</noscript>
+    <script type="module">
+      import init from '/watchgrid_web.js?v={{BUILD}}';
+      init({ module_or_path: '/watchgrid_web_bg.wasm?v={{BUILD}}' });
+    </script>
+  </body>
+</html>

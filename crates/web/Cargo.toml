@@ -1,0 +1,31 @@
+[package]
+name = "watchgrid-web"
+description = "Watchgrid browser UI (Leptos, client-side rendered, wasm32). Build with `cargo web`."
+publish = false
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+# Serve the migrated API domains (currently: cameras) from the Watchgrid server.
+live-api = ["dep:gloo-net", "dep:serde_json"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+watchgrid-model.workspace = true
+serde.workspace = true
+chrono = { workspace = true, features = ["wasmbind"] }
+leptos = { version = "0.8.20", features = ["csr"] }
+leptos_router = "0.8.15"
+wasm-bindgen.workspace = true
+wasm-bindgen-futures = "0.4"
+gloo-timers = { version = "0.3", features = ["futures"] }
+console_error_panic_hook = "0.1"
+js-sys = "0.3"
+# Real HTTP API (only with `live-api`; the default build uses the in-browser mock).
+serde_json = { version = "1", optional = true }
+gloo-net = { version = "0.7", optional = true, default-features = false, features = ["http", "json"] }
+web-sys = { version = "0.3", features = ["Storage", "Window", "Navigator", "Document", "Element", "HtmlElement", "Location", "DragEvent", "DataTransfer", "DomRect", "Clipboard", "WebSocket", "MessageEvent", "CloseEvent", "Event", "EventTarget", "BinaryType", "MediaSource", "SourceBuffer", "SourceBufferAppendMode", "TimeRanges", "HtmlMediaElement", "HtmlVideoElement", "Url"] }

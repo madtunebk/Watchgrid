@@ -1,0 +1,4 @@
+[alias]
+# cargo web build [--release]   -> dist/
+# cargo web serve [--release] [--port N]  -> build, serve, rebuild on change
+web = "run --quiet --package xtask --"
