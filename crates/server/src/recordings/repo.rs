@@ -110,25 +110,25 @@ pub async fn protected_bytes(db: &PgPool) -> sqlx::Result<u64> {
     Ok(n as u64)
 }
 
-/// A retention candidate with its file.
-pub struct RetentionCandidate {
-    pub candidate: Candidate,
-    pub path: String,
-}
-
 /// Unprotected recordings, oldest first.
-pub async fn retention_candidates(db: &PgPool) -> sqlx::Result<Vec<RetentionCandidate>> {
-    let rows: Vec<(String, i64, DateTime<Utc>, String)> =
-        sqlx::query_as("SELECT id, file_size, end_time, path FROM recordings WHERE NOT protected ORDER BY start_time, id").fetch_all(db).await?;
-    Ok(rows
-        .into_iter()
-        .map(|(id, bytes, end_time, path)| RetentionCandidate { candidate: Candidate { id, bytes: bytes as u64, end_time }, path })
-        .collect())
+pub async fn retention_candidates(db: &PgPool) -> sqlx::Result<Vec<Candidate>> {
+    let rows: Vec<(String, i64, DateTime<Utc>)> =
+        sqlx::query_as("SELECT id, file_size, end_time FROM recordings WHERE NOT protected ORDER BY start_time, id").fetch_all(db).await?;
+    Ok(rows.into_iter().map(|(id, bytes, end_time)| Candidate { id, bytes: bytes as u64, end_time }).collect())
 }
 
 /// Remove a recording's row. Never removes protected ones.
 pub async fn delete(db: &PgPool, id: &str) -> sqlx::Result<()> {
     sqlx::query("DELETE FROM recordings WHERE id = $1 AND NOT protected").bind(id).execute(db).await.map(|_| ())
+}
+
+/// Stored relative file path and whether the recording is protected.
+pub async fn path_and_protection(db: &PgPool, id: &str) -> sqlx::Result<Option<(String, bool)>> {
+    sqlx::query_as("SELECT path, protected FROM recordings WHERE id = $1").bind(id).fetch_optional(db).await
+}
+
+pub async fn set_protected(db: &PgPool, id: &str, protected: bool) -> sqlx::Result<()> {
+    sqlx::query("UPDATE recordings SET protected = $2 WHERE id = $1").bind(id).bind(protected).execute(db).await.map(|_| ())
 }
 
 /// Stored relative file path.

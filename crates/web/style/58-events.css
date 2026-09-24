@@ -42,6 +42,9 @@
 .type-toggle--onvif.type-toggle--on { color: #94a3b8; }
 .type-toggle--manual.type-toggle--on { color: #f87171; }
 .type-toggle--api.type-toggle--on { color: #22d3ee; }
+.type-toggle--scheduled.type-toggle--on { color: #a78bfa; }
+.type-toggle--offline.type-toggle--on { color: var(--danger); }
+.type-toggle--online.type-toggle--on { color: var(--online); }
 .type-toggle__future { font-size: 0.6667rem; font-weight: 600; letter-spacing: 0; text-transform: lowercase; opacity: 0.7; }
 
 /* Day-grouped list */
@@ -87,6 +90,9 @@
 .evt-thumb--onvif { color: #94a3b8; }
 .evt-thumb--manual { color: #f87171; }
 .evt-thumb--api { color: #22d3ee; }
+.evt-thumb--scheduled { color: #a78bfa; }
+.evt-thumb--offline { color: var(--danger); }
+.evt-thumb--online { color: var(--online); }
 
 .load-more { display: flex; align-items: center; justify-content: center; gap: 0.9333rem; margin-top: 1.0667rem; }
 

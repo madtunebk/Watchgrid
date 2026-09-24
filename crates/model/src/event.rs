@@ -12,13 +12,30 @@ pub enum EventType {
     Vehicle,
     Animal,
     Onvif,
+    /// A manual recording (spans the recording).
     Manual,
+    /// A scheduled recording (spans the recording).
+    Scheduled,
     Api,
+    /// The camera was unreachable (spans the outage).
+    CameraOffline,
+    /// The camera came back after an outage (instant).
+    CameraOnline,
 }
 
 impl EventType {
-    pub const ALL: [Self; 7] =
-        [Self::Motion, Self::Person, Self::Vehicle, Self::Animal, Self::Onvif, Self::Manual, Self::Api];
+    pub const ALL: [Self; 10] = [
+        Self::Motion,
+        Self::Person,
+        Self::Vehicle,
+        Self::Animal,
+        Self::Onvif,
+        Self::Manual,
+        Self::Scheduled,
+        Self::Api,
+        Self::CameraOffline,
+        Self::CameraOnline,
+    ];
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

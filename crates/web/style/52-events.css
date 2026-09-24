@@ -14,6 +14,9 @@
 .evt-chip--onvif { color: #94a3b8; }
 .evt-chip--manual { color: #f87171; }
 .evt-chip--api { color: #22d3ee; }
+.evt-chip--scheduled { color: #a78bfa; }
+.evt-chip--offline { color: var(--danger); }
+.evt-chip--online { color: var(--online); }
 
 .event-list { display: flex; flex-direction: column; margin: -0.4rem -0.5333rem; }
 .event-row {

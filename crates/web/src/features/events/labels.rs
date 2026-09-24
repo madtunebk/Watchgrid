@@ -11,6 +11,9 @@ pub fn tag(kind: EventType) -> &'static str {
         EventType::Onvif => "ONVIF",
         EventType::Manual => "MANUAL",
         EventType::Api => "API",
+        EventType::Scheduled => "SCHEDULED",
+        EventType::CameraOffline => "OFFLINE",
+        EventType::CameraOnline => "ONLINE",
     }
 }
 
@@ -24,6 +27,9 @@ pub fn title(kind: EventType) -> &'static str {
         EventType::Onvif => "ONVIF event",
         EventType::Manual => "Manual recording",
         EventType::Api => "External trigger",
+        EventType::Scheduled => "Scheduled recording",
+        EventType::CameraOffline => "Camera offline",
+        EventType::CameraOnline => "Camera back online",
     }
 }
 
@@ -37,6 +43,9 @@ pub fn css(kind: EventType) -> &'static str {
         EventType::Onvif => "onvif",
         EventType::Manual => "manual",
         EventType::Api => "api",
+        EventType::Scheduled => "scheduled",
+        EventType::CameraOffline => "offline",
+        EventType::CameraOnline => "online",
     }
 }
 
@@ -54,6 +63,9 @@ pub fn icon(kind: EventType) -> I {
         EventType::Onvif => I::Radio,
         EventType::Manual => I::RecordDot,
         EventType::Api => I::Plug,
+        EventType::Scheduled => I::Calendar,
+        EventType::CameraOffline => I::WifiOff,
+        EventType::CameraOnline => I::Wifi,
     }
 }
 

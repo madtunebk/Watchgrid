@@ -41,7 +41,7 @@ pub async fn run(deps: Deps, camera_id: String, mut stop: watch::Receiver<bool>,
         }
     };
     phase.send_replace(Phase::Idle);
-    deps.bus.publish(BusEvent::RecordingStopped { camera_id, recording_id, error });
+    deps.bus.publish(BusEvent::RecordingStopped { camera_id, recording_id, error, at: Utc::now() });
 }
 
 /// Returns the published recording id (None if nothing was recorded).
@@ -55,7 +55,7 @@ async fn record(deps: &Deps, camera_id: &str, id: &str, stop: &mut watch::Receiv
     let partial = deps.files.partial_path(id);
     let mut writer = Mp4Writer::create(partial.clone()).await.map_err(|e| format!("cannot create {}: {e}", partial.display()))?;
 
-    let (end, first_frame_at) = capture(deps, camera_id, &track, &mut sub, &mut writer, stop, phase).await;
+    let (end, first_frame_at) = capture(deps, camera_id, id, &track, &mut sub, &mut writer, stop, phase).await;
     drop(sub); // let the live feed close if nobody else watches
     phase.send_replace(Phase::Finalizing);
 
@@ -109,6 +109,7 @@ async fn wait_for_track(sub: &mut Subscription, stop: &mut watch::Receiver<bool>
 async fn capture(
     deps: &Deps,
     camera_id: &str,
+    recording_id: &str,
     track: &TrackInfo,
     sub: &mut Subscription,
     writer: &mut Mp4Writer,
@@ -138,10 +139,16 @@ async fn capture(
                         last_frame = Instant::now();
                         if recording_since.is_none() {
                             recording_since = Some(last_frame);
-                            first_frame_at = Some(Utc::now());
+                            let now = Utc::now();
+                            first_frame_at = Some(now);
                             phase.send_replace(Phase::Recording);
                             tracing::info!(camera = %camera_id, "recording started");
-                            deps.bus.publish(BusEvent::RecordingStarted { camera_id: camera_id.to_string() });
+                            deps.bus.publish(BusEvent::RecordingStarted {
+                                camera_id: camera_id.to_string(),
+                                recording_id: recording_id.to_string(),
+                                reason: RecordingReason::Manual,
+                                at: now,
+                            });
                         }
                         None
                     }

@@ -227,6 +227,9 @@ fn changed(state: &AppState, id: &str, enabled: Option<bool>) {
         Some(enabled) => state.supervisor.apply(id, enabled),
         None => state.supervisor.stop(id),
     }
+    if enabled != Some(true) {
+        state.bus.publish(BusEvent::CameraStopped { camera_id: id.to_string(), at: chrono::Utc::now() });
+    }
     state.media.reload(id);
     state.bus.publish(BusEvent::CamerasChanged);
 }

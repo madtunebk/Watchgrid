@@ -1,23 +1,30 @@
 //! In-process event bus (Tokio broadcast). Carries meaningful transitions,
-//! never per-frame observations. Subscribers: the WebSocket hub now; the
-//! recorder, rules, notifications and DB persistence later.
+//! never per-frame observations. Subscribers: the WebSocket hub (UI
+//! refresh) and the event journal (durable events); rules and
+//! notifications later.
 
+use chrono::{DateTime, Utc};
 use tokio::sync::broadcast;
+use watchgrid_model::RecordingReason;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum BusEvent {
-    CameraOnline { camera_id: String },
-    CameraOffline { camera_id: String, reason: String },
+    CameraOnline { camera_id: String, at: DateTime<Utc> },
+    CameraOffline { camera_id: String, reason: String, at: DateTime<Utc> },
+    /// Supervision ended because the camera was disabled or deleted.
+    CameraStopped { camera_id: String, at: DateTime<Utc> },
     /// Camera configuration changed (added, edited, removed, enabled…).
     CamerasChanged,
     /// Storage settings changed (e.g. the retention policy).
     StorageChanged,
-    /// Retention removed old recordings.
-    RecordingsDeleted,
+    /// Recordings were removed or changed (retention, protection, deletion).
+    RecordingsChanged,
     /// A recording wrote its first frame.
-    RecordingStarted { camera_id: String },
+    RecordingStarted { camera_id: String, recording_id: String, reason: RecordingReason, at: DateTime<Utc> },
     /// A recording ended; `recording_id` is set when a file was saved.
-    RecordingStopped { camera_id: String, recording_id: Option<String>, error: Option<String> },
+    RecordingStopped { camera_id: String, recording_id: Option<String>, error: Option<String>, at: DateTime<Utc> },
+    /// The event journal stored or changed events.
+    EventsChanged,
 }
 
 #[derive(Clone)]

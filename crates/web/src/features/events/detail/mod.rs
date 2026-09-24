@@ -9,7 +9,7 @@ use leptos::prelude::*;
 use leptos_router::components::A;
 use leptos_router::hooks::{use_navigate, use_params_map};
 
-use crate::api::{self, ApiError, Topic, use_query};
+use crate::api::{self, ApiError, EventType, Topic, use_query};
 use crate::features::playback::{Clip, Player};
 use crate::features::events::{labels, list::BACK_KEY};
 use crate::prefs;
@@ -91,7 +91,18 @@ pub fn EventDetailPage() -> impl IntoView {
             };
             let e = d.event.clone();
             let (title, subtitle) = (labels::title(e.kind).to_string(), format!("{camera_name} · {when}"));
-            let player = view! { <Player clip=Clip::for_event(&e, d.recording.as_ref(), camera_name.clone()) theater /> };
+            let player = match (&d.recording, e.kind) {
+                (None, EventType::CameraOffline) => view! {
+                    <EmptyState icon=I::WifiOff title="No video while the camera was offline" text="See the details for the cause and how long it lasted." />
+                }.into_any(),
+                (None, EventType::CameraOnline) => view! {
+                    <EmptyState icon=I::Wifi title="The camera reconnected" text="Live view and recording are available again." />
+                }.into_any(),
+                (None, EventType::Manual | EventType::Scheduled) => view! {
+                    <EmptyState icon=I::VideoOff title="No video was saved for this recording" text="See the details for why it ended." />
+                }.into_any(),
+                _ => view! { <Player clip=Clip::for_event(&e, d.recording.as_ref(), camera_name.clone()) theater /> }.into_any(),
+            };
             let facts = view! { <EventFacts event=e.clone() recording=d.recording.clone() camera_name=camera_name.clone() /> };
             let actions = view! { <EventActions event_id=e.id.clone() camera_id=e.camera_id.clone() protected on_deleted=after_delete /> };
             view! {

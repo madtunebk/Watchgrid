@@ -15,6 +15,7 @@ mod config;
 mod credentials;
 mod db;
 mod error;
+mod events;
 mod http;
 mod live;
 mod media;
@@ -25,6 +26,7 @@ mod settings;
 mod state;
 mod storage;
 mod supervisor;
+mod timezone;
 mod ws;
 
 use std::process::ExitCode;
@@ -100,6 +102,8 @@ async fn serve() -> Result<(), String> {
     let config = Config::from_env()?;
     let state = open_state(&config).await?;
     state.recording_files.prepare().map_err(|e| format!("recordings directory: {e}"))?;
+    // Before the supervisor starts, so no transition is missed.
+    events::start_journal(state.db.clone(), state.bus.clone());
     // Start supervising every configured camera.
     for (id, enabled) in cameras::all_ids(&state).await.map_err(|_| "cannot list cameras".to_string())? {
         state.supervisor.apply(&id, enabled);

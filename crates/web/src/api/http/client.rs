@@ -48,6 +48,12 @@ pub async fn put<T: DeserializeOwned>(path: &str, body: &impl Serialize) -> ApiR
     json(send(Request::put(&url(path)), Some(body)).await?).await
 }
 
+/// PUT for endpoints that answer `204 No Content`.
+pub async fn put_no_content(path: &str, body: &impl Serialize) -> ApiResult<()> {
+    let resp = send(Request::put(&url(path)), Some(body)).await?;
+    if resp.ok() { Ok(()) } else { Err(failure(resp).await) }
+}
+
 pub async fn delete(path: &str) -> ApiResult<()> {
     let resp = send(Request::delete(&url(path)), None::<&()>).await?;
     if resp.ok() { Ok(()) } else { Err(failure(resp).await) }

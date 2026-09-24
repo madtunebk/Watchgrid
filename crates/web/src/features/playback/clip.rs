@@ -37,7 +37,7 @@ impl Clip {
             highlight: Some((offset, len)),
             kind: Some(event.kind),
             detection_box: !event.detections.is_empty(),
-            src: None,
+            src: recording.and_then(|r| api::recording_media_url(&r.id)),
         }
     }
 

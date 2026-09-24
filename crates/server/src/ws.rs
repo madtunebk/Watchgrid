@@ -17,10 +17,11 @@ pub async fn upgrade(ws: WebSocketUpgrade, State(state): State<AppState>) -> Res
 /// UI query topics affected by an event.
 fn topics(event: &BusEvent) -> &'static [&'static str] {
     match event {
-        BusEvent::CameraOnline { .. } | BusEvent::CameraOffline { .. } => &["cameras", "system"],
+        BusEvent::CameraOnline { .. } | BusEvent::CameraOffline { .. } | BusEvent::CameraStopped { .. } => &["cameras", "system"],
+        BusEvent::EventsChanged => &["events"],
         BusEvent::CamerasChanged => &["cameras", "system", "storage"],
         BusEvent::StorageChanged => &["storage"],
-        BusEvent::RecordingsDeleted => &["recordings", "storage", "cameras"],
+        BusEvent::RecordingsChanged => &["recordings", "storage", "cameras"],
         BusEvent::RecordingStarted { .. } => &["cameras"],
         BusEvent::RecordingStopped { .. } => &["cameras", "recordings", "storage"],
     }
@@ -34,7 +35,7 @@ async fn serve(mut socket: WebSocket, state: AppState) {
                 let names = match event {
                     Ok(e) => topics(&e),
                     // Missed some events: refresh everything the UI shows.
-                    Err(RecvError::Lagged(_)) => &["cameras", "system", "storage", "recordings"][..],
+                    Err(RecvError::Lagged(_)) => &["cameras", "system", "storage", "recordings", "events"][..],
                     Err(RecvError::Closed) => return,
                 };
                 let msg = format!(r#"{{"topics":["{}"]}}"#, names.join("\",\""));
@@ -57,7 +58,7 @@ mod tests {
 
     #[test]
     fn transitions_refresh_cameras() {
-        assert!(topics(&BusEvent::CameraOnline { camera_id: "x".into() }).contains(&"cameras"));
+        assert!(topics(&BusEvent::CameraOnline { camera_id: "x".into(), at: chrono::Utc::now() }).contains(&"cameras"));
         assert!(topics(&BusEvent::CamerasChanged).contains(&"storage"));
     }
 }

@@ -3,11 +3,11 @@
 //! With the `live-api` feature, domains that exist on the Watchgrid server
 //! go over HTTP; everything else stays on the in-browser mock until its
 //! milestone. Without the feature the whole UI runs on the mock.
-//! Real so far: cameras, probes, recordings, storage.
+//! Real so far: cameras, probes, recordings, storage, events.
 
 #[cfg(feature = "live-api")]
-pub use super::http::{cameras, probes, recordings, storage};
+pub use super::http::{cameras, events, probes, recordings, storage};
 #[cfg(not(feature = "live-api"))]
-pub use super::mock::{cameras, probes, recordings, storage};
+pub use super::mock::{cameras, events, probes, recordings, storage};
 
-pub use super::mock::{auth, capacity, events, exports, logs, notifications, settings, system};
+pub use super::mock::{auth, capacity, exports, logs, notifications, settings, system};

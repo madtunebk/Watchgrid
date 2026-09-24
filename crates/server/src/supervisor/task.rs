@@ -57,7 +57,7 @@ pub async fn run(deps: Deps, id: String) {
         });
         if was_online || attempt == 1 {
             tracing::warn!(camera = %id, "offline: {reason}");
-            deps.bus.publish(BusEvent::CameraOffline { camera_id: id.clone(), reason: reason.clone() });
+            deps.bus.publish(BusEvent::CameraOffline { camera_id: id.clone(), reason: reason.clone(), at: Utc::now() });
         }
         tokio::time::sleep(backoff::delay(attempt)).await;
     }
@@ -74,7 +74,7 @@ fn on_online(deps: &Deps, id: &str, facts: &session::StreamFacts) {
         l.last_error = None;
     });
     tracing::info!(camera = %id, codec = ?facts.video_codec, "online");
-    deps.bus.publish(BusEvent::CameraOnline { camera_id: id.to_string() });
+    deps.bus.publish(BusEvent::CameraOnline { camera_id: id.to_string(), at: Utc::now() });
 }
 
 /// Read frames until the stream fails; returns the reason.
