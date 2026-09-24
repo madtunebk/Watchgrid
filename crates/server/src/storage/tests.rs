@@ -39,7 +39,7 @@ mod sweep {
     async fn add(db: &PgPool, files: &RecordingFiles, id: &str, days_ago: i64) -> std::path::PathBuf {
         let start = Utc::now() - Duration::days(days_ago);
         let path = format!("cam-a/day/{id}.mp4");
-        let abs = files.resolve(&path).unwrap();
+        let abs = files.resolve(None, &path).unwrap();
         std::fs::create_dir_all(abs.parent().unwrap()).unwrap();
         std::fs::write(&abs, b"x").unwrap();
         let row = NewRecording {
@@ -51,6 +51,7 @@ mod sweep {
             duration_ms: 60_000,
             file_size: 1,
             path,
+            root: None,
             codec: "avc1.640028".into(),
             width: 1280,
             height: 720,

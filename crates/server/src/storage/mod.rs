@@ -1,7 +1,9 @@
 //! Storage: the recordings volume, per-camera usage and the retention
 //! policy, which the sweeper enforces.
 
+pub mod cli;
 mod disk;
+pub mod location;
 pub mod plan;
 mod retention;
 mod routes;

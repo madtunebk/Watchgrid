@@ -16,6 +16,8 @@ pub struct NewRecording {
     pub duration_ms: i64,
     pub file_size: i64,
     pub path: String,
+    /// Absolute folder the path is relative to; `None` = the default.
+    pub root: Option<String>,
     pub codec: String,
     pub width: i32,
     pub height: i32,
@@ -23,8 +25,8 @@ pub struct NewRecording {
 
 pub async fn insert(db: &PgPool, r: &NewRecording) -> sqlx::Result<()> {
     sqlx::query(
-        "INSERT INTO recordings (id, camera_id, reason, start_time, end_time, duration_ms, file_size, path, codec, width, height)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+        "INSERT INTO recordings (id, camera_id, reason, start_time, end_time, duration_ms, file_size, path, codec, width, height, root)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
     )
     .bind(&r.id)
     .bind(&r.camera_id)
@@ -37,6 +39,7 @@ pub async fn insert(db: &PgPool, r: &NewRecording) -> sqlx::Result<()> {
     .bind(&r.codec)
     .bind(r.width)
     .bind(r.height)
+    .bind(&r.root)
     .execute(db)
     .await
     .map(|_| ())
@@ -122,18 +125,18 @@ pub async fn delete(db: &PgPool, id: &str) -> sqlx::Result<()> {
     sqlx::query("DELETE FROM recordings WHERE id = $1 AND NOT protected").bind(id).execute(db).await.map(|_| ())
 }
 
-/// Stored relative file path and whether the recording is protected.
-pub async fn path_and_protection(db: &PgPool, id: &str) -> sqlx::Result<Option<(String, bool)>> {
-    sqlx::query_as("SELECT path, protected FROM recordings WHERE id = $1").bind(id).fetch_optional(db).await
+/// Stored (root, relative path) and whether the recording is protected.
+pub async fn path_and_protection(db: &PgPool, id: &str) -> sqlx::Result<Option<(Option<String>, String, bool)>> {
+    sqlx::query_as("SELECT root, path, protected FROM recordings WHERE id = $1").bind(id).fetch_optional(db).await
 }
 
 pub async fn set_protected(db: &PgPool, id: &str, protected: bool) -> sqlx::Result<()> {
     sqlx::query("UPDATE recordings SET protected = $2 WHERE id = $1").bind(id).bind(protected).execute(db).await.map(|_| ())
 }
 
-/// Stored relative file path.
-pub async fn path(db: &PgPool, id: &str) -> sqlx::Result<Option<String>> {
-    sqlx::query_scalar("SELECT path FROM recordings WHERE id = $1").bind(id).fetch_optional(db).await
+/// Stored (root, relative path).
+pub async fn path(db: &PgPool, id: &str) -> sqlx::Result<Option<(Option<String>, String)>> {
+    sqlx::query_as("SELECT root, path FROM recordings WHERE id = $1").bind(id).fetch_optional(db).await
 }
 
 fn reason_name(r: RecordingReason) -> &'static str {

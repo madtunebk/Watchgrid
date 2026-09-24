@@ -57,7 +57,7 @@ impl Sweeper {
         }
         let candidates = recordings::retention_candidates(&self.db).await.map_err(|e| e.to_string())?;
         let recordings_bytes = recordings::usage_by_camera(&self.db).await.map_err(|e| e.to_string())?.iter().map(|u| u.bytes).sum();
-        let free = disk::space(self.files.root()).ok().map(|d| d.free);
+        let free = disk::space(&self.files.root()).ok().map(|d| d.free);
         let doomed = plan::plan(&policy, &candidates, Usage { recordings_bytes, free }, Utc::now());
 
         let mut deleted = 0;

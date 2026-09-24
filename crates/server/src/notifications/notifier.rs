@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use sqlx::PgPool;
@@ -19,13 +19,13 @@ struct Notifier {
     db: PgPool,
     bus: Bus,
     bind: SocketAddr,
-    recordings: PathBuf,
+    recordings: Arc<crate::recordings::RecordingFiles>,
     last_sent: HashMap<(&'static str, Option<String>), Instant>,
     offline_notified: HashSet<String>,
 }
 
 /// Subscribe now and run in the background.
-pub fn start(db: PgPool, bus: Bus, bind: SocketAddr, recordings: PathBuf) {
+pub fn start(db: PgPool, bus: Bus, bind: SocketAddr, recordings: Arc<crate::recordings::RecordingFiles>) {
     let events = bus.subscribe();
     let n = Notifier { db, bus, bind, recordings, last_sent: HashMap::new(), offline_notified: HashSet::new() };
     tokio::spawn(n.run(events));
@@ -72,7 +72,7 @@ impl Notifier {
 
     async fn check_disk(&mut self) {
         let Ok(settings) = crate::settings::load_app(&self.db, self.bind).await else { return };
-        let Some((free, threshold)) = crate::storage::low_space(&self.db, &self.recordings).await else { return };
+        let Some((free, threshold)) = crate::storage::low_space(&self.db, &self.recordings.root()).await else { return };
         if let Some(draft) = rules::storage_low(&settings.notifications, free, threshold) {
             self.raise(draft, settings.notifications.webhook_url.as_deref(), &settings.general.nvr_name).await;
         }

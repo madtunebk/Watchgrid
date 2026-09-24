@@ -23,7 +23,7 @@ async fn status(State(s): State<AppState>) -> ApiResult<Json<SystemStatus>> {
     let host = s.metrics.latest();
     let cams = cameras::list(&s).await?;
     let enabled = cams.iter().filter(|c| c.enabled);
-    let disk = crate::storage::disk_usage_percent(s.recording_files.root());
+    let disk = crate::storage::disk_usage_percent(&s.recording_files.root());
     Ok(Json(SystemStatus {
         uptime: (chrono::Utc::now() - s.started_at).num_seconds().max(0) as u64,
         cpu_usage: host.cpu,

@@ -61,6 +61,7 @@ fn rec(id: &str, start: DateTime<Utc>, secs: i64) -> NewRecording {
         duration_ms: secs * 1000,
         file_size: 1,
         path: format!("cam-a/d/{id}.mp4"),
+        root: None,
         codec: "avc1.640028".into(),
         width: 1,
         height: 1,

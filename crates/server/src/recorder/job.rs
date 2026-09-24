@@ -52,7 +52,9 @@ async fn record(deps: &Deps, camera_id: &str, id: &str, spec: Spec, stop: &mut w
         Err(End::Stopped) => return Ok(None),
         Err(End::Failed(e)) => return Err(e),
     };
-    let partial = deps.files.partial_path(id);
+    // The folder is fixed for this recording even if Settings change it meanwhile.
+    let root = deps.files.root();
+    let partial = RecordingFiles::partial_path(&root, id);
     let mut writer = Mp4Writer::create(partial.clone()).await.map_err(|e| format!("cannot create {}: {e}", partial.display()))?;
 
     // Subscribed first, then snapshot: no gap; overlaps are skipped by pts.
@@ -75,7 +77,7 @@ async fn record(deps: &Deps, camera_id: &str, id: &str, spec: Spec, stop: &mut w
             return Err(format!("cannot finalize the recording: {e}"));
         }
     };
-    let published = publish(deps, camera_id, id, spec.reason, &track, start_time, finished).await?;
+    let published = publish(deps, &root, camera_id, id, spec.reason, &track, start_time, finished).await?;
     if let End::Failed(e) = end {
         // The footage up to the failure is saved; still report why it stopped.
         tracing::warn!(camera = %camera_id, recording = %id, "recording ended early: {e}");
@@ -204,9 +206,9 @@ fn write_error(e: std::io::Error) -> String {
 }
 
 /// Move the file into place and record it in the database.
-async fn publish(deps: &Deps, camera_id: &str, id: &str, reason: RecordingReason, track: &TrackInfo, start_time: chrono::DateTime<Utc>, f: Finished) -> Result<String, String> {
+async fn publish(deps: &Deps, root: &std::path::Path, camera_id: &str, id: &str, reason: RecordingReason, track: &TrackInfo, start_time: chrono::DateTime<Utc>, f: Finished) -> Result<String, String> {
     let relative = RecordingFiles::final_relative(camera_id, id, start_time);
-    let path = deps.files.publish(&f.path, &relative).await.map_err(|e| {
+    let path = RecordingFiles::publish(root, &f.path, &relative).await.map_err(|e| {
         format!("cannot move the recording into place: {e} (kept at {})", f.path.display())
     })?;
     let duration_ms = (f.duration * 1000 / u64::from(crate::media::TIMESCALE)) as i64;
@@ -219,6 +221,7 @@ async fn publish(deps: &Deps, camera_id: &str, id: &str, reason: RecordingReason
         duration_ms,
         file_size: f.size as i64,
         path: relative,
+        root: Some(root.to_string_lossy().into_owned()),
         codec: track.codec.clone(),
         width: track.track.width as i32,
         height: track.track.height as i32,

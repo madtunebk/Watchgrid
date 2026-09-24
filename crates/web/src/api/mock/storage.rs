@@ -57,3 +57,11 @@ pub async fn update_retention(policy: RetentionPolicy) -> ApiResult<()> {
     with_db(|db| db.retention = policy);
     Ok(())
 }
+
+pub async fn set_path(path: &str) -> ApiResult<()> {
+    latency().await;
+    if !path.starts_with('/') {
+        return Err(crate::api::ApiError::new(422, "invalid", "Use an absolute path, e.g. /volume1/watchgrid"));
+    }
+    Ok(())
+}

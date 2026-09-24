@@ -21,6 +21,7 @@ fn rec(id: &str, camera: &str, start: &str, secs: i64) -> NewRecording {
         duration_ms: secs * 1000,
         file_size: 1_000_000,
         path: format!("{camera}/2026-09-24/{id}.mp4"),
+        root: None,
         codec: "avc1.640028".into(),
         width: 1920,
         height: 1080,
@@ -50,7 +51,7 @@ async fn read_back_matches_the_model(db: PgPool) {
     let r = repo::get(&db, "r1").await.unwrap().unwrap();
     assert_eq!((r.duration, r.file_size, r.reason, r.protected), (90, 1_000_000, RecordingReason::Manual, false));
     assert_eq!(r.end_time, Some(at("2026-09-24T10:01:30Z")));
-    assert_eq!(repo::path(&db, "r1").await.unwrap().as_deref(), Some("cam-a/2026-09-24/r1.mp4"));
+    assert_eq!(repo::path(&db, "r1").await.unwrap(), Some((None, "cam-a/2026-09-24/r1.mp4".to_string())));
     assert!(repo::get(&db, "nope").await.unwrap().is_none());
 }
 

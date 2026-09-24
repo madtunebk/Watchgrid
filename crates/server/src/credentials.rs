@@ -19,6 +19,7 @@ use std::path::Path;
 use aes_gcm::aead::{Aead, AeadCore, KeyInit, OsRng, Payload};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
 
+#[cfg(test)]
 const KEY_FILE: &str = "master.key";
 const VERSION: u8 = 1;
 const NONCE_LEN: usize = 12;
@@ -52,9 +53,11 @@ impl CredentialStore {
     }
 
     /// Load the master key from `dir`, creating it (0600) on first run.
-    pub fn load_or_create(dir: &Path) -> io::Result<Self> {
-        std::fs::create_dir_all(dir)?;
-        let path = dir.join(KEY_FILE);
+    /// Read the key file, creating a new random key (mode 0600) if missing.
+    pub fn load_or_create(path: &Path) -> io::Result<Self> {
+        if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+            std::fs::create_dir_all(dir)?;
+        }
         let mut key = [0u8; 32];
         match std::fs::File::open(&path) {
             Ok(mut f) => {
@@ -157,9 +160,9 @@ mod tests {
     fn key_file_is_created_once_and_private() {
         let dir = std::env::temp_dir().join(format!("wg-cred-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        let a = CredentialStore::load_or_create(&dir).unwrap();
+        let a = CredentialStore::load_or_create(&dir.join(KEY_FILE)).unwrap();
         let sealed = a.seal("k", b"v").unwrap();
-        let b = CredentialStore::load_or_create(&dir).unwrap();
+        let b = CredentialStore::load_or_create(&dir.join(KEY_FILE)).unwrap();
         assert_eq!(b.open("k", &sealed).unwrap(), b"v");
         #[cfg(unix)]
         {

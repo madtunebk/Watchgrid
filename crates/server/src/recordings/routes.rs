@@ -37,8 +37,8 @@ async fn one(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult<Jso
 
 /// The MP4 file, with HTTP range support so the browser can seek.
 async fn media(State(s): State<AppState>, Path(id): Path<String>, req: Request) -> ApiResult<Response> {
-    let relative = repo::path(&s.db, &id).await?.ok_or_else(|| ApiError::not_found("Recording"))?;
-    let file = s.recording_files.resolve(&relative).ok_or_else(|| ApiError::internal(format!("unsafe recording path for {id}")))?;
+    let (root, relative) = repo::path(&s.db, &id).await?.ok_or_else(|| ApiError::not_found("Recording"))?;
+    let file = s.recording_files.resolve(root.as_deref(), &relative).ok_or_else(|| ApiError::internal(format!("unsafe recording path for {id}")))?;
     match ServeFile::new(file).oneshot(req).await {
         Ok(resp) => Ok(resp.into_response()),
         Err(e) => Err(ApiError::internal(e)),

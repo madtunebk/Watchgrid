@@ -42,11 +42,11 @@ use config::Config;
 use credentials::CredentialStore;
 use state::AppState;
 
-const USAGE: &str = "usage:\n  watchgrid [serve]\n  watchgrid probe <camera-id> [--sub] [--seconds N]\n  watchgrid probe-onvif <camera-id> [--url URL]\n  watchgrid watch-onvif <camera-id> [--seconds N]\n  watchgrid user create|list|passwd|enable|disable|delete <username>\n\nEnvironment (or .env): DATABASE_URL, WATCHGRID_BIND, WATCHGRID_DATA_DIR, WATCHGRID_UI_DIR";
+const USAGE: &str = "usage:\n  watchgrid [serve]\n  watchgrid init\n  watchgrid storage show|set-path <folder>\n  watchgrid probe <camera-id> [--sub] [--seconds N]\n  watchgrid probe-onvif <camera-id> [--url URL]\n  watchgrid watch-onvif <camera-id> [--seconds N]\n  watchgrid user create|list|passwd|enable|disable|delete <username>\n\nEnvironment (or .env, or /etc/watchgrid/watchgrid.env): DATABASE_URL, WATCHGRID_BIND, WATCHGRID_DATA_DIR, WATCHGRID_KEY_FILE, WATCHGRID_RECORDINGS_DIR, WATCHGRID_UI_DIR";
 
 #[tokio::main]
 async fn main() -> ExitCode {
-    let _ = dotenvy::dotenv();
+    config::load_env_files();
     let logs = system::logs::LogBuffer::default();
     {
         use tracing_subscriber::prelude::*;
@@ -65,6 +65,8 @@ async fn main() -> ExitCode {
             None => Err(format!("probe needs a camera id\n\n{USAGE}")),
         },
         Some("user") => user(&args[1..]).await,
+        Some("storage") => storage_cmd(&args[1..]).await,
+        Some("init") => init().await,
         Some("watch-onvif") => match args.get(1) {
             Some(id) => watch_onvif(id, args.iter().position(|a| a == "--seconds").and_then(|i| args.get(i + 1)).and_then(|s| s.parse().ok()).unwrap_or(30)).await,
             None => Err(format!("watch-onvif needs a camera id\n\n{USAGE}")),
@@ -125,6 +127,25 @@ async fn watch_onvif(id: &str, seconds: u64) -> Result<(), String> {
     Ok(())
 }
 
+/// `watchgrid storage …`
+async fn storage_cmd(args: &[String]) -> Result<(), String> {
+    let config = Config::from_env()?;
+    let db = db::connect(&config.database_url).await?;
+    storage::cli::run(&db, &config, args).await
+}
+
+/// First-time setup (the installer runs it as root): create the credential
+/// key if missing and bring the database schema up to date.
+async fn init() -> Result<(), String> {
+    let config = Config::from_env()?;
+    CredentialStore::load_or_create(&config.key_file).map_err(|e| format!("credential key {}: {e}", config.key_file.display()))?;
+    println!("credential key: {}", config.key_file.display());
+    db::connect(&config.database_url).await?;
+    println!("database: schema up to date");
+    println!("recordings folder (default): {}", config.recordings_dir.display());
+    Ok(())
+}
+
 /// `watchgrid user …`: needs only the database.
 async fn user(args: &[String]) -> Result<(), String> {
     let config = Config::from_env()?;
@@ -134,8 +155,8 @@ async fn user(args: &[String]) -> Result<(), String> {
 
 async fn open_state(config: &Config) -> Result<AppState, String> {
     let db = db::connect(&config.database_url).await?;
-    let credentials = CredentialStore::load_or_create(&config.data_dir).map_err(|e| format!("credential store: {e}"))?;
-    Ok(AppState::new(db, credentials, config.data_dir.join("recordings")))
+    let credentials = CredentialStore::load_or_create(&config.key_file).map_err(|e| format!("credential store: {e}"))?;
+    Ok(AppState::new(db, credentials, config.recordings_dir.clone()))
 }
 
 /// Diagnostics: connect to a configured camera and report its stream.
@@ -167,10 +188,19 @@ async fn serve(logs: system::logs::LogBuffer) -> Result<(), String> {
     state.logs = logs;
     state.bind = config.bind;
     tokio::spawn(state.metrics.clone().run());
+    // A folder chosen in Settings/CLI wins over the configured default.
+    match storage::location::load(&state.db).await {
+        Ok(Some(p)) => match storage::location::check_writable(&p.to_string_lossy()) {
+            Ok(p) => state.recording_files.set_root(p),
+            Err(e) => tracing::error!("recordings folder {} is unusable, using {}: {e}", p.display(), config.recordings_dir.display()),
+        },
+        Ok(None) => {}
+        Err(e) => tracing::warn!("cannot read the recordings folder setting: {e}"),
+    }
     state.recording_files.prepare().map_err(|e| format!("recordings directory: {e}"))?;
     // Before the supervisor starts, so no transition is missed.
     events::start_journal(state.db.clone(), state.bus.clone());
-    notifications::start(state.db.clone(), state.bus.clone(), config.bind, state.recording_files.root().to_path_buf());
+    notifications::start(state.db.clone(), state.bus.clone(), config.bind, state.recording_files.clone());
     // Start supervising every configured camera.
     for (id, enabled) in cameras::all_ids(&state).await.map_err(|_| "cannot list cameras".to_string())? {
         state.supervisor.apply(&id, enabled);
