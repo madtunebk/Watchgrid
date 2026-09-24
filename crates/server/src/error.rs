@@ -24,6 +24,27 @@ impl ApiError {
         self.status
     }
 
+    pub fn unauthenticated() -> Self {
+        Self::new(StatusCode::UNAUTHORIZED, "unauthenticated", "Please sign in")
+    }
+
+    pub fn invalid_credentials() -> Self {
+        Self::new(StatusCode::UNAUTHORIZED, "invalid_credentials", "Wrong username or password")
+    }
+
+    /// Sign-in is impossible until an account exists (created from the CLI).
+    pub fn no_users() -> Self {
+        Self::new(StatusCode::UNAUTHORIZED, "no_users", "No Watchgrid users exist. Create one from the server: sudo watchgrid user create <username>")
+    }
+
+    pub fn forbidden(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::FORBIDDEN, "forbidden", message)
+    }
+
+    pub fn too_many(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::TOO_MANY_REQUESTS, "too_many_requests", message)
+    }
+
     pub fn not_found(what: &str) -> Self {
         Self::new(StatusCode::NOT_FOUND, "not_found", format!("{what} not found"))
     }

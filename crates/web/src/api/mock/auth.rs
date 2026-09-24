@@ -25,3 +25,16 @@ pub async fn revoke(id: &str) -> ApiResult<()> {
         Ok(())
     })
 }
+
+/// The mock UI runs as a signed-in administrator.
+pub async fn current() -> ApiResult<User> {
+    Ok(User { id: "1".into(), username: "admin".into(), role: crate::api::Role::Admin, last_login: None })
+}
+
+pub async fn login(_username: &str, _password: &str) -> ApiResult<User> {
+    current().await
+}
+
+pub async fn logout() -> ApiResult<()> {
+    Ok(())
+}

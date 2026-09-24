@@ -6,9 +6,12 @@
 //!                                         connect to a camera's stream and report what it sends
 //!   watchgrid --help
 //!
-//! User accounts are managed from this CLI in a later milestone
-//! (`watchgrid user …`); the web UI never creates or resets users.
+//!   watchgrid user create|list|passwd|enable|disable|delete <username>
+//!
+//! User accounts exist only through this CLI; the web UI never creates,
+//! deletes or resets users.
 
+mod auth;
 mod bus;
 mod cameras;
 mod config;
@@ -36,7 +39,7 @@ use config::Config;
 use credentials::CredentialStore;
 use state::AppState;
 
-const USAGE: &str = "usage:\n  watchgrid [serve]\n  watchgrid probe <camera-id> [--sub] [--seconds N]\n\nEnvironment (or .env): DATABASE_URL, WATCHGRID_BIND, WATCHGRID_DATA_DIR, WATCHGRID_UI_DIR";
+const USAGE: &str = "usage:\n  watchgrid [serve]\n  watchgrid probe <camera-id> [--sub] [--seconds N]\n  watchgrid user create|list|passwd|enable|disable|delete <username>\n\nEnvironment (or .env): DATABASE_URL, WATCHGRID_BIND, WATCHGRID_DATA_DIR, WATCHGRID_UI_DIR";
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -58,6 +61,7 @@ async fn main() -> ExitCode {
             }
             None => Err(format!("probe needs a camera id\n\n{USAGE}")),
         },
+        Some("user") => user(&args[1..]).await,
         Some("-h" | "--help" | "help") => {
             println!("{USAGE}");
             Ok(())
@@ -71,6 +75,13 @@ async fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// `watchgrid user …`: needs only the database.
+async fn user(args: &[String]) -> Result<(), String> {
+    let config = Config::from_env()?;
+    let db = db::connect(&config.database_url).await?;
+    auth::cli::run(&db, args).await
 }
 
 async fn open_state(config: &Config) -> Result<AppState, String> {
@@ -121,7 +132,7 @@ async fn serve(logs: system::logs::LogBuffer) -> Result<(), String> {
 
     let listener = tokio::net::TcpListener::bind(config.bind).await.map_err(|e| format!("cannot listen on {}: {e}", config.bind))?;
     tracing::info!("Watchgrid listening on http://{}", config.bind);
-    axum::serve(listener, app)
+    axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>())
         .with_graceful_shutdown(async move {
             shutdown_signal().await;
             tracing::info!("shutting down");

@@ -1,0 +1,17 @@
+/* Sign-in screen. */
+.auth-screen {
+  min-height: 100vh; display: flex; align-items: center; justify-content: center;
+  padding: 1.0667rem; background: var(--bg); color: var(--fg);
+}
+.auth-card {
+  width: min(100%, 26rem);
+  display: flex; flex-direction: column; gap: 1.0667rem;
+  padding: 1.8667rem;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg);
+}
+.auth-card__brand { display: flex; align-items: center; gap: 0.6667rem; font-size: 1.2rem; font-weight: 600; color: var(--fg-strong); }
+.auth-card__title { font-weight: 600; color: var(--fg-strong); }
+.auth-card__error { color: var(--danger); font-size: 0.9333rem; }
+.auth-card__submit { justify-content: center; }
+.auth-card__note { font-size: 0.8667rem; color: var(--faint); }
+.auth-card__cmd { padding: 0.6667rem 0.8rem; border-radius: var(--radius); background: var(--surface-3); font: 0.9333rem var(--font-mono); overflow-x: auto; }

@@ -18,7 +18,11 @@ fn unreachable(_: gloo_net::Error) -> ApiError {
 
 async fn failure(resp: Response) -> ApiError {
     let status = resp.status();
-    resp.json::<ApiError>().await.unwrap_or_else(|_| ApiError::new(status, "http", format!("Request failed ({status})")))
+    let error = resp.json::<ApiError>().await.unwrap_or_else(|_| ApiError::new(status, "http", format!("Request failed ({status})")));
+    if status == 401 && error.code == "unauthenticated" {
+        crate::api::session::session_expired();
+    }
+    error
 }
 
 async fn json<T: DeserializeOwned>(resp: Response) -> ApiResult<T> {
@@ -46,6 +50,12 @@ pub async fn post<T: DeserializeOwned>(path: &str, body: Option<&impl Serialize>
 
 pub async fn put<T: DeserializeOwned>(path: &str, body: &impl Serialize) -> ApiResult<T> {
     json(send(Request::put(&url(path)), Some(body)).await?).await
+}
+
+/// POST without a body for endpoints that answer `204 No Content`.
+pub async fn post_no_content(path: &str) -> ApiResult<()> {
+    let resp = send(Request::post(&url(path)), None::<&()>).await?;
+    if resp.ok() { Ok(()) } else { Err(failure(resp).await) }
 }
 
 /// PUT for endpoints that answer `204 No Content`.

@@ -2,7 +2,8 @@ use leptos::prelude::*;
 use leptos_router::components::{ParentRoute, Route, Router, Routes};
 use leptos_router::path;
 
-use crate::api::{provide_connection, provide_queries};
+use crate::api::provide_queries;
+use crate::features::auth::AuthGate;
 use crate::shell::Shell;
 use crate::features::cameras::{CameraDetailsPage, CameraFormPage, CamerasPage};
 use crate::features::dashboard::DashboardPage;
@@ -17,9 +18,9 @@ use crate::shell::NotFound;
 #[component]
 pub fn App() -> impl IntoView {
     provide_queries();
-    provide_connection();
 
     view! {
+        <AuthGate>
         <Router>
             <Routes fallback=NotFound>
                 <ParentRoute path=path!("") view=Shell>
@@ -46,5 +47,6 @@ pub fn App() -> impl IntoView {
                 </ParentRoute>
             </Routes>
         </Router>
+        </AuthGate>
     }
 }

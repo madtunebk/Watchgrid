@@ -7,7 +7,7 @@ use axum::{Json, Router};
 use serde_json::{Value, json};
 use tower_http::services::{ServeDir, ServeFile};
 
-use crate::cameras;
+use crate::{auth, cameras};
 use crate::error::ApiError;
 use crate::events;
 use crate::media;
@@ -28,7 +28,9 @@ pub fn router(state: AppState, ui_dir: &Path) -> Router {
         .nest("/storage", storage::router())
         .nest("/system", system::router())
         .nest("/settings", settings::router())
-        .fallback(|| async { ApiError::not_found("API endpoint") });
+        .nest("/auth", auth::router())
+        .fallback(|| async { ApiError::not_found("API endpoint") })
+        .layer(axum::middleware::from_fn_with_state(state.clone(), auth::require_session));
 
     // Unknown non-API paths are client-side routes: serve the app shell.
     let ui = ServeDir::new(ui_dir).fallback(ServeFile::new(ui_dir.join("index.html")));

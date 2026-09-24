@@ -9,6 +9,7 @@ use crate::live::LiveRegistry;
 use crate::media::MediaHub;
 use crate::recorder::{self, Recorder};
 use crate::recordings::RecordingFiles;
+use crate::auth::LoginLimiter;
 use crate::storage::Sweeper;
 use crate::system::Sampler;
 use crate::system::logs::LogBuffer;
@@ -34,6 +35,7 @@ pub struct AppState {
     pub logs: LogBuffer,
     /// Address the server listens on (settings defaults).
     pub bind: std::net::SocketAddr,
+    pub login_limiter: Arc<LoginLimiter>,
 }
 
 impl AppState {
@@ -66,6 +68,7 @@ impl AppState {
             metrics: Sampler::default(),
             logs: LogBuffer::default(),
             bind: "127.0.0.1:8090".parse().expect("valid default address"),
+            login_limiter: Arc::default(),
             recorder: Arc::new(recorder),
             recording_files: files,
         }
