@@ -1,10 +1,11 @@
-//! Event recording: for cameras in "events" mode, record while detections
-//! are active, with pre-record (buffered video before the event),
-//! post-record, merging of close events and splitting of long clips.
+//! Automatic recording, one controller task per camera, by recording mode:
 //!
-//! One controller task per camera. It keeps the camera's recording stream
-//! open (so the pre-record buffer is filled) and reacts to
-//! DetectionStarted/Ended on the bus. Manual recordings are never touched.
+//! - events: record while detections are active, with pre-record (buffered
+//!   video before the event), post-record, merging and clip splitting;
+//! - continuous / scheduled: see [`super::timed`].
+//!
+//! The controller keeps the camera's recording stream open (filling the
+//! pre-record buffer). Manual recordings are never touched.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -56,12 +57,12 @@ impl AutoRecorders {
     }
 }
 
-struct Controller {
-    db: PgPool,
-    hub: Arc<MediaHub>,
-    bus: Bus,
-    recorder: Arc<Recorder>,
-    id: String,
+pub(super) struct Controller {
+    pub(super) db: PgPool,
+    pub(super) hub: Arc<MediaHub>,
+    pub(super) bus: Bus,
+    pub(super) recorder: Arc<Recorder>,
+    pub(super) id: String,
 }
 
 /// The settings that matter here, in usable units.
@@ -89,12 +90,17 @@ impl Plan {
 impl Controller {
     async fn run(self) {
         let camera = match crate::cameras::repo_get(&self.db, &self.id).await {
-            Ok(Some(c)) => c,
+            Ok(Some(c)) if c.enabled => c,
             _ => return,
         };
+        match camera.recording.mode {
+            RecordingMode::Events => {}
+            RecordingMode::Continuous | RecordingMode::Scheduled => return super::timed::run(&self, &camera).await,
+            RecordingMode::Disabled | RecordingMode::Manual => return,
+        }
         // Only cameras that can produce detections (today: ONVIF motion).
         let detects = camera.motion.enabled && camera.motion.source == MotionSource::Onvif && camera.onvif.as_ref().is_some_and(|o| !o.url.is_empty());
-        if !camera.enabled || camera.recording.mode != RecordingMode::Events || !detects {
+        if !detects {
             return;
         }
         let plan = Plan::from_settings(&camera.recording);

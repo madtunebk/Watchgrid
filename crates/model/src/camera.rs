@@ -119,6 +119,41 @@ pub struct RecordingSettings {
     pub max_clip_seconds: u32,
     /// Events closer together than this are merged into one recording.
     pub event_merge_seconds: u32,
+    /// When "scheduled" mode records (server time zone).
+    #[serde(default)]
+    pub schedule: Vec<ScheduleWindow>,
+}
+
+/// A weekly recording window. `end` before `start` runs past midnight into
+/// the next day; `start == end` means the whole day.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScheduleWindow {
+    /// Days the window starts on: 0 = Monday … 6 = Sunday.
+    pub days: Vec<u8>,
+    /// Minutes after midnight, 0–1439.
+    pub start_minute: u16,
+    pub end_minute: u16,
+}
+
+impl ScheduleWindow {
+    /// Is `minute` (0–1439) of `weekday` (0 = Monday) inside the window?
+    pub fn contains(&self, weekday: u8, minute: u16) -> bool {
+        let on = |d: u8| self.days.contains(&d);
+        let yesterday = (weekday + 6) % 7;
+        if self.start_minute == self.end_minute {
+            on(weekday)
+        } else if self.start_minute < self.end_minute {
+            on(weekday) && (self.start_minute..self.end_minute).contains(&minute)
+        } else {
+            (on(weekday) && minute >= self.start_minute) || (on(yesterday) && minute < self.end_minute)
+        }
+    }
+}
+
+/// Is any window active at this moment?
+pub fn schedule_active(windows: &[ScheduleWindow], weekday: u8, minute: u16) -> bool {
+    windows.iter().any(|w| w.contains(weekday, minute))
 }
 
 impl Default for RecordingSettings {
@@ -131,6 +166,7 @@ impl Default for RecordingSettings {
             min_event_seconds: 2,
             max_clip_seconds: 600,
             event_merge_seconds: 10,
+            schedule: Vec::new(),
         }
     }
 }
@@ -244,5 +280,33 @@ impl From<&Camera> for CameraInput {
             recording: c.recording.clone(),
             motion: c.motion.clone(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn w(days: &[u8], start: u16, end: u16) -> ScheduleWindow {
+        ScheduleWindow { days: days.to_vec(), start_minute: start, end_minute: end }
+    }
+
+    #[test]
+    fn windows_within_a_day_and_past_midnight() {
+        let office = w(&[0, 1, 2, 3, 4], 8 * 60, 18 * 60);
+        assert!(office.contains(0, 9 * 60));
+        assert!(!office.contains(0, 18 * 60), "end is exclusive");
+        assert!(!office.contains(5, 9 * 60), "not on Saturday");
+
+        let night = w(&[4], 22 * 60, 6 * 60); // Friday 22:00 → Saturday 06:00
+        assert!(night.contains(4, 23 * 60));
+        assert!(night.contains(5, 5 * 60), "continues into Saturday morning");
+        assert!(!night.contains(5, 23 * 60), "but doesn't start on Saturday");
+        assert!(night.contains(4, 22 * 60) && !night.contains(4, 21 * 60));
+
+        let sunday_all_day = w(&[6], 0, 0);
+        assert!(sunday_all_day.contains(6, 0) && sunday_all_day.contains(6, 1439) && !sunday_all_day.contains(0, 0));
+        assert!(schedule_active(&[office, night], 5, 60));
+        assert!(!schedule_active(&[], 0, 0));
     }
 }

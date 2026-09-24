@@ -40,6 +40,28 @@ pub fn defaults(bind: std::net::SocketAddr) -> Settings {
     }
 }
 
+/// The configured time zone (Settings → General), else the machine's.
+pub async fn timezone(db: &PgPool) -> String {
+    match store::load::<Settings>(db, KEY).await {
+        Ok(Some(s)) => s.general.timezone,
+        _ => timezone::name().to_string(),
+    }
+}
+
+/// Local (weekday 0 = Monday, minute of day) now, in the configured zone.
+/// PostgreSQL does the zone arithmetic, so no time zone database is bundled.
+pub async fn local_clock(db: &PgPool) -> sqlx::Result<(u8, u16)> {
+    let tz = timezone(db).await;
+    let (dow, minute): (i32, i32) = sqlx::query_as(
+        "SELECT EXTRACT(ISODOW FROM now() AT TIME ZONE $1)::int - 1,
+                (EXTRACT(HOUR FROM now() AT TIME ZONE $1) * 60 + EXTRACT(MINUTE FROM now() AT TIME ZONE $1))::int",
+    )
+    .bind(tz)
+    .fetch_one(db)
+    .await?;
+    Ok((dow.clamp(0, 6) as u8, minute.clamp(0, 1439) as u16))
+}
+
 pub async fn load(db: &PgPool, bind: std::net::SocketAddr) -> ApiResult<Settings> {
     Ok(store::load(db, KEY).await?.unwrap_or_else(|| defaults(bind)))
 }

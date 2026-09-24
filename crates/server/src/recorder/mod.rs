@@ -8,6 +8,7 @@
 
 mod auto;
 mod job;
+mod timed;
 mod writer;
 
 use std::collections::HashMap;

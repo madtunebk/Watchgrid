@@ -62,8 +62,8 @@ pub async fn handle(db: &PgPool, links: &mut Links, event: &BusEvent) -> sqlx::R
         BusEvent::CameraStopped { camera_id, at } => repo::close(db, camera_id, EventType::CameraOffline, *at).await,
         BusEvent::RecordingStarted { camera_id, recording_id, reason, at } => match reason {
             RecordingReason::Manual | RecordingReason::Api => repo::open(db, camera_id, EventType::Manual, *at, "Manual recording", Some(recording_id)).await,
-            RecordingReason::Scheduled => repo::open(db, camera_id, EventType::Scheduled, *at, "Scheduled recording", Some(recording_id)).await,
-            // Event recordings belong to the detections that caused them.
+            // Event, continuous and scheduled clips aren't events themselves:
+            // detections happening while they run point at them.
             _ => {
                 links.0.insert(camera_id.clone(), recording_id.clone());
                 repo::link_open_detections(db, camera_id, recording_id).await

@@ -5,7 +5,7 @@ mod app;
 mod routes;
 mod store;
 
-pub use app::load as load_app;
+pub use app::{load as load_app, local_clock};
 pub use routes::router;
 pub use store::{load, save};
 

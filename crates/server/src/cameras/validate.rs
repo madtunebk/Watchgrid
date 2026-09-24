@@ -47,6 +47,20 @@ pub fn check(i: &CameraInput) -> Result<(), ApiError> {
     if !(30..=3600).contains(&r.max_clip_seconds) {
         return invalid("Maximum clip duration must be between 30 and 3600 seconds");
     }
+    if r.schedule.len() > 20 {
+        return invalid("Use at most 20 schedule windows");
+    }
+    for w in &r.schedule {
+        if w.days.is_empty() || w.days.iter().any(|d| *d > 6) {
+            return invalid("Each schedule window needs at least one day");
+        }
+        if w.start_minute >= 1440 || w.end_minute >= 1440 {
+            return invalid("Schedule times must be between 00:00 and 23:59");
+        }
+    }
+    if r.mode == watchgrid_model::RecordingMode::Scheduled && r.schedule.is_empty() {
+        return invalid("Scheduled recording needs at least one time window");
+    }
     if i.motion.sensitivity > 100 {
         return invalid("Motion sensitivity must be between 0 and 100");
     }
@@ -116,6 +130,15 @@ mod tests {
     fn recording_limits() {
         assert!(rejects(|i| i.recording.pre_record_seconds = 61));
         assert!(rejects(|i| i.recording.max_clip_seconds = 10));
+        assert!(rejects(|i| i.recording.mode = watchgrid_model::RecordingMode::Scheduled), "scheduled without windows");
+        let window = |days: Vec<u8>, start, end| watchgrid_model::ScheduleWindow { days, start_minute: start, end_minute: end };
+        assert!(rejects(|i| i.recording.schedule = vec![window(vec![], 0, 60)]));
+        assert!(rejects(|i| i.recording.schedule = vec![window(vec![7], 0, 60)]));
+        assert!(rejects(|i| i.recording.schedule = vec![window(vec![0], 0, 1440)]));
+        assert!(!rejects(|i| {
+            i.recording.mode = watchgrid_model::RecordingMode::Scheduled;
+            i.recording.schedule = vec![window(vec![0, 1], 22 * 60, 6 * 60)];
+        }));
         assert!(rejects(|i| i.motion.sensitivity = 101));
     }
 }

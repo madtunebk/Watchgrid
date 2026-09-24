@@ -87,12 +87,12 @@ async fn a_recording_event_spans_its_recording(db: PgPool) {
 #[sqlx::test(migrations = "./migrations")]
 async fn a_failed_recording_keeps_the_event_without_a_clip(db: PgPool) {
     let at = t("2026-09-24T12:00:00Z");
-    journal::handle(&db, &mut journal::Links::default(), &BusEvent::RecordingStarted { camera_id: "cam-a".into(), recording_id: "rec-x".into(), reason: RecordingReason::Scheduled, at }).await.unwrap();
+    journal::handle(&db, &mut journal::Links::default(), &BusEvent::RecordingStarted { camera_id: "cam-a".into(), recording_id: "rec-x".into(), reason: RecordingReason::Manual, at }).await.unwrap();
     let stopped = BusEvent::RecordingStopped { camera_id: "cam-a".into(), recording_id: None, error: Some("the disk is full".into()), at: at + Duration::seconds(5) };
     journal::handle(&db, &mut journal::Links::default(), &stopped).await.unwrap();
     let e = &all(&db).await[0];
-    assert_eq!((e.kind, e.recording_id.as_deref()), (EventType::Scheduled, None));
-    assert_eq!(e.source, "Scheduled recording — ended early: the disk is full");
+    assert_eq!((e.kind, e.recording_id.as_deref()), (EventType::Manual, None));
+    assert_eq!(e.source, "Manual recording — ended early: the disk is full");
 }
 
 #[sqlx::test(migrations = "./migrations")]

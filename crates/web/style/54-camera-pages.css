@@ -136,3 +136,15 @@
 }
 .danger-zone__title { font-size: 1.0667rem; font-weight: 600; color: var(--danger); }
 .danger-zone__text { font-size: 0.9333rem; color: var(--muted); }
+
+/* Recording schedule editor */
+.schedule { display: flex; flex-direction: column; gap: 0.6667rem; align-items: flex-start; }
+.schedule__row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5333rem; }
+.schedule__days { display: inline-flex; gap: 0.2667rem; }
+.schedule__day {
+  min-width: 2.6667rem; height: 2.1333rem; padding: 0 0.4rem;
+  border-radius: var(--radius); border: 1px solid var(--line);
+  background: var(--surface); color: var(--muted); font-size: 0.8667rem;
+}
+.schedule__day--on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.schedule__time { width: 7.4667rem; }

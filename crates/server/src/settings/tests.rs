@@ -39,3 +39,18 @@ async fn invalid_settings_are_refused(db: PgPool) {
     }
     assert_eq!(app::load(&db, bind()).await.unwrap(), base, "nothing was stored");
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn local_clock_follows_the_configured_zone(db: PgPool) {
+    let mut s = app::defaults(bind());
+    s.general.timezone = "Pacific/Kiritimati".into(); // UTC+14
+    app::save(&db, s).await.unwrap();
+    let (day, minute) = super::local_clock(&db).await.unwrap();
+    let utc: (i32, i32) = sqlx::query_as("SELECT EXTRACT(ISODOW FROM now() AT TIME ZONE 'UTC')::int - 1, (EXTRACT(HOUR FROM now() AT TIME ZONE 'UTC') * 60 + EXTRACT(MINUTE FROM now() AT TIME ZONE 'UTC'))::int")
+        .fetch_one(&db)
+        .await
+        .unwrap();
+    let local = i32::from(day) * 1440 + i32::from(minute);
+    let expected = (utc.0 * 1440 + utc.1 + 14 * 60).rem_euclid(7 * 1440);
+    assert!((local - expected).abs() <= 1, "14 hours ahead of UTC");
+}
