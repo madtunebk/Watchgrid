@@ -19,6 +19,8 @@ pub struct CameraLive {
     pub bitrate: Option<u32>,
     pub audio_codec: Option<String>,
     pub last_error: Option<String>,
+    /// The camera reports motion right now (ONVIF).
+    pub motion_active: bool,
 }
 
 impl CameraLive {
@@ -33,6 +35,7 @@ impl CameraLive {
             bitrate: None,
             audio_codec: None,
             last_error: None,
+            motion_active: false,
         }
     }
 }
@@ -64,6 +67,7 @@ impl LiveRegistry {
         let Some(live) = self.get(&camera.id) else { return };
         camera.status = live.status;
         camera.connected_since = live.connected_since;
+        camera.motion_active = live.motion_active;
         let s = &mut camera.main_stream;
         s.status = match live.status {
             CameraStatus::Online => StreamStatus::Active,

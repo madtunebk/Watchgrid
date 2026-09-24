@@ -43,8 +43,13 @@ impl Row {
 /// Start an event that lasts (outage, recording). No-op if one of this
 /// kind is already open for the camera. Returns whether it was created.
 pub async fn open(db: &PgPool, camera_id: &str, kind: EventType, at: DateTime<Utc>, source: &str, recording_id: Option<&str>) -> sqlx::Result<bool> {
+    open_from(db, camera_id, kind, at, source, recording_id, "watchgrid").await
+}
+
+/// Like [`open`], naming the integration that raised the event.
+pub async fn open_from(db: &PgPool, camera_id: &str, kind: EventType, at: DateTime<Utc>, source: &str, recording_id: Option<&str>, origin: &str) -> sqlx::Result<bool> {
     let r = sqlx::query(
-        "INSERT INTO events (camera_id, kind, start_time, source, recording_id) VALUES ($1, $2, $3, $4, $5)
+        "INSERT INTO events (camera_id, kind, start_time, source, recording_id, origin) VALUES ($1, $2, $3, $4, $5, $6)
          ON CONFLICT (camera_id, kind) WHERE end_time IS NULL DO NOTHING",
     )
     .bind(camera_id)
@@ -52,6 +57,7 @@ pub async fn open(db: &PgPool, camera_id: &str, kind: EventType, at: DateTime<Ut
     .bind(at)
     .bind(source)
     .bind(recording_id)
+    .bind(origin)
     .execute(db)
     .await?;
     Ok(r.rows_affected() > 0)
@@ -100,9 +106,14 @@ pub async fn close_recording(db: &PgPool, camera_id: &str, recording_id: Option<
 }
 
 /// After a restart: finish recording events left open by the previous run
-/// with their recording's end. Outages stay open — the supervisor closes
-/// them when the camera connects again.
+/// with their recording's end, and detections at their start (their real
+/// end is unknown). Outages stay open — the supervisor closes them when
+/// the camera connects again.
 pub async fn close_stale(db: &PgPool) -> sqlx::Result<u64> {
+    let detections = sqlx::query("UPDATE events SET end_time = start_time WHERE origin <> 'watchgrid' AND end_time IS NULL")
+        .execute(db)
+        .await?
+        .rows_affected();
     sqlx::query(
         "UPDATE events e SET
              end_time = COALESCE((SELECT r.end_time FROM recordings r WHERE r.id = e.recording_id), e.start_time),
@@ -111,7 +122,7 @@ pub async fn close_stale(db: &PgPool) -> sqlx::Result<u64> {
     )
     .execute(db)
     .await
-    .map(|r| r.rows_affected())
+    .map(|r| r.rows_affected() + detections)
 }
 
 /// `tz`: IANA zone for the hours-of-day filter.

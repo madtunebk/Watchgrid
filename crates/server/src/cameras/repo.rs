@@ -168,6 +168,10 @@ pub async fn delete(db: &PgPool, id: &str) -> sqlx::Result<bool> {
 }
 
 /// Encrypted stream password of a camera, if any. `None` = no such camera.
+pub async fn onvif_password_enc(db: &PgPool, id: &str) -> sqlx::Result<Option<Option<Vec<u8>>>> {
+    sqlx::query_scalar("SELECT onvif_password_enc FROM cameras WHERE id = $1").bind(id).fetch_optional(db).await
+}
+
 pub async fn password_enc(db: &PgPool, id: &str) -> sqlx::Result<Option<Option<Vec<u8>>>> {
     sqlx::query_scalar("SELECT password_enc FROM cameras WHERE id = $1").bind(id).fetch_optional(db).await
 }

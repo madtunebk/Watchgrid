@@ -97,6 +97,88 @@ pub fn device_utc_time(xml: &str) -> Option<DateTime<Utc>> {
     Some(date.and_hms_opt(n("Hour")?, n("Minute")?, n("Second")?)?.and_utc())
 }
 
+/// One event from a PullMessages reply.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Notification {
+    /// Without namespace prefixes, e.g. "RuleEngine/CellMotionDetector/Motion".
+    pub topic: String,
+    pub time: Option<DateTime<Utc>>,
+    /// "Initialized", "Changed" or "Deleted".
+    pub operation: String,
+    /// `Data` items as (name, value).
+    pub data: Vec<(String, String)>,
+}
+
+impl Notification {
+    /// The first boolean data value (IsMotion, IsPeople, State, …).
+    pub fn active(&self) -> Option<bool> {
+        self.data.iter().find_map(|(_, v)| match v.to_ascii_lowercase().as_str() {
+            "true" | "1" => Some(true),
+            "false" | "0" => Some(false),
+            _ => None,
+        })
+    }
+}
+
+fn strip_prefixes(topic: &str) -> String {
+    topic.trim().split('/').map(|part| part.rsplit(':').next().unwrap_or(part)).collect::<Vec<_>>().join("/")
+}
+
+fn attr(e: &quick_xml::events::BytesStart<'_>, name: &[u8]) -> Option<String> {
+    e.attributes().flatten().find(|a| local(a.key.as_ref()) == name).and_then(|a| a.unescape_value().ok()).map(|v| v.into_owned())
+}
+
+/// All NotificationMessages in a PullMessages reply.
+pub fn notifications(xml: &str) -> Vec<Notification> {
+    let mut r = Reader::from_str(xml);
+    let mut out = Vec::new();
+    let mut current: Option<Notification> = None;
+    let (mut in_topic, mut in_data) = (false, false);
+    loop {
+        let Ok(ev) = r.read_event() else { break };
+        match ev {
+            Event::Start(e) | Event::Empty(e) => {
+                let name = local(e.name().as_ref()).to_vec();
+                match name.as_slice() {
+                    b"NotificationMessage" => current = Some(Notification { topic: String::new(), time: None, operation: String::new(), data: Vec::new() }),
+                    b"Topic" => in_topic = true,
+                    b"Message" if current.is_some() => {
+                        if let Some(n) = current.as_mut() {
+                            if let Some(t) = attr(&e, b"UtcTime") {
+                                n.time = t.parse().ok();
+                            }
+                            if let Some(op) = attr(&e, b"PropertyOperation") {
+                                n.operation = op;
+                            }
+                        }
+                    }
+                    b"Data" => in_data = true,
+                    b"SimpleItem" if in_data => {
+                        if let (Some(n), Some(k), Some(v)) = (current.as_mut(), attr(&e, b"Name"), attr(&e, b"Value")) {
+                            n.data.push((k, v));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Event::Text(t) if in_topic => {
+                if let (Some(n), Ok(text)) = (current.as_mut(), t.decode()) {
+                    n.topic = strip_prefixes(&text);
+                }
+            }
+            Event::End(e) => match local(e.name().as_ref()) {
+                b"Topic" => in_topic = false,
+                b"Data" => in_data = false,
+                b"NotificationMessage" => out.extend(current.take()),
+                _ => {}
+            },
+            Event::Eof => break,
+            _ => {}
+        }
+    }
+    out
+}
+
 pub fn escape(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
 }
@@ -111,6 +193,25 @@ mod tests {
             <MyRuleDetector><PeopleDetect wstop:topic="true"/></MyRuleDetector></tns1:RuleEngine>
           <tns1:VideoSource><MotionAlarm wstop:topic="true"/></tns1:VideoSource>
         </wstop:TopicSet></tev:GetEventPropertiesResponse></env:Body></env:Envelope>"#;
+
+    #[test]
+    fn parses_pull_messages() {
+        let reply = r#"<env:Body><tev:PullMessagesResponse><tev:CurrentTime>x</tev:CurrentTime>
+          <wsnt:NotificationMessage><wsnt:Topic Dialect="d">tns1:RuleEngine/CellMotionDetector/Motion</wsnt:Topic>
+            <wsnt:Message><tt:Message UtcTime="2026-09-24T21:00:05Z" PropertyOperation="Changed">
+              <tt:Source><tt:SimpleItem Name="VideoSourceConfigurationToken" Value="vsconf"/></tt:Source>
+              <tt:Data><tt:SimpleItem Name="IsMotion" Value="true"/></tt:Data></tt:Message></wsnt:Message></wsnt:NotificationMessage>
+          <wsnt:NotificationMessage><wsnt:Topic>tns1:RuleEngine/PeopleDetector/People</wsnt:Topic>
+            <wsnt:Message><tt:Message UtcTime="2026-09-24T21:00:07Z" PropertyOperation="Initialized">
+              <tt:Data><tt:SimpleItem Name="IsPeople" Value="false"/></tt:Data></tt:Message></wsnt:Message></wsnt:NotificationMessage>
+          </tev:PullMessagesResponse></env:Body>"#;
+        let n = notifications(reply);
+        assert_eq!(n.len(), 2);
+        assert_eq!((n[0].topic.as_str(), n[0].active(), n[0].operation.as_str()), ("RuleEngine/CellMotionDetector/Motion", Some(true), "Changed"));
+        assert_eq!(n[0].time, Some("2026-09-24T21:00:05Z".parse().unwrap()));
+        assert_eq!(n[0].data, [("IsMotion".to_string(), "true".to_string())], "source items are not data");
+        assert_eq!((n[1].topic.as_str(), n[1].active()), ("RuleEngine/PeopleDetector/People", Some(false)));
+    }
 
     #[test]
     fn extracts_leaf_topics() {

@@ -229,6 +229,29 @@ pub async fn stored_onvif_login(state: &AppState, url: &str) -> ApiResult<Option
     Ok(Some((config.0.username, password)))
 }
 
+/// What the ONVIF event watcher needs. `None` when the camera is gone.
+pub struct OnvifWatch {
+    /// Enabled, with ONVIF settings and motion taken from ONVIF events.
+    pub active: bool,
+    pub url: String,
+    pub username: String,
+    pub password: Option<String>,
+}
+
+pub async fn onvif_watch(db: &PgPool, credentials: &CredentialStore, id: &str) -> Result<Option<OnvifWatch>, String> {
+    let Some(row) = repo::get(db, id).await.map_err(|e| e.to_string())? else { return Ok(None) };
+    let camera = row.into_model();
+    let Some(onvif) = camera.onvif.filter(|o| !o.url.trim().is_empty()) else {
+        return Ok(Some(OnvifWatch { active: false, url: String::new(), username: String::new(), password: None }));
+    };
+    let active = camera.enabled && camera.motion.enabled && camera.motion.source == watchgrid_model::MotionSource::Onvif;
+    let password = match repo::onvif_password_enc(db, id).await.map_err(|e| e.to_string())?.flatten() {
+        None => None,
+        Some(bytes) => Some(String::from_utf8(credentials.open(&aad(id, "onvif-password"), &bytes).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?),
+    };
+    Ok(Some(OnvifWatch { active, url: onvif.url, username: onvif.username, password }))
+}
+
 /// Username and decrypted password (for `watchgrid probe`).
 pub async fn stream_credentials(state: &AppState, id: &str) -> ApiResult<(String, Option<String>)> {
     let info = connection_info(&state.db, &state.credentials, id).await.map_err(ApiError::internal)?.ok_or_else(|| ApiError::not_found("Camera"))?;
@@ -241,6 +264,7 @@ fn changed(state: &AppState, id: &str, enabled: Option<bool>) {
         Some(enabled) => state.supervisor.apply(id, enabled),
         None => state.supervisor.stop(id),
     }
+    state.onvif.apply(id, enabled.is_some());
     if enabled != Some(true) {
         state.bus.publish(BusEvent::CameraStopped { camera_id: id.to_string(), at: chrono::Utc::now() });
     }

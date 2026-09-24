@@ -40,7 +40,7 @@ use config::Config;
 use credentials::CredentialStore;
 use state::AppState;
 
-const USAGE: &str = "usage:\n  watchgrid [serve]\n  watchgrid probe <camera-id> [--sub] [--seconds N]\n  watchgrid probe-onvif <camera-id> [--url URL]\n  watchgrid user create|list|passwd|enable|disable|delete <username>\n\nEnvironment (or .env): DATABASE_URL, WATCHGRID_BIND, WATCHGRID_DATA_DIR, WATCHGRID_UI_DIR";
+const USAGE: &str = "usage:\n  watchgrid [serve]\n  watchgrid probe <camera-id> [--sub] [--seconds N]\n  watchgrid probe-onvif <camera-id> [--url URL]\n  watchgrid watch-onvif <camera-id> [--seconds N]\n  watchgrid user create|list|passwd|enable|disable|delete <username>\n\nEnvironment (or .env): DATABASE_URL, WATCHGRID_BIND, WATCHGRID_DATA_DIR, WATCHGRID_UI_DIR";
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -63,6 +63,10 @@ async fn main() -> ExitCode {
             None => Err(format!("probe needs a camera id\n\n{USAGE}")),
         },
         Some("user") => user(&args[1..]).await,
+        Some("watch-onvif") => match args.get(1) {
+            Some(id) => watch_onvif(id, args.iter().position(|a| a == "--seconds").and_then(|i| args.get(i + 1)).and_then(|s| s.parse().ok()).unwrap_or(30)).await,
+            None => Err(format!("watch-onvif needs a camera id\n\n{USAGE}")),
+        },
         Some("probe-onvif") => match args.get(1) {
             Some(id) => probe_onvif(id, args.iter().position(|a| a == "--url").and_then(|i| args.get(i + 1)).map(String::as_str)).await,
             None => Err(format!("probe-onvif needs a camera id\n\n{USAGE}")),
@@ -97,6 +101,25 @@ async fn probe_onvif(id: &str, url_override: Option<&str>) -> Result<(), String>
         println!("  topic: {t}");
     }
     println!("  detections: {:?}", p.detections);
+    Ok(())
+}
+
+/// Diagnostics: print a camera's ONVIF events as they arrive.
+async fn watch_onvif(id: &str, seconds: u64) -> Result<(), String> {
+    let config = Config::from_env()?;
+    let state = open_state(&config).await?;
+    let camera = cameras::get_camera(&state, id).await.map_err(|_| format!("no camera with id `{id}`"))?;
+    let onvif = camera.onvif.ok_or("this camera has no ONVIF settings")?;
+    let (user, password) = cameras::stored_onvif_login(&state, &onvif.url).await.map_err(|_| "cannot read the ONVIF credentials".to_string())?.unwrap_or_default();
+    let sub = onvif::pullpoint::Subscription::create(&onvif.url, &user, password).await?;
+    println!("{} — subscribed; watching {seconds} s", camera.name);
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(seconds);
+    while std::time::Instant::now() < until {
+        for n in sub.pull().await? {
+            println!("  {} {} {:?} {:?} {:?}", onvif::pullpoint::when(&n).format("%H:%M:%S"), n.operation, n.topic, n.active(), n.data);
+        }
+    }
+    sub.unsubscribe().await;
     Ok(())
 }
 
@@ -148,6 +171,7 @@ async fn serve(logs: system::logs::LogBuffer) -> Result<(), String> {
     // Start supervising every configured camera.
     for (id, enabled) in cameras::all_ids(&state).await.map_err(|_| "cannot list cameras".to_string())? {
         state.supervisor.apply(&id, enabled);
+        state.onvif.apply(&id, true);
     }
     tokio::spawn(state.retention.clone().run());
     let recorder = state.recorder.clone();

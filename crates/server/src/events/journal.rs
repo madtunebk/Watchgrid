@@ -5,6 +5,7 @@
 //! camera stopped  → closes the outage (disabled or deleted)
 //! recording start → opens a recording event linked to the recording
 //! recording stop  → closes it with the recording's real end time
+//! ONVIF detection → opens/closes a motion/person/… event (origin "onvif")
 
 use sqlx::PgPool;
 use tokio::sync::broadcast::error::RecvError;
@@ -58,6 +59,10 @@ pub async fn handle(db: &PgPool, event: &BusEvent) -> sqlx::Result<bool> {
             };
             repo::open(db, camera_id, kind, *at, source, Some(recording_id)).await
         }
+        BusEvent::DetectionStarted { camera_id, kind, topic, at } => {
+            repo::open_from(db, camera_id, *kind, *at, &format!("ONVIF: {topic}"), None, "onvif").await
+        }
+        BusEvent::DetectionEnded { camera_id, kind, at } => repo::close(db, camera_id, *kind, *at).await,
         BusEvent::RecordingStopped { camera_id, recording_id, error, at } => {
             repo::close_recording(db, camera_id, recording_id.as_deref(), *at, error.as_deref()).await
         }

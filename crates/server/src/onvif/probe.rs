@@ -26,14 +26,9 @@ async fn run(url: &str, username: &str, password: Option<String>) -> Result<Onvi
     let device = [field("Manufacturer"), field("Model")].into_iter().flatten().collect::<Vec<_>>().join(" ");
     let firmware = field("FirmwareVersion").map(|f| format!(", firmware {f}")).unwrap_or_default();
 
-    let caps = client
-        .call(&url, &format!("{DEVICE}/GetCapabilities"), &format!(r#"<tds:GetCapabilities xmlns:tds="{DEVICE}"><tds:Category>Events</tds:Category></tds:GetCapabilities>"#))
-        .await?;
-    let Some(events_url) = xml::xaddr_in(&caps, "Events").and_then(|a| Url::parse(&a).ok()) else {
+    let Some(events_url) = events_service(&client, &url).await? else {
         return Ok(OnvifProbe { ok: true, message: format!("{device}{firmware} — no ONVIF event service"), event_topics: vec![], detections: vec![] });
     };
-    // Some devices advertise an address other than the one we reached them on.
-    let events_url = rebase(&events_url, &url);
 
     let props = client.call(&events_url, &format!("{EVENTS}/EventPortType/GetEventPropertiesRequest"), &format!(r#"<tev:GetEventProperties xmlns:tev="{EVENTS}"/>"#)).await?;
     let event_topics = xml::topics(&props);
@@ -42,11 +37,21 @@ async fn run(url: &str, username: &str, password: Option<String>) -> Result<Onvi
     Ok(OnvifProbe { ok: true, message, event_topics, detections })
 }
 
-/// Keep the advertised path but use the host and port we can reach.
-fn rebase(advertised: &Url, reached: &Url) -> Url {
+/// Address of the device's event service, if it has one.
+pub async fn events_service(client: &Client, device: &Url) -> Result<Option<Url>, String> {
+    let caps = client
+        .call(device, &format!("{DEVICE}/GetCapabilities"), &format!(r#"<tds:GetCapabilities xmlns:tds="{DEVICE}"><tds:Category>Events</tds:Category></tds:GetCapabilities>"#))
+        .await?;
+    // Some devices advertise an address other than the one we reached them on.
+    Ok(xml::xaddr_in(&caps, "Events").and_then(|a| Url::parse(&a).ok()).map(|u| rebase(&u, device)))
+}
+
+/// Use the host we can reach but keep the advertised port and path:
+/// devices report their LAN address wrongly more often than their ports
+/// (Tapo serves subscriptions on their own ports, e.g. :1026).
+pub fn rebase(advertised: &Url, reached: &Url) -> Url {
     let mut u = advertised.clone();
     let _ = u.set_host(reached.host_str());
-    let _ = u.set_port(reached.port());
     u
 }
 
@@ -57,8 +62,8 @@ mod tests {
 
     #[test]
     fn advertised_addresses_use_the_reachable_host() {
-        let adv = Url::parse("http://10.0.0.1:8000/onvif/Events").unwrap();
-        let reached = Url::parse("http://192.168.1.20/onvif/device_service").unwrap();
-        assert_eq!(rebase(&adv, &reached).as_str(), "http://192.168.1.20/onvif/Events");
+        let adv = Url::parse("http://10.0.0.1:1026/event-1026_1026").unwrap();
+        let reached = Url::parse("http://192.168.1.215:2020/onvif/device_service").unwrap();
+        assert_eq!(rebase(&adv, &reached).as_str(), "http://192.168.1.215:1026/event-1026_1026");
     }
 }

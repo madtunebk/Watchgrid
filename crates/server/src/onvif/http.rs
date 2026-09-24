@@ -37,15 +37,44 @@ pub async fn post_soap(url: &Url, action: &str, body: &str) -> Result<Reply, Str
             format!("cannot connect to {host}:{port}: {e}{hint}")
         })?;
         stream.write_all(request.as_bytes()).await.map_err(|e| e.to_string())?;
+        // Read until the response is complete; some devices keep the
+        // connection open despite `Connection: close`.
         let mut raw = Vec::new();
-        stream.take(MAX_BODY as u64).read_to_end(&mut raw).await.map_err(|e| e.to_string())?;
+        let mut buf = [0u8; 16 * 1024];
+        loop {
+            let n = stream.read(&mut buf).await.map_err(|e| e.to_string())?;
+            if n == 0 {
+                break;
+            }
+            raw.extend_from_slice(&buf[..n]);
+            if raw.len() > MAX_BODY {
+                return Err("the ONVIF reply is too large".into());
+            }
+            if complete(&raw) {
+                break;
+            }
+        }
         parse_response(&raw)
     };
     timeout(TIMEOUT, exchange).await.map_err(|_| format!("{host}:{port} did not answer in {} s", TIMEOUT.as_secs()))?
 }
 
+/// Has a full response (per Content-Length or the chunked terminator) arrived?
+fn complete(raw: &[u8]) -> bool {
+    let Some(split) = raw.windows(4).position(|w| w == b"\r\n\r\n") else { return false };
+    let head = String::from_utf8_lossy(&raw[..split]).to_ascii_lowercase();
+    let body = &raw[split + 4..];
+    if let Some(len) = head.lines().find_map(|l| l.strip_prefix("content-length:")).and_then(|v| v.trim().parse::<usize>().ok()) {
+        return body.len() >= len;
+    }
+    if head.contains("transfer-encoding:") && head.contains("chunked") {
+        return body.ends_with(b"0\r\n\r\n");
+    }
+    false
+}
+
 fn parse_response(raw: &[u8]) -> Result<Reply, String> {
-    let split = raw.windows(4).position(|w| w == b"\r\n\r\n").ok_or("malformed HTTP response")?;
+    let split = raw.windows(4).position(|w| w == b"\r\n\r\n").ok_or_else(|| if raw.is_empty() { "the camera closed the connection without answering".to_string() } else { "malformed HTTP response".to_string() })?;
     let head = String::from_utf8_lossy(&raw[..split]);
     let mut body = raw[split + 4..].to_vec();
     let status = head.split_whitespace().nth(1).and_then(|s| s.parse().ok()).ok_or("malformed HTTP status")?;
@@ -76,6 +105,14 @@ fn dechunk(mut data: &[u8]) -> Result<Vec<u8>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn knows_when_a_reply_is_complete() {
+        assert!(!complete(b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhel"));
+        assert!(complete(b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello"));
+        assert!(complete(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n1\r\na\r\n0\r\n\r\n"));
+        assert!(!complete(b"HTTP/1.1 200 OK\r\n"));
+    }
 
     #[test]
     fn parses_plain_and_chunked_replies() {

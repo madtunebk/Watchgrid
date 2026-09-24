@@ -36,11 +36,28 @@ impl Client {
         self.raw(url, action, body, true).await
     }
 
+    /// Like [`call`], with WS-Addressing `Action`/`To` headers (required by
+    /// many devices on subscription endpoints).
+    pub async fn call_addressed(&self, url: &Url, action: &str, body: &str) -> Result<String, String> {
+        self.raw_with(url, action, body, true, true).await
+    }
+
     async fn raw(&self, url: &Url, action: &str, body: &str, auth: bool) -> Result<String, String> {
-        let header = match (&self.password, auth) {
+        self.raw_with(url, action, body, auth, false).await
+    }
+
+    async fn raw_with(&self, url: &Url, action: &str, body: &str, auth: bool, addressed: bool) -> Result<String, String> {
+        let mut header = match (&self.password, auth) {
             (Some(p), true) => security_header(&self.username, p, Utc::now() + self.clock_offset, &nonce()),
             _ => String::new(),
         };
+        if addressed {
+            header.push_str(&format!(
+                r#"<wsa:Action xmlns:wsa="http://www.w3.org/2005/08/addressing">{}</wsa:Action><wsa:To xmlns:wsa="http://www.w3.org/2005/08/addressing">{}</wsa:To>"#,
+                xml::escape(action),
+                xml::escape(url.as_str())
+            ));
+        }
         let envelope = format!(
             r#"<?xml version="1.0" encoding="UTF-8"?><s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"><s:Header>{header}</s:Header><s:Body>{body}</s:Body></s:Envelope>"#
         );

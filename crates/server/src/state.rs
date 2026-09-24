@@ -7,6 +7,7 @@ use crate::bus::Bus;
 use crate::credentials::CredentialStore;
 use crate::live::LiveRegistry;
 use crate::media::MediaHub;
+use crate::onvif::{WatchDeps, Watchers};
 use crate::recorder::{self, Recorder};
 use crate::recordings::RecordingFiles;
 use crate::auth::LoginLimiter;
@@ -24,6 +25,8 @@ pub struct AppState {
     pub live: Arc<LiveRegistry>,
     pub bus: Bus,
     pub supervisor: Arc<Supervisor>,
+    /// ONVIF event watchers (motion from cameras).
+    pub onvif: Arc<Watchers>,
     /// On-demand live video feeds.
     pub media: Arc<MediaHub>,
     pub recorder: Arc<Recorder>,
@@ -41,17 +44,19 @@ pub struct AppState {
 impl AppState {
     pub fn new(db: PgPool, credentials: CredentialStore, recordings_dir: PathBuf) -> Self {
         let deps = Deps { db: db.clone(), credentials: Arc::new(credentials), live: Arc::new(LiveRegistry::default()), bus: Bus::new() };
-        Self::with_supervisor(Supervisor::new(deps.clone()), deps, recordings_dir)
+        let watch = WatchDeps { db: deps.db.clone(), credentials: deps.credentials.clone(), live: deps.live.clone(), bus: deps.bus.clone() };
+        Self::with_supervisor(Supervisor::new(deps.clone()), Watchers::new(watch), deps, recordings_dir)
     }
 
     /// State whose supervisor never connects to cameras (tests).
     #[cfg(test)]
     pub fn inert(db: PgPool, credentials: CredentialStore) -> Self {
         let deps = Deps { db, credentials: Arc::new(credentials), live: Arc::new(LiveRegistry::default()), bus: Bus::new() };
-        Self::with_supervisor(Supervisor::inert(deps.clone()), deps, std::env::temp_dir().join("watchgrid-test-recordings"))
+        let watch = WatchDeps { db: deps.db.clone(), credentials: deps.credentials.clone(), live: deps.live.clone(), bus: deps.bus.clone() };
+        Self::with_supervisor(Supervisor::inert(deps.clone()), Watchers::inert(watch), deps, std::env::temp_dir().join("watchgrid-test-recordings"))
     }
 
-    fn with_supervisor(supervisor: Supervisor, deps: Deps, recordings_dir: PathBuf) -> Self {
+    fn with_supervisor(supervisor: Supervisor, onvif: Watchers, deps: Deps, recordings_dir: PathBuf) -> Self {
         let media = Arc::new(MediaHub::new(deps.db.clone(), deps.credentials.clone()));
         let files = Arc::new(RecordingFiles::new(recordings_dir));
         let recorder = Recorder::new(recorder::Deps { db: deps.db.clone(), hub: media.clone(), files: files.clone(), bus: deps.bus.clone() });
@@ -62,6 +67,7 @@ impl AppState {
             live: deps.live,
             bus: deps.bus,
             supervisor: Arc::new(supervisor),
+            onvif: Arc::new(onvif),
             media,
             retention,
             started_at: chrono::Utc::now(),

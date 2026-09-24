@@ -5,7 +5,7 @@
 
 use chrono::{DateTime, Utc};
 use tokio::sync::broadcast;
-use watchgrid_model::RecordingReason;
+use watchgrid_model::{EventType, RecordingReason};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum BusEvent {
@@ -15,6 +15,10 @@ pub enum BusEvent {
     CameraStopped { camera_id: String, at: DateTime<Utc> },
     /// Camera configuration changed (added, edited, removed, enabled…).
     CamerasChanged,
+    /// The camera reported a detection starting (ONVIF event).
+    DetectionStarted { camera_id: String, kind: EventType, topic: String, at: DateTime<Utc> },
+    /// …and ending.
+    DetectionEnded { camera_id: String, kind: EventType, at: DateTime<Utc> },
     /// Storage settings changed (e.g. the retention policy).
     StorageChanged,
     /// Recordings were removed or changed (retention, protection, deletion).
