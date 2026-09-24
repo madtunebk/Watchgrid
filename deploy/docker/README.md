@@ -10,7 +10,9 @@ head -c 24 /dev/urandom | base64 | tr -d '/+=\n' > db-password   # the watchgrid
 sudo sh setup.sh
 ```
 
-`setup.sh` finds the PostgreSQL container, creates the `watchgrid` user and
+`setup.sh` uses a running PostgreSQL container (or `PG_CONTAINER=<name>`) —
+or, if there is none, bundles one (`watchgrid-db`, postgres:16-alpine, data in
+`./db`). With an existing container it creates the `watchgrid` user and
 database, picks how to reach it (published port → host network, otherwise
 the container's network), writes `watchgrid.env` + `compose.nas.yml`, builds
 and starts. Safe to re-run (e.g. after an upgrade).
