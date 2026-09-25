@@ -68,9 +68,26 @@ pub fn ExportMenu(event_id: String) -> impl IntoView {
             });
         }
     };
-    let download = move |_| {
-        open.set(false);
-        note.set(Some("Download needs the recording engine; the mock has no video file yet.".into()));
+    let download = {
+        let event_id = event_id.clone();
+        move |_| {
+            open.set(false);
+            let event_id = event_id.clone();
+            spawn_local(async move {
+                let message = match api::get_event(event_id).await {
+                    Ok(d) => match d.recording.as_ref().and_then(|r| api::recording_media_url(&r.id).map(|u| (r, u))) {
+                        Some((r, url)) => {
+                            let name = format!("{}_{}.mp4", d.event.camera_id, r.start_time.with_timezone(&chrono::Local).format("%Y-%m-%d_%H-%M-%S"));
+                            save_as(&url, &name);
+                            format!("Downloading {name}")
+                        }
+                        None => "This event has no video clip.".into(),
+                    },
+                    Err(e) => e.message,
+                };
+                note.set(Some(message));
+            });
+        }
     };
 
     view! {
@@ -82,7 +99,7 @@ pub fn ExportMenu(event_id: String) -> impl IntoView {
                 <Popover open class="export__menu">
                     <div class="menu">
                         <button class="menu__item" on:click=copy_link.clone()><Icon icon=I::Link class="icon icon--sm" />"Copy link to event"</button>
-                        <button class="menu__item" on:click=download><Icon icon=I::Download class="icon icon--sm" />"Download to this computer"</button>
+                        <button class="menu__item" on:click=download.clone()><Icon icon=I::Download class="icon icon--sm" />"Download to this computer"</button>
                         <div class="menu__sep"></div>
                         <div class="menu__label">"Upload clip to"</div>
                         {
@@ -139,5 +156,16 @@ fn JobRow(job: ExportJob, name: String) -> impl IntoView {
                 <a class="link job__link" href=href target="_blank" rel="noopener">"Open"<Icon icon=I::ExternalLink class="icon icon--sm" /></a>
             })}
         </li>
+    }
+}
+
+/// Let the browser download `url` (same origin) as `name`.
+fn save_as(url: &str, name: &str) {
+    use wasm_bindgen::JsCast;
+    let Some(document) = web_sys::window().and_then(|w| w.document()) else { return };
+    if let Some(link) = document.create_element("a").ok().and_then(|e| e.dyn_into::<web_sys::HtmlAnchorElement>().ok()) {
+        link.set_href(url);
+        link.set_download(name);
+        link.click();
     }
 }

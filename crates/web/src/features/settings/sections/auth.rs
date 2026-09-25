@@ -4,31 +4,19 @@ use leptos::task::spawn_local;
 use crate::api::{self, Role, Settings, Topic, invalidate, use_query};
 use crate::features::settings::save::save;
 use crate::format;
-use crate::ui::form::{Field, FormSection, NumberInput, Switch};
+use crate::ui::form::{Field, FormSection, NumberInput};
 use crate::ui::{Badge, SaveBar, SaveState, Skeleton, Tone, async_view};
 
 #[component]
 pub fn AuthSection(settings: Signal<Settings>) -> impl IntoView {
-    let a = settings.get_untracked().auth;
-    let enabled = RwSignal::new(a.enabled);
-    let timeout = RwSignal::new(a.session_timeout_minutes);
+    let timeout = RwSignal::new(settings.get_untracked().auth.session_timeout_minutes);
     let state = SaveState::new();
-    let dirty = Signal::derive(move || {
-        let a = settings.get().auth;
-        (enabled.get(), timeout.get()) != (a.enabled, a.session_timeout_minutes)
-    });
+    let dirty = Signal::derive(move || timeout.get() != settings.get().auth.session_timeout_minutes);
     let on_save = Callback::new(move |_| {
-        let (e, t) = (enabled.get_untracked(), timeout.get_untracked());
-        save(state, &settings.get_untracked(), |s| {
-            s.auth.enabled = e;
-            s.auth.session_timeout_minutes = t;
-        });
+        let t = timeout.get_untracked();
+        save(state, &settings.get_untracked(), |s| s.auth.session_timeout_minutes = t);
     });
-    let on_revert = Callback::new(move |_| {
-        let a = settings.get_untracked().auth;
-        enabled.set(a.enabled);
-        timeout.set(a.session_timeout_minutes);
-    });
+    let on_revert = Callback::new(move |_| timeout.set(settings.get_untracked().auth.session_timeout_minutes));
 
     let users = use_query(Topic::Settings, None, api::get_users);
     let sessions = use_query(Topic::Settings, None, api::get_sessions);
@@ -42,22 +30,18 @@ pub fn AuthSection(settings: Signal<Settings>) -> impl IntoView {
 
     view! {
         <div class="settings-tab">
-            <FormSection title="Sign-in">
-                <Switch checked=enabled label="Require sign-in" description="Everyone must log in to use the web interface and API." />
-                <Show when=move || enabled.get()>
-                    <p class="note note--warn">"Stored now, enforced once the authentication backend is in place. Make sure the admin password is set before relying on it."</p>
-                </Show>
+            <FormSection title="Sign-in" description="Sign-in is always required for the web interface and the API.">
                 <Field label="Session timeout" hint="Signed-in browsers stay logged in this long without activity.">
                     <NumberInput value=timeout min=5 max=43_200 suffix="minutes" />
                 </Field>
             </FormSection>
             <SaveBar state dirty on_save on_revert />
 
-            <FormSection title="Users" description="Admins can change settings; viewers can watch live video and recordings.">
+            <FormSection title="Users" description="Admins can change settings; viewers can only watch. Accounts are managed on the server, never from the browser.">
                 {async_view(users, || view! { <Skeleton lines=2 /> }.into_any(), |list| view! {
                     <div class="table-wrap">
                         <table class="table">
-                            <thead><tr><th>"User"</th><th>"Role"</th><th>"Last sign-in"</th><th class="actions"></th></tr></thead>
+                            <thead><tr><th>"User"</th><th>"Role"</th><th>"Last sign-in"</th></tr></thead>
                             <tbody>
                                 {list.into_iter().map(|u| view! {
                                     <tr>
@@ -67,14 +51,17 @@ pub fn AuthSection(settings: Signal<Settings>) -> impl IntoView {
                                             Role::Viewer => view! { <Badge tone=Tone::Offline label="VIEWER" /> }.into_any(),
                                         }}</td>
                                         <td class="muted">{u.last_login.map(format::relative).unwrap_or_else(|| "Never".into())}</td>
-                                        <td class="actions"><button class="btn btn--secondary btn--sm" disabled=true title="Arrives with the authentication backend">"Reset password"</button></td>
                                     </tr>
                                 }).collect_view()}
                             </tbody>
                         </table>
                     </div>
-                    <button class="btn btn--secondary btn--sm" disabled=true title="Arrives with the authentication backend">"Add user"</button>
                 })}
+                <div class="cli-help">
+                    <p class="note">"To add, remove or change accounts, run on the server:"</p>
+                    <pre class="cli-help__cmds">"sudo watchgrid user create <name> [--viewer]\nsudo watchgrid user passwd <name>\nsudo watchgrid user disable|enable <name>\nsudo watchgrid user delete <name>\nsudo watchgrid user list"</pre>
+                    <p class="note">"With Docker: " <code>"sudo docker exec -it watchgrid watchgrid user …"</code></p>
+                </div>
             </FormSection>
 
             <FormSection title="Active sessions" description="Browsers and apps currently signed in.">

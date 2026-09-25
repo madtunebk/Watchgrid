@@ -88,3 +88,7 @@
 @media (max-width: 800px) { .dest { grid-template-columns: 2.6667rem minmax(0, 1fr); } .dest__auto, .dest__actions { grid-column: 2; } }
 .oauth { display: flex; align-items: center; gap: 0.9333rem; }
 .oauth .text-online { display: inline-flex; align-items: center; gap: 0.4rem; }
+
+/* Account management happens on the server: show the commands. */
+.cli-help { margin-top: 0.8rem; }
+.cli-help__cmds { margin: 0.4rem 0; padding: 0.6667rem 0.8rem; border-radius: var(--radius); background: var(--surface-3); font: 0.8667rem var(--font-mono); overflow-x: auto; white-space: pre; }
