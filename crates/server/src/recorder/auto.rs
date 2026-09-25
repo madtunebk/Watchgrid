@@ -107,8 +107,14 @@ impl Controller {
             RecordingMode::Continuous | RecordingMode::Scheduled => return super::timed::run(&self, &camera).await,
             RecordingMode::Disabled | RecordingMode::Manual => return,
         }
-        // Only cameras that can produce detections (today: ONVIF motion).
-        let detects = camera.motion.enabled && camera.motion.source == MotionSource::Onvif && camera.onvif.as_ref().is_some_and(|o| !o.url.is_empty());
+        // Only cameras that can produce detections: ONVIF events or
+        // Watchgrid's own software motion detection.
+        let detects = camera.motion.enabled
+            && match camera.motion.source {
+                MotionSource::Onvif => camera.onvif.as_ref().is_some_and(|o| !o.url.is_empty()),
+                MotionSource::Software => true,
+                MotionSource::Ai => false,
+            };
         if !detects {
             return;
         }

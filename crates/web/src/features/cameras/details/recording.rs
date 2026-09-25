@@ -24,11 +24,16 @@ pub fn RecordingTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
     };
     let dirty = Signal::derive(move || current() != saved());
     let event_based = move || mode.get() == RecordingMode::Events;
-    // Event recording needs something that reports events. Today that is
-    // the camera's own ONVIF motion; software detection comes later.
+    // Event recording needs something that reports events: the camera's own
+    // ONVIF motion or Watchgrid's software detection.
     let has_detection = move || {
         let c = camera.get();
-        c.motion.enabled && c.motion.source == MotionSource::Onvif && c.onvif.as_ref().is_some_and(|o| !o.url.trim().is_empty())
+        c.motion.enabled
+            && match c.motion.source {
+                MotionSource::Onvif => c.onvif.as_ref().is_some_and(|o| !o.url.trim().is_empty()),
+                MotionSource::Software => true,
+                MotionSource::Ai => false,
+            }
     };
 
     let on_save = Callback::new(move |_| {
@@ -70,8 +75,8 @@ pub fn RecordingTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
                 <Show when=move || event_based() && !has_detection()>
                     <p class="note note--warn">
                         "This camera has no motion source yet, so in Events mode it will never record by itself. "
-                        "Turn on ONVIF events (Connection tab) if the camera supports them, or use Continuous or Scheduled. "
-                        "Motion detection by Watchgrid itself is planned."
+                        "Turn on motion detection in the Motion tab: ONVIF events if the camera supports them, "
+                        "otherwise Software detection."
                     </p>
                 </Show>
             </FormSection>

@@ -8,6 +8,7 @@ use crate::credentials::CredentialStore;
 use crate::live::LiveRegistry;
 use crate::exports::Exports;
 use crate::media::MediaHub;
+use crate::motion::{self, Detectors};
 use crate::onvif::{WatchDeps, Watchers};
 use crate::recorder::{self, AutoRecorders, Recorder};
 use crate::recordings::RecordingFiles;
@@ -28,6 +29,8 @@ pub struct AppState {
     pub supervisor: Arc<Supervisor>,
     /// ONVIF event watchers (motion from cameras).
     pub onvif: Arc<Watchers>,
+    /// Software motion detection (cameras without ONVIF events).
+    pub motion: Arc<Detectors>,
     /// On-demand live video feeds.
     pub media: Arc<MediaHub>,
     pub recorder: Arc<Recorder>,
@@ -68,6 +71,17 @@ impl AppState {
     fn with_supervisor(supervisor: Supervisor, onvif: Watchers, deps: Deps, recordings_dir: PathBuf, live: bool) -> Self {
         let media = deps.hub.clone();
         let files = Arc::new(RecordingFiles::new(recordings_dir));
+        let motion_deps = motion::Deps { db: deps.db.clone(), hub: media.clone(), live: deps.live.clone(), bus: deps.bus.clone() };
+        let motion = if live {
+            Detectors::new(motion_deps)
+        } else {
+            #[cfg(test)]
+            {
+                Detectors::inert(motion_deps)
+            }
+            #[cfg(not(test))]
+            unreachable!("only tests build inert state")
+        };
         let recorder = Arc::new(Recorder::new(recorder::Deps { db: deps.db.clone(), hub: media.clone(), files: files.clone(), bus: deps.bus.clone() }));
         let auto_record = if live {
             AutoRecorders::new(deps.db.clone(), media.clone(), deps.bus.clone(), recorder.clone())
@@ -88,6 +102,7 @@ impl AppState {
             bus: deps.bus,
             supervisor: Arc::new(supervisor),
             onvif: Arc::new(onvif),
+            motion: Arc::new(motion),
             media,
             retention,
             started_at: chrono::Utc::now(),

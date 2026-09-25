@@ -1,6 +1,7 @@
 #!/bin/sh
 # Build the Docker bundle: static binary + production UI + Dockerfile.
 # Output: target/watchgrid-docker/ and target/watchgrid-docker.tar.gz
+# Needs the musl target, musl-tools and clang (OpenH264, see .cargo/musl-cxx.sh).
 set -eu
 cd "$(dirname "$0")/../.."
 

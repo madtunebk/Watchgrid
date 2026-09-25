@@ -25,6 +25,7 @@ mod http;
 mod httpc;
 mod live;
 mod media;
+mod motion;
 mod notifications;
 mod onvif;
 mod recorder;
@@ -225,6 +226,7 @@ async fn serve(logs: system::logs::LogBuffer) -> Result<(), String> {
     for (id, enabled) in cameras::all_ids(&state).await.map_err(|_| "cannot list cameras".to_string())? {
         state.supervisor.apply(&id, enabled);
         state.onvif.apply(&id, true);
+        state.motion.apply(&id, true);
         state.auto_record.apply(&id, true);
     }
     tokio::spawn(state.retention.clone().run());

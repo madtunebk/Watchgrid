@@ -5,7 +5,8 @@
 //! camera stopped  → closes the outage (disabled or deleted)
 //! recording start → opens a recording event linked to the recording
 //! recording stop  → closes it with the recording's real end time
-//! ONVIF detection → opens/closes a motion/person/… event (origin "onvif");
+//! detection       → opens/closes a motion/person/… event (origin "onvif",
+//!                   or "watchgrid" for software motion);
 //!                   shorter than the camera's "minimum event" → dropped
 
 use std::collections::HashMap;
@@ -72,7 +73,9 @@ pub async fn handle(db: &PgPool, links: &mut Links, event: &BusEvent) -> sqlx::R
         },
         BusEvent::DetectionStarted { camera_id, kind, topic, at } => {
             let recording = links.0.get(camera_id).map(String::as_str);
-            repo::open_from(db, camera_id, *kind, *at, &format!("ONVIF: {topic}"), recording, "onvif").await
+            // Watchgrid's own detections are named as such, not as ONVIF topics.
+            let (source, origin) = if topic == crate::motion::TOPIC { ("Software motion".to_string(), "watchgrid") } else { (format!("ONVIF: {topic}"), "onvif") };
+            repo::open_from(db, camera_id, *kind, *at, &source, recording, origin).await
         }
         BusEvent::DetectionEnded { camera_id, kind, at } => {
             let min = crate::cameras::repo_get(db, camera_id).await.ok().flatten().map_or(0, |c| c.recording.min_event_seconds);

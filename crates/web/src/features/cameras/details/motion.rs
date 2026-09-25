@@ -40,7 +40,7 @@ pub fn MotionTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
     let sources = vec![
         if has_onvif { onvif } else { onvif.disabled_because("Add ONVIF details in Edit camera to use this") },
         Choice::new(MotionSource::Software, "Software detection")
-            .describe("Watchgrid analyses the video. Works with any camera; uses some CPU."),
+            .describe("Watchgrid analyses the substream itself. For cameras without ONVIF events; motion only, a little CPU."),
         Choice::new(MotionSource::Ai, "AI object detection").tag("Future")
             .disabled_because("Person / vehicle / animal detection arrives in a later version"),
     ];
@@ -67,7 +67,7 @@ pub fn MotionTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
                 </FormSection>
                 <FormSection title="Detection zones" description="Only motion inside green zones triggers; red zones are ignored.">
                     <ZoneOverlay camera zones=camera.get_untracked().motion.zones />
-                    <p class="note">"Drawing and editing zones arrives with the detection engine. The zones shown are read-only."</p>
+                    <p class="note">"Software detection follows these zones. Drawing and editing zones arrives in a later version."</p>
                 </FormSection>
             </div>
 
