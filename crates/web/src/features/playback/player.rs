@@ -98,7 +98,7 @@ pub fn Player(
             seek(frac * total);
         }
     };
-    let clock = move || (clip_start + chrono::Duration::milliseconds((position.get() * 1000.0) as i64)).with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S").to_string();
+    let clock = move || crate::format::date_time((clip_start + chrono::Duration::milliseconds((position.get() * 1000.0) as i64)).with_timezone(&chrono::Local));
     let in_event = move || { let p = position.get(); p >= pre && p <= pre + ev_len };
     let camera_name = clip.camera_name.clone();
     let has_box = clip.detection_box;

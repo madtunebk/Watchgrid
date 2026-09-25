@@ -20,7 +20,7 @@ pub fn LiveTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
     let take_snapshot = move |_| {
         let Some(el) = stage.get_untracked() else { return };
         let name = snap::file_name(&camera.get_untracked().name);
-        let at = chrono::Local::now().format("%H:%M:%S");
+        let at = crate::format::time_hms(chrono::Local::now());
         snapshot.set(Some(match snap::save_frame(&el, &name) {
             Ok(()) => format!("Snapshot saved at {at} ({name}.jpg)"),
             Err(e) => e.to_string(),

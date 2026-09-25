@@ -1,6 +1,7 @@
 //! Server settings: the generic JSON store plus the Settings page document
 //! (defaults, validation, HTTP API).
 
+pub mod applied;
 mod app;
 mod routes;
 mod store;

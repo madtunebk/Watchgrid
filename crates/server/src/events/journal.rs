@@ -6,7 +6,7 @@
 //! recording start → opens a recording event linked to the recording
 //! recording stop  → closes it with the recording's real end time
 //! detection       → opens/closes a motion/person/… event (origin "onvif",
-//!                   or "watchgrid" for software motion);
+//!                   or "software" for Watchgrid's own motion detection);
 //!                   shorter than the camera's "minimum event" → dropped
 
 use std::collections::HashMap;
@@ -74,7 +74,7 @@ pub async fn handle(db: &PgPool, links: &mut Links, event: &BusEvent) -> sqlx::R
         BusEvent::DetectionStarted { camera_id, kind, topic, at } => {
             let recording = links.0.get(camera_id).map(String::as_str);
             // Watchgrid's own detections are named as such, not as ONVIF topics.
-            let (source, origin) = if topic == crate::motion::TOPIC { ("Software motion".to_string(), "watchgrid") } else { (format!("ONVIF: {topic}"), "onvif") };
+            let (source, origin) = if topic == crate::motion::TOPIC { ("Software motion".to_string(), "software") } else { (format!("ONVIF: {topic}"), "onvif") };
             repo::open_from(db, camera_id, *kind, *at, &source, recording, origin).await
         }
         BusEvent::DetectionEnded { camera_id, kind, at } => {

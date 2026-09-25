@@ -5,7 +5,7 @@ use axum::routing::get;
 use axum::{Json, Router};
 use watchgrid_model::Settings;
 
-use super::app;
+use super::{app, applied};
 use crate::bus::BusEvent;
 use crate::error::ApiResult;
 use crate::state::AppState;
@@ -20,6 +20,13 @@ async fn read(State(s): State<AppState>) -> ApiResult<Json<Settings>> {
 
 async fn update(State(s): State<AppState>, Json(input): Json<Settings>) -> ApiResult<Json<Settings>> {
     let saved = app::save(&s.db, input).await?;
+    if applied::apply(&saved.advanced) {
+        // New RTSP transport: reopen every camera stream with it.
+        tracing::info!(transport = ?saved.advanced.rtsp_transport, "RTSP transport changed; reconnecting cameras");
+        for (id, _) in crate::cameras::all_ids(&s).await? {
+            s.media.reload(&id);
+        }
+    }
     s.bus.publish(BusEvent::SettingsChanged);
     Ok(Json(saved))
 }

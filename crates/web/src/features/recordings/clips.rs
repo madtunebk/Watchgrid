@@ -11,7 +11,7 @@ use crate::ui::{I, Icon};
 
 #[component]
 pub fn ClipList(recordings: Vec<Recording>, names: HashMap<String, String>, on_open: Callback<Recording>) -> impl IntoView {
-    let t = |x: chrono::DateTime<chrono::Utc>| x.with_timezone(&chrono::Local).format("%H:%M:%S").to_string();
+    let t = |x: chrono::DateTime<chrono::Utc>| crate::format::time_hms(x.with_timezone(&chrono::Local));
     view! {
         <div class="evt-list">
             {recordings.into_iter().rev().map(|r| {

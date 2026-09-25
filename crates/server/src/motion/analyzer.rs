@@ -124,6 +124,13 @@ impl Analyzer {
         (std::mem::take(&mut self.peak), self.thresholds.min_area)
     }
 
+    /// The stream stopped mid-detection and it was closed from outside:
+    /// forget it and learn the scene again.
+    pub fn forget(&mut self) {
+        self.active = false;
+        self.reset();
+    }
+
     /// Start over (new stream parameters or a decoder restart).
     pub fn reset(&mut self) {
         self.background.clear();

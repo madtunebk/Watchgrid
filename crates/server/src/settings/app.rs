@@ -1,8 +1,9 @@
 //! The Settings page document: defaults and validation.
 //!
-//! Applied immediately: the NVR name (server info) and the time zone
-//! (event "hours of day" filters). Network, HTTPS, authentication and
-//! advanced options are stored now and take effect as those features land.
+//! Applied immediately: the NVR name (server info), the time zone (event
+//! "hours of day" filters, schedules), the session timeout, notifications and
+//! the advanced options (`applied`). The listen address comes from the
+//! environment (WATCHGRID_BIND); the Network section only shows it.
 
 use sqlx::PgPool;
 use watchgrid_model::{
@@ -36,7 +37,7 @@ pub fn defaults(bind: std::net::SocketAddr) -> Settings {
             recording_failed: true,
             webhook_url: None,
         },
-        advanced: AdvancedSettings { log_level: LogLevel::Info, rtsp_transport: RtspTransport::Tcp, reconnect_seconds: 2, hardware_decoding: false },
+        advanced: AdvancedSettings { log_level: LogLevel::Info, rtsp_transport: RtspTransport::Tcp, reconnect_seconds: 2 },
     }
 }
 

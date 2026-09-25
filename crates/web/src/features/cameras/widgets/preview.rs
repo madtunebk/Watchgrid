@@ -45,7 +45,7 @@ pub fn CameraPreview(
             {streaming.then(|| view! {
                 <div class="preview__osd">
                     <span>{camera.name.clone()}</span>
-                    <span>{move || now.get().format("%Y-%m-%d %H:%M:%S").to_string()}</span>
+                    <span>{move || crate::format::date_time(now.get())}</span>
                 </div>
                 {summary.map(|s| view! { <span class="preview__res">{s}</span> })}
             })}

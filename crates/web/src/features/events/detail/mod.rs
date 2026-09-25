@@ -82,7 +82,8 @@ pub fn EventDetailPage() -> impl IntoView {
         Phase::Loaded(_, camera_name) => {
             let Some(d) = current.get_untracked() else { return ().into_any() };
             let protected = Signal::derive(move || current.get().is_some_and(|d| d.event.protected));
-            let when = d.event.start_time.with_timezone(&chrono::Local).format("%a %-d %b, %H:%M:%S").to_string();
+            let start = d.event.start_time.with_timezone(&chrono::Local);
+            let when = format!("{}, {}", start.format("%a %-d %b"), crate::format::time_hms(start));
             let (older, newer) = (d.previous.clone(), d.next.clone());
             let after_delete = {
                 let navigate = navigate.clone();

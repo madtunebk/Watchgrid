@@ -10,7 +10,7 @@ use crate::ui::{I, Icon};
 #[component]
 pub fn EventListRow(event: Event, camera_name: String) -> impl IntoView {
     let live = event.end_time.is_none();
-    let time = event.start_time.with_timezone(&chrono::Local).format("%H:%M:%S").to_string();
+    let time = crate::format::time_hms(event.start_time.with_timezone(&chrono::Local));
     let detection = event.detections.first().map(|d| format!("{} {:.0}%", d.label, d.confidence * 100.0));
 
     view! {

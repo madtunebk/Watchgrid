@@ -49,7 +49,7 @@ impl Scale {
         let mut out = Vec::new();
         let mut t = self.start;
         while t < self.end {
-            out.push((self.pct(t), t.with_timezone(&Local).format("%H:%M").to_string()));
+            out.push((self.pct(t), crate::format::time_hm(t.with_timezone(&Local))));
             t += Duration::minutes(step);
         }
         out

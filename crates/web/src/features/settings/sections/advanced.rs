@@ -2,7 +2,7 @@ use leptos::prelude::*;
 
 use crate::api::{LogLevel, RtspTransport, Settings};
 use crate::features::settings::save::save;
-use crate::ui::form::{Choice, Field, FormSection, NumberInput, RadioCards, Switch};
+use crate::ui::form::{Choice, Field, FormSection, NumberInput, RadioCards};
 use crate::ui::{SaveBar, SaveState};
 
 #[component]
@@ -11,20 +11,18 @@ pub fn AdvancedSection(settings: Signal<Settings>) -> impl IntoView {
     let level = RwSignal::new(a.log_level);
     let transport = RwSignal::new(a.rtsp_transport);
     let reconnect = RwSignal::new(a.reconnect_seconds);
-    let hw = RwSignal::new(a.hardware_decoding);
     let state = SaveState::new();
 
     let dirty = Signal::derive(move || {
         let a = settings.get().advanced;
-        (level.get(), transport.get(), reconnect.get(), hw.get()) != (a.log_level, a.rtsp_transport, a.reconnect_seconds, a.hardware_decoding)
+        (level.get(), transport.get(), reconnect.get()) != (a.log_level, a.rtsp_transport, a.reconnect_seconds)
     });
     let on_save = Callback::new(move |_| {
-        let (l, t, r, h) = (level.get_untracked(), transport.get_untracked(), reconnect.get_untracked(), hw.get_untracked());
+        let (l, t, r) = (level.get_untracked(), transport.get_untracked(), reconnect.get_untracked());
         save(state, &settings.get_untracked(), |s| {
             s.advanced.log_level = l;
             s.advanced.rtsp_transport = t;
             s.advanced.reconnect_seconds = r;
-            s.advanced.hardware_decoding = h;
         });
     });
     let on_revert = Callback::new(move |_| {
@@ -32,24 +30,22 @@ pub fn AdvancedSection(settings: Signal<Settings>) -> impl IntoView {
         level.set(a.log_level);
         transport.set(a.rtsp_transport);
         reconnect.set(a.reconnect_seconds);
-        hw.set(a.hardware_decoding);
     });
     let transports = vec![
         Choice::new(RtspTransport::Tcp, "TCP").tag("Recommended").describe("Reliable over Wi-Fi and VPNs; no lost packets."),
-        Choice::new(RtspTransport::Udp, "UDP").describe("Slightly lower latency on clean wired networks."),
+        Choice::new(RtspTransport::Udp, "UDP").describe("Slightly lower latency on clean wired networks. Cameras reconnect when this changes."),
     ];
 
     view! {
         <div class="settings-tab">
             <FormSection title="Cameras">
                 <Field label="RTSP transport"><RadioCards value=transport options=transports name="rtsp-transport" /></Field>
-                <Field label="Reconnect delay" hint="Wait before retrying a camera that dropped (grows with repeated failures).">
+                <Field label="Reconnect delay" hint="Wait before retrying a camera that dropped; doubles with repeated failures, up to a minute.">
                     <NumberInput value=reconnect min=1 max=300 suffix="seconds" />
                 </Field>
-                <Switch checked=hw label="Hardware video decoding" description="Use VAAPI / Quick Sync for software motion detection when available." />
             </FormSection>
             <FormSection title="Diagnostics">
-                <Field label="Log level" hint="Debug is verbose; use it only while troubleshooting.">
+                <Field label="Log level" hint="Applies immediately. Debug is verbose; use it only while troubleshooting. RUST_LOG in watchgrid.env overrides this.">
                     <select class="select" on:change=move |ev| level.set(match event_target_value(&ev).as_str() {
                         "debug" => LogLevel::Debug, "warn" => LogLevel::Warn, "error" => LogLevel::Error, _ => LogLevel::Info })>
                         {[(LogLevel::Debug, "debug", "Debug"), (LogLevel::Info, "info", "Info"), (LogLevel::Warn, "warn", "Warnings"), (LogLevel::Error, "error", "Errors")]

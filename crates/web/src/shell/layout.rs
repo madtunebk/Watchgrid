@@ -4,7 +4,8 @@ use leptos_router::hooks::use_location;
 
 use super::header::Header;
 use super::sidebar::Sidebar;
-use crate::prefs;
+use crate::api::{self, Topic, use_query};
+use crate::{format, prefs};
 
 const COLLAPSED_KEY: &str = "ui.sidebarCollapsed";
 
@@ -21,6 +22,14 @@ pub fn Shell() -> impl IntoView {
     let pathname = use_location().pathname;
     let drawer_path = RwSignal::new(None::<String>);
     let mobile_open = Signal::derive(move || drawer_path.get().is_some_and(|p| p == pathname.get()));
+
+    // Dates and times everywhere follow Settings → General.
+    let settings = use_query(Topic::Settings, None, api::get_settings);
+    Effect::new(move || {
+        if let Some(s) = settings.get().and_then(Result::ok) {
+            format::set_display(s.general.date_format, s.general.clock_24h);
+        }
+    });
 
     view! {
         <div class="shell">

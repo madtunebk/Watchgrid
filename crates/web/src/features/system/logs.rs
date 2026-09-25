@@ -80,7 +80,7 @@ pub fn LogViewer() -> impl IntoView {
                         return view! { <p class="logs__empty">"No log lines match."</p> }.into_any();
                     }
                     list.into_iter().map(|l| {
-                        let time = l.time.with_timezone(&chrono::Local).format("%H:%M:%S").to_string();
+                        let time = crate::format::time_hms(l.time.with_timezone(&chrono::Local));
                         let lvl = level_name(l.level);
                         view! {
                             <div class=format!("log log--{}", lvl.to_lowercase())>

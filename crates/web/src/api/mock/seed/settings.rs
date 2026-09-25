@@ -27,7 +27,6 @@ pub fn defaults(nvr_name: &str) -> Settings {
             log_level: LogLevel::Info,
             rtsp_transport: RtspTransport::Tcp,
             reconnect_seconds: 5,
-            hardware_decoding: true,
         },
     }
 }

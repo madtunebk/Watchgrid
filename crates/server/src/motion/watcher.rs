@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, TrySendError, sync_channel};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use chrono::Utc;
 use sqlx::PgPool;
@@ -29,6 +29,9 @@ const ANALYSE_EVERY: i64 = 90_000 / 5;
 /// ahead to the next keyframe instead of falling further back.
 const QUEUE: usize = 32;
 const RETRY: Duration = Duration::from_secs(5);
+/// No video for this long ends a detection in progress: its end is judged
+/// on stream time, which stops when the camera does.
+const STALL: Duration = Duration::from_secs(5);
 /// Diagnostics every this many analysed pictures (≈ 10 s).
 const STATS_EVERY: u32 = 50;
 
@@ -116,6 +119,8 @@ async fn run(deps: Deps, id: String, active: Arc<AtomicBool>) {
 enum Work {
     Track(Vec<u8>),
     Frame(Frame),
+    /// The detection was closed because the stream stalled.
+    Forget,
 }
 
 /// Feed the substream to a decoding thread until the feed ends.
@@ -138,8 +143,27 @@ async fn follow(deps: &Deps, id: &str, cfg: &Settings, active: &AtomicBool) {
     let mut unsupported_logged = false;
     // After a drop the decoder can only resume at a keyframe.
     let mut need_keyframe = true;
+    let mut last_frame = Instant::now();
+    let mut forget = false;
+    let mut watchdog = tokio::time::interval(Duration::from_secs(1));
     loop {
         tokio::select! {
+            _ = watchdog.tick() => {
+                if active.load(Ordering::Relaxed) && last_frame.elapsed() >= STALL {
+                    tracing::debug!(camera = %id, "no video for {} s: software motion ended", STALL.as_secs());
+                    active.store(false, Ordering::Relaxed);
+                    end(deps, id);
+                    forget = true;
+                }
+                // Never block here: retried each second until there is room.
+                if forget {
+                    match work.try_send(Work::Forget) {
+                        Ok(()) => forget = false,
+                        Err(TrySendError::Full(_)) => {}
+                        Err(TrySendError::Disconnected(_)) => return,
+                    }
+                }
+            }
             changed = sub.state.changed() => {
                 if changed.is_err() {
                     return;
@@ -163,6 +187,7 @@ async fn follow(deps: &Deps, id: &str, cfg: &Settings, active: &AtomicBool) {
             }
             frame = sub.frames.recv() => match frame {
                 Ok(frame) => {
+                    last_frame = Instant::now();
                     if avcc.is_none() || (need_keyframe && !frame.keyframe) {
                         continue;
                     }
@@ -221,6 +246,11 @@ fn decode_loop(id: &str, queue: Receiver<Work>, mut analyzer: Analyzer, report: 
                 continue;
             }
             Work::Frame(frame) => frame,
+            Work::Forget => {
+                analyzer.forget();
+                last_analysed = None;
+                continue;
+            }
         };
         let Some(h264) = decoder.as_mut() else { continue };
         match h264.decode(&frame.data, |p| cells(p.y, p.width, p.height, p.stride)) {

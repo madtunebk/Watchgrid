@@ -7,7 +7,8 @@ use crate::format;
 use crate::ui::{Meter, Tone};
 
 fn when(t: chrono::DateTime<chrono::Utc>) -> String {
-    t.with_timezone(&chrono::Local).format("%a %-d %b %Y, %H:%M:%S").to_string()
+    let t = t.with_timezone(&chrono::Local);
+    format!("{}, {}", t.format("%a %-d %b %Y"), crate::format::time_hms(t))
 }
 
 #[component]

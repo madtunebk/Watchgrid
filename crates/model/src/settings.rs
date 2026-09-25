@@ -79,7 +79,6 @@ pub struct AdvancedSettings {
     pub log_level: LogLevel,
     pub rtsp_transport: RtspTransport,
     pub reconnect_seconds: u32,
-    pub hardware_decoding: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

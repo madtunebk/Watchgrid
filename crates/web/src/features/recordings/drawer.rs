@@ -27,7 +27,10 @@ pub fn RecordingDrawer(recording: Recording, camera_name: String, on_close: Call
         }
     });
 
-    let t = |x: chrono::DateTime<chrono::Utc>| x.with_timezone(&chrono::Local).format("%a %-d %b, %H:%M:%S").to_string();
+    let t = |x: chrono::DateTime<chrono::Utc>| {
+        let x = x.with_timezone(&chrono::Local);
+        format!("{}, {}", x.format("%a %-d %b"), crate::format::time_hms(x))
+    };
     let rows = vec![
         ("Camera", camera_name.clone()),
         ("Reason", labels::label(recording.reason).to_string()),

@@ -1,4 +1,5 @@
-//! Opening a camera stream: DESCRIBE → SETUP (video, TCP) → PLAY.
+//! Opening a camera stream: DESCRIBE → SETUP (video; TCP or UDP from
+//! Settings → Advanced) → PLAY.
 //! Shared by the probe and the camera supervisor.
 
 use std::sync::Arc;
@@ -6,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use retina::client::{
     Credentials, Demuxed, InitialSequenceNumberPolicy, PlayOptions, Session, SessionGroup, SessionOptions, SetupOptions,
-    TcpTransportOptions, Transport,
+    TcpTransportOptions, Transport, UdpTransportOptions,
 };
 use retina::codec::ParametersRef;
 
@@ -34,6 +35,10 @@ pub fn refresh_dimensions(facts: &mut StreamFacts, stream: &Demuxed, video: usiz
         facts.width = Some(w);
         facts.height = Some(h);
     }
+}
+
+fn transport() -> Transport {
+    if crate::settings::applied::rtsp_udp() { Transport::Udp(UdpTransportOptions::default()) } else { Transport::Tcp(TcpTransportOptions::default()) }
 }
 
 pub async fn open(url: &str, username: &str, password: Option<&str>) -> Result<Opened, String> {
@@ -66,7 +71,7 @@ pub async fn open(url: &str, username: &str, password: Option<&str>) -> Result<O
     }
     let video = video.ok_or("the stream has no video track")?;
     session
-        .setup(video, SetupOptions::default().transport(Transport::Tcp(TcpTransportOptions::default())))
+        .setup(video, SetupOptions::default().transport(transport()))
         .await
         .map_err(|e| format!("SETUP failed: {e}"))?;
     // Start RTP numbering from the first packet actually received: cameras

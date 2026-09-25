@@ -1,6 +1,55 @@
 //! Human-readable formatting for sizes, rates, durations and times.
+//!
+//! Dates and clock times follow Settings → General (date format, 24-hour
+//! clock); `set_display` is called whenever the settings load. File names
+//! and form values stay ISO.
 
-use chrono::{DateTime, Local, Utc};
+use chrono::{DateTime, Datelike, Local, Utc};
+use leptos::prelude::*;
+
+use crate::api::DateFormat;
+
+thread_local! {
+    /// Reactive, so open pages re-render when the settings change.
+    static DISPLAY: RwSignal<(DateFormat, bool)> = RwSignal::new((DateFormat::Iso, true));
+}
+
+pub fn set_display(date_format: DateFormat, clock_24h: bool) {
+    DISPLAY.with(|d| {
+        if d.get_untracked() != (date_format, clock_24h) {
+            d.set((date_format, clock_24h));
+        }
+    });
+}
+
+fn display() -> (DateFormat, bool) {
+    DISPLAY.with(|d| d.get())
+}
+
+/// Numeric date in the configured format: "2026-09-24", "24/09/2026"…
+pub fn date(d: impl Datelike) -> String {
+    let (y, m, day) = (d.year(), d.month(), d.day());
+    match display().0 {
+        DateFormat::Iso => format!("{y}-{m:02}-{day:02}"),
+        DateFormat::DayFirst => format!("{day:02}/{m:02}/{y}"),
+        DateFormat::MonthFirst => format!("{m:02}/{day:02}/{y}"),
+    }
+}
+
+/// "14:05:09" or "2:05:09 PM"
+pub fn time_hms(t: DateTime<Local>) -> String {
+    if display().1 { t.format("%H:%M:%S").to_string() } else { t.format("%-I:%M:%S %p").to_string() }
+}
+
+/// "14:05" or "2:05 PM"
+pub fn time_hm(t: DateTime<Local>) -> String {
+    if display().1 { t.format("%H:%M").to_string() } else { t.format("%-I:%M %p").to_string() }
+}
+
+/// Date and time: "2026-09-24 14:05:09"
+pub fn date_time(t: DateTime<Local>) -> String {
+    format!("{} {}", date(t), time_hms(t))
+}
 
 /// "just now", "4 min ago", "3 h ago", "2 d ago" (also handles the future).
 pub fn relative(t: DateTime<Utc>) -> String {
@@ -54,12 +103,12 @@ pub fn rate(bytes_per_sec: u64) -> String {
 }
 
 pub fn clock(t: DateTime<Local>) -> String {
-    t.format("%H:%M:%S").to_string()
+    time_hms(t)
 }
 
 /// Local wall-clock time of an event: "06:14"
 pub fn time_of_day(t: chrono::DateTime<chrono::Utc>) -> String {
-    t.with_timezone(&Local).format("%H:%M").to_string()
+    time_hm(t.with_timezone(&Local))
 }
 
 /// "Chrome 153 · Linux" from a User-Agent string (full string on hover).

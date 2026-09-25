@@ -53,7 +53,12 @@ async fn main() -> ExitCode {
     let logs = system::logs::LogBuffer::default();
     {
         use tracing_subscriber::prelude::*;
-        let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "watchgrid=info".into());
+        // Settings → Advanced → Log level can change it later, unless RUST_LOG is set.
+        let (filter, managed) = settings::applied::initial_log_filter();
+        let (filter, handle) = tracing_subscriber::reload::Layer::new(filter);
+        if managed {
+            settings::applied::manage_log_level(handle);
+        }
         // Colours only on a terminal (not in journald or `docker logs`).
         let ansi = std::io::IsTerminal::is_terminal(&std::io::stdout());
         tracing_subscriber::registry().with(filter).with(tracing_subscriber::fmt::layer().with_ansi(ansi)).with(system::logs::CaptureLayer(logs.clone())).init();
@@ -208,6 +213,13 @@ async fn serve(logs: system::logs::LogBuffer) -> Result<(), String> {
     let mut state = open_state(&config).await?;
     state.logs = logs;
     state.bind = config.bind;
+    // Before any camera connects: transport, reconnect delay, log level.
+    match settings::load_app(&state.db, state.bind).await {
+        Ok(s) => {
+            settings::applied::apply(&s.advanced);
+        }
+        Err(e) => tracing::warn!("cannot read the settings, using defaults: {}", e.message()),
+    }
     tokio::spawn(state.metrics.clone().run());
     // A folder chosen in Settings/CLI wins over the configured default.
     match storage::location::load(&state.db).await {

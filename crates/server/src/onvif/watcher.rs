@@ -30,9 +30,13 @@ pub struct Deps {
     pub bus: Bus,
 }
 
+/// Detection types in progress per camera, shared with its task so a
+/// replaced task's open detections can be closed.
+type Open = Arc<Mutex<Vec<EventType>>>;
+
 pub struct Watchers {
     deps: Deps,
-    tasks: Mutex<HashMap<String, JoinHandle<()>>>,
+    tasks: Mutex<HashMap<String, (JoinHandle<()>, Open)>>,
     /// Tests never contact cameras.
     enabled: bool,
 }
@@ -50,12 +54,19 @@ impl Watchers {
     /// (Re)start watching after the camera was added or changed; the task
     /// itself decides from the settings whether there is anything to do.
     pub fn apply(&self, id: &str, exists: bool) {
-        if let Some(old) = self.tasks.lock().expect("watchers lock").remove(id) {
+        if let Some((old, open)) = self.tasks.lock().expect("watchers lock").remove(id) {
             old.abort();
+            // Stopped mid-detection (motion switched off, settings saved):
+            // close what was open, or MOTION and the event stay on forever.
+            let open = open.lock().expect("detections lock").clone();
+            if !open.is_empty() {
+                close_all(&self.deps, id, &open);
+            }
         }
         if exists && self.enabled {
-            let handle = tokio::spawn(run(self.deps.clone(), id.to_string()));
-            self.tasks.lock().expect("watchers lock").insert(id.to_string(), handle);
+            let open = Open::default();
+            let handle = tokio::spawn(run(self.deps.clone(), id.to_string(), open.clone()));
+            self.tasks.lock().expect("watchers lock").insert(id.to_string(), (handle, open));
         }
     }
 }
@@ -81,7 +92,7 @@ impl Detections {
 /// moment, which drops the stream (seen at every service start).
 const START_DELAY: Duration = Duration::from_secs(10);
 
-async fn run(deps: Deps, id: String) {
+async fn run(deps: Deps, id: String, open: Open) {
     tokio::time::sleep(START_DELAY).await;
     let mut attempt = 0u32;
     let mut state = Detections::default();
@@ -100,7 +111,7 @@ async fn run(deps: Deps, id: String) {
             Ok(sub) => {
                 // Only a working pull counts as connected: some cameras
                 // accept the subscription but then refuse to deliver.
-                let (reason, delivered) = pull_until_error(&deps, &id, &sub, &mut state, attempt > 0).await;
+                let (reason, delivered) = pull_until_error(&deps, &id, &sub, &mut state, &open, attempt > 0).await;
                 if delivered {
                     attempt = 0;
                 }
@@ -109,11 +120,9 @@ async fn run(deps: Deps, id: String) {
             }
         };
         // Without events we can't know when detections end: close them now.
-        for kind in state.active_kinds() {
-            deps.bus.publish(BusEvent::DetectionEnded { camera_id: id.clone(), kind, at: Utc::now() });
-        }
+        close_all(&deps, &id, &state.active_kinds());
         state = Detections::default();
-        set_motion(&deps, &id, false);
+        open.lock().expect("detections lock").clear();
         attempt += 1;
         if attempt == 1 || attempt.is_multiple_of(10) {
             tracing::warn!(camera = %id, "ONVIF events unavailable: {reason}");
@@ -123,7 +132,7 @@ async fn run(deps: Deps, id: String) {
 }
 
 /// Returns why pulling stopped and whether any pull succeeded.
-async fn pull_until_error(deps: &Deps, id: &str, sub: &Subscription, state: &mut Detections, recovering: bool) -> (String, bool) {
+async fn pull_until_error(deps: &Deps, id: &str, sub: &Subscription, state: &mut Detections, open: &Open, recovering: bool) -> (String, bool) {
     let mut renew_at = Instant::now() + RENEW_EVERY;
     let mut delivered = false;
     loop {
@@ -142,6 +151,7 @@ async fn pull_until_error(deps: &Deps, id: &str, sub: &Subscription, state: &mut
                 for n in list {
                     apply(deps, id, state, &n);
                 }
+                *open.lock().expect("detections lock") = state.active_kinds();
             }
             Err(e) => return (e, delivered),
         }
@@ -165,6 +175,14 @@ fn apply(deps: &Deps, id: &str, state: &mut Detections, n: &Notification) {
     set_motion(deps, id, !state.active_kinds().is_empty());
 }
 
+/// End every detection in `kinds` and clear the MOTION badge.
+fn close_all(deps: &Deps, id: &str, kinds: &[EventType]) {
+    for kind in kinds {
+        deps.bus.publish(BusEvent::DetectionEnded { camera_id: id.to_string(), kind: *kind, at: Utc::now() });
+    }
+    set_motion(deps, id, false);
+}
+
 fn set_motion(deps: &Deps, id: &str, on: bool) {
     deps.live.update(id, |l| l.motion_active = on);
 }
@@ -175,6 +193,26 @@ mod tests {
 
     fn note(topic: &str, on: bool) -> Notification {
         Notification { topic: topic.into(), time: None, operation: "Changed".into(), data: vec![("State".into(), on.to_string())] }
+    }
+
+    #[tokio::test]
+    async fn replacing_a_watcher_closes_its_open_detections() {
+        let bus = Bus::new();
+        let mut rx = bus.subscribe();
+        let live = Arc::new(LiveRegistry::default());
+        let deps = Deps {
+            db: sqlx::postgres::PgPoolOptions::new().connect_lazy("postgres://unused").unwrap(),
+            credentials: Arc::new(CredentialStore::from_key(&[1u8; 32])),
+            live: live.clone(),
+            bus,
+        };
+        let watchers = Watchers::inert(deps);
+        let open: Open = Arc::new(Mutex::new(vec![EventType::Motion]));
+        watchers.tasks.lock().unwrap().insert("cam".into(), (tokio::spawn(async {}), open));
+        // e.g. motion switched off while the camera reported motion
+        watchers.apply("cam", true);
+        assert!(matches!(rx.try_recv().unwrap(), BusEvent::DetectionEnded { kind: EventType::Motion, .. }));
+        assert!(rx.try_recv().is_err());
     }
 
     #[tokio::test]

@@ -39,7 +39,8 @@ pub fn SystemPage() -> impl IntoView {
                             ServerHealth::Degraded => "Degraded",
                             ServerHealth::Stopped => "Stopped",
                         };
-                        let started = s.started_at.with_timezone(&chrono::Local).format("%a %-d %b %Y, %H:%M").to_string();
+                        let started = s.started_at.with_timezone(&chrono::Local);
+                        let started = format!("{}, {}", started.format("%a %-d %b %Y"), crate::format::time_hm(started));
                         let hw = capacity.get().and_then(Result::ok).map(|c| c.hardware);
                         view! {
                             <dl class="facts">

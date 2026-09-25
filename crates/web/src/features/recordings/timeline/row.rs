@@ -14,7 +14,7 @@ pub fn TrackRow(recordings: Vec<Recording>, scale: Scale, zoom: u8, on_open: Cal
             {recordings.into_iter().filter_map(|r| {
                 let end = r.end_time.unwrap_or_else(chrono::Utc::now);
                 let (left, width) = scale.span(r.start_time, end, zoom)?;
-                let t = |x: chrono::DateTime<chrono::Utc>| x.with_timezone(&chrono::Local).format("%H:%M:%S").to_string();
+                let t = |x: chrono::DateTime<chrono::Utc>| crate::format::time_hms(x.with_timezone(&chrono::Local));
                 let tip = format!(
                     "{} – {} · {} · {} · {}",
                     t(r.start_time),
