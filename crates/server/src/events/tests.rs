@@ -208,3 +208,20 @@ async fn old_finished_unprotected_events_are_purged(db: PgPool) {
     left.sort();
     assert_eq!(left, ["new", "old but protected", "still offline"]);
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn detections_get_the_clip_they_happened_in_when_it_is_saved(db: PgPool) {
+    // A continuous clip that began before a restart: the journal never saw it start.
+    let at = t("2026-09-24T12:00:00Z");
+    let mut links = journal::Links::default();
+    let motion = |secs: i64| BusEvent::DetectionStarted { camera_id: "cam-a".into(), kind: EventType::Motion, topic: crate::motion::TOPIC.into(), at: at + Duration::seconds(secs) };
+    journal::handle(&db, &mut links, &motion(10)).await.unwrap();
+    journal::handle(&db, &mut links, &BusEvent::DetectionEnded { camera_id: "cam-a".into(), kind: EventType::Motion, at: at + Duration::seconds(40) }).await.unwrap();
+    assert_eq!(all(&db).await[0].recording_id, None);
+
+    recordings::insert(&db, &rec("rec-long", at, 600)).await.unwrap();
+    let stopped = BusEvent::RecordingStopped { camera_id: "cam-a".into(), recording_id: Some("rec-long".into()), error: None, at: at + Duration::seconds(600) };
+    journal::handle(&db, &mut links, &stopped).await.unwrap();
+    let e = &all(&db).await[0];
+    assert_eq!((e.source.as_str(), e.recording_id.as_deref()), ("Software motion", Some("rec-long")));
+}

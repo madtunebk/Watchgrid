@@ -82,6 +82,11 @@ pub async fn handle(db: &PgPool, links: &mut Links, event: &BusEvent) -> sqlx::R
             repo::close_detection(db, camera_id, *kind, *at, min).await
         }
         BusEvent::RecordingStopped { camera_id, recording_id, error, at } => {
+            // Detections inside the saved clip that have no clip yet (e.g. the
+            // continuous clip began before a restart, so it wasn't tracked).
+            if let Some(id) = recording_id {
+                repo::link_detections_within(db, id).await?;
+            }
             if let Some(started) = links.0.remove(camera_id) {
                 if recording_id.is_none() {
                     repo::unlink_recording(db, &started).await?;

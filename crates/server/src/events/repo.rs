@@ -139,6 +139,20 @@ pub async fn link_open_detections(db: &PgPool, camera_id: &str, recording_id: &s
     Ok(r.rows_affected() > 0)
 }
 
+/// Give a saved recording to the camera's detections that started during it
+/// and have no clip yet.
+pub async fn link_detections_within(db: &PgPool, recording_id: &str) -> sqlx::Result<u64> {
+    let r = sqlx::query(
+        "UPDATE events e SET recording_id = r.id FROM recordings r
+         WHERE r.id = $1 AND e.camera_id = r.camera_id AND e.recording_id IS NULL AND e.origin <> 'watchgrid'
+           AND e.start_time >= r.start_time AND e.start_time <= r.end_time",
+    )
+    .bind(recording_id)
+    .execute(db)
+    .await?;
+    Ok(r.rows_affected())
+}
+
 /// The recording was not saved: drop the links to it.
 pub async fn unlink_recording(db: &PgPool, recording_id: &str) -> sqlx::Result<()> {
     sqlx::query("UPDATE events SET recording_id = NULL WHERE recording_id = $1").bind(recording_id).execute(db).await.map(|_| ())
