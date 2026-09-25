@@ -10,6 +10,11 @@ pub async fn export_event(event_id: Id, target_id: Id) -> ApiResult<ExportJob> {
     backend::exports::start(&event_id, &target_id).await
 }
 
+/// POST /api/v1/recordings/{id}/export — queue an upload of a recording.
+pub async fn export_recording(recording_id: Id, target_id: Id) -> ApiResult<ExportJob> {
+    backend::exports::start_recording(&recording_id, &target_id).await
+}
+
 /// GET /api/v1/exports/jobs/{id} — poll progress.
 pub async fn get_export_job(id: Id) -> ApiResult<ExportJob> {
     backend::exports::job(&id).await

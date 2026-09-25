@@ -26,3 +26,12 @@ pub async fn list(query: &RecordingQuery) -> ApiResult<Vec<Recording>> {
         list
     }))
 }
+
+pub async fn set_protected(id: &str, protected: bool) -> ApiResult<()> {
+    latency().await;
+    with_db(|db| {
+        let r = db.recordings.iter_mut().find(|r| r.id == id).ok_or_else(|| crate::api::ApiError::not_found("Recording"))?;
+        r.protected = protected;
+        Ok(())
+    })
+}

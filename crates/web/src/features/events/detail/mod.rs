@@ -1,7 +1,6 @@
 //! Event details: `/events/:id` — player, facts, actions, older/newer.
 
 mod actions;
-mod export;
 mod facts;
 
 use leptos::ev;

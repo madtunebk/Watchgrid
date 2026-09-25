@@ -125,3 +125,7 @@
 .drawer__sub { color: var(--muted); }
 .drawer__body { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 1.2rem; padding: 1.2rem 1.3333rem; }
 .drawer__links { display: flex; flex-wrap: wrap; gap: 0.5333rem; }
+.drawer__actions { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0.5333rem; }
+/* The export menu's note and upload list take their own lines. */
+.drawer__actions .export__note, .drawer__actions .export__jobs { flex-basis: 100%; margin: 0; }
+.drawer__note { flex-basis: 100%; margin: 0; font-size: 0.8667rem; color: var(--danger); }

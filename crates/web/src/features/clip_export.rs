@@ -1,5 +1,6 @@
-//! Export menu: copy a direct link, download, or upload the clip to a
-//! configured destination (each upload is its own tracked job).
+//! Export menu for an event or a recording: copy a link (events),
+//! download, or upload the clip to a configured destination (each upload
+//! is its own tracked job).
 
 use std::time::Duration;
 
@@ -7,7 +8,9 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::components::A;
 
-use crate::api::{self, ExportJob, ExportKind, ExportState, ExportTarget, Topic, use_query};
+use chrono::{DateTime, Utc};
+
+use crate::api::{self, ApiResult, ExportJob, ExportKind, ExportState, ExportTarget, Id, Topic, use_query};
 use crate::clock::use_interval;
 use crate::ui::{I, Icon, Popover, clipboard};
 
@@ -19,8 +22,31 @@ fn icon(kind: ExportKind) -> I {
     }
 }
 
+/// What is exported.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ExportSubject {
+    /// An event's clip (looked up when needed).
+    Event(Id),
+    /// A saved recording, e.g. a continuous clip without an event.
+    Recording { id: Id, camera_id: Id, start: DateTime<Utc> },
+}
+
+impl ExportSubject {
+    async fn upload(self, target_id: Id) -> ApiResult<ExportJob> {
+        match self {
+            Self::Event(id) => api::export_event(id, target_id).await,
+            Self::Recording { id, .. } => api::export_recording(id, target_id).await,
+        }
+    }
+}
+
+/// `<camera>_<YYYY-MM-DD_HH-MM-SS>.mp4` (local time).
+fn file_name(camera_id: &str, start: DateTime<Utc>) -> String {
+    format!("{camera_id}_{}.mp4", start.with_timezone(&chrono::Local).format("%Y-%m-%d_%H-%M-%S"))
+}
+
 #[component]
-pub fn ExportMenu(event_id: String) -> impl IntoView {
+pub fn ExportMenu(subject: ExportSubject) -> impl IntoView {
     let open = RwSignal::new(false);
     let targets = use_query(Topic::Settings, None, api::get_export_targets);
     let jobs = RwSignal::new(Vec::<(ExportJob, String)>::new());
@@ -44,20 +70,24 @@ pub fn ExportMenu(event_id: String) -> impl IntoView {
     });
 
     let start = {
-        let event_id = event_id.clone();
+        let subject = subject.clone();
         move |t: ExportTarget| {
             open.set(false);
-            let event_id = event_id.clone();
+            let subject = subject.clone();
             spawn_local(async move {
-                match api::export_event(event_id, t.id.clone()).await {
+                match subject.upload(t.id.clone()).await {
                     Ok(job) => jobs.update(|l| l.insert(0, (job, t.name.clone()))),
                     Err(e) => note.set(Some(format!("{}: {e}", t.name))),
                 }
             });
         }
     };
+    let event_id = match &subject {
+        ExportSubject::Event(id) => Some(id.clone()),
+        ExportSubject::Recording { .. } => None,
+    };
     let copy_link = {
-        let event_id = event_id.clone();
+        let event_id = event_id.clone().unwrap_or_default();
         move |_| {
             open.set(false);
             let origin = web_sys::window().and_then(|w| w.location().origin().ok()).unwrap_or_default();
@@ -69,26 +99,32 @@ pub fn ExportMenu(event_id: String) -> impl IntoView {
         }
     };
     let download = {
-        let event_id = event_id.clone();
+        let subject = subject.clone();
         move |_| {
             open.set(false);
-            let event_id = event_id.clone();
+            let subject = subject.clone();
             spawn_local(async move {
-                let message = match api::get_event(event_id).await {
-                    Ok(d) => match d.recording.as_ref().and_then(|r| api::recording_media_url(&r.id).map(|u| (r, u))) {
-                        Some((r, url)) => {
-                            let name = format!("{}_{}.mp4", d.event.camera_id, r.start_time.with_timezone(&chrono::Local).format("%Y-%m-%d_%H-%M-%S"));
+                let clip = match subject {
+                    ExportSubject::Recording { id, camera_id, start } => Ok(Some((id, camera_id, start))),
+                    ExportSubject::Event(id) => api::get_event(id).await.map(|d| d.recording.map(|r| (r.id, d.event.camera_id, r.start_time))),
+                };
+                let message = match clip {
+                    Ok(Some((id, camera_id, start))) => match api::recording_media_url(&id) {
+                        Some(url) => {
+                            let name = file_name(&camera_id, start);
                             save_as(&url, &name);
                             format!("Downloading {name}")
                         }
-                        None => "This event has no video clip.".into(),
+                        None => "The demo data has no video files.".into(),
                     },
+                    Ok(None) => "This event has no video clip.".into(),
                     Err(e) => e.message,
                 };
                 note.set(Some(message));
             });
         }
     };
+    let has_link = event_id.is_some();
 
     view! {
         <div class="export">
@@ -98,7 +134,9 @@ pub fn ExportMenu(event_id: String) -> impl IntoView {
                 </button>
                 <Popover open class="export__menu">
                     <div class="menu">
-                        <button class="menu__item" on:click=copy_link.clone()><Icon icon=I::Link class="icon icon--sm" />"Copy link to event"</button>
+                        {has_link.then(|| view! {
+                            <button class="menu__item" on:click=copy_link.clone()><Icon icon=I::Link class="icon icon--sm" />"Copy link to event"</button>
+                        })}
                         <button class="menu__item" on:click=download.clone()><Icon icon=I::Download class="icon icon--sm" />"Download to this computer"</button>
                         <div class="menu__sep"></div>
                         <div class="menu__label">"Upload clip to"</div>

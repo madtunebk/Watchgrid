@@ -28,7 +28,7 @@ pub fn router(state: AppState, ui_dir: &Path) -> Router {
         .nest("/events", events::router().route("/{id}/export", axum::routing::post(exports::export_event)))
         .nest("/exports", exports::router())
         .nest("/notifications", notifications::router())
-        .nest("/recordings", recordings::router())
+        .nest("/recordings", recordings::router().route("/{id}/export", axum::routing::post(exports::export_recording)))
         .nest("/storage", storage::router())
         .nest("/system", system::router())
         .nest("/settings", settings::router())

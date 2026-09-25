@@ -28,7 +28,7 @@ async fn targets_never_expose_secrets_and_jobs_dedupe(db: PgPool) {
     assert!(!json.contains("AKID") && !json.contains("minio.lan"), "no credentials or endpoint in the API: {json}");
     assert!(public.ready);
 
-    let job = repo::insert_job(&db, "evt-1", "rec-1", &id).await.unwrap();
+    let job = repo::insert_job(&db, Some("evt-1"), "rec-1", &id).await.unwrap();
     assert_eq!(job.state, ExportState::Queued);
     assert_eq!(repo::existing_job(&db, "rec-1", &id).await.unwrap().map(|j| j.id), Some(job.id.clone()), "same clip + destination reuses the job");
 

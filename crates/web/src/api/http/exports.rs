@@ -16,6 +16,10 @@ pub async fn start(event_id: &str, target_id: &str) -> ApiResult<ExportJob> {
     client::post(&format!("/events/{}/export", enc(event_id)), Some(&serde_json::json!({ "targetId": target_id }))).await
 }
 
+pub async fn start_recording(recording_id: &str, target_id: &str) -> ApiResult<ExportJob> {
+    client::post(&format!("/recordings/{}/export", enc(recording_id)), Some(&serde_json::json!({ "targetId": target_id }))).await
+}
+
 pub async fn job(id: &str) -> ApiResult<ExportJob> {
     client::get(&format!("/exports/jobs/{}", enc(id))).await
 }

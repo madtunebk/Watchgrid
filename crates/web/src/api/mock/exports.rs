@@ -18,17 +18,29 @@ pub async fn targets() -> ApiResult<Vec<ExportTarget>> {
 
 pub async fn start(event_id: &str, target_id: &str) -> ApiResult<ExportJob> {
     latency().await;
+    if !with_db(|db| db.events.iter().any(|e| e.id == event_id)) {
+        return Err(ApiError::not_found("Event"));
+    }
+    queue(Some(event_id), target_id)
+}
+
+pub async fn start_recording(recording_id: &str, target_id: &str) -> ApiResult<ExportJob> {
+    latency().await;
+    if !with_db(|db| db.recordings.iter().any(|r| r.id == recording_id)) {
+        return Err(ApiError::not_found("Recording"));
+    }
+    queue(None, target_id)
+}
+
+fn queue(event_id: Option<&str>, target_id: &str) -> ApiResult<ExportJob> {
     with_db(|db| {
         let target = db.export_targets.iter().find(|t| t.id == target_id).ok_or_else(|| ApiError::not_found("Export destination"))?;
         if !target.ready {
             return Err(ApiError::conflict(target.problem.clone().unwrap_or_else(|| "Destination not ready".into())));
         }
-        if !db.events.iter().any(|e| e.id == event_id) {
-            return Err(ApiError::not_found("Event"));
-        }
         let job = ExportJob {
             id: format!("exp-{}", db.export_jobs.len() + 1),
-            event_id: event_id.into(),
+            event_id: event_id.map(String::from),
             target_id: target_id.into(),
             state: ExportState::Queued,
             progress: 0.0,

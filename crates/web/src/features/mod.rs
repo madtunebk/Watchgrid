@@ -3,6 +3,7 @@
 
 pub mod auth;
 pub mod cameras;
+pub mod clip_export;
 pub mod dashboard;
 pub mod events;
 pub mod live;

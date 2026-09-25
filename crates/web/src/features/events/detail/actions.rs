@@ -2,7 +2,7 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::components::A;
 
-use super::export::ExportMenu;
+use crate::features::clip_export::{ExportMenu, ExportSubject};
 use crate::features::events::mutations;
 use crate::ui::{ConfirmDialog, I, Icon};
 
@@ -57,7 +57,7 @@ pub fn EventActions(
     view! {
         <div class="event-actions">
             {has_clip.then(|| view! {
-                <ExportMenu event_id=event_id.clone() />
+                <ExportMenu subject=ExportSubject::Event(event_id.clone()) />
                 <button class="btn" class:btn--primary=protected class:btn--secondary=move || !protected.get() disabled=busy on:click=toggle_protect
                     title="Protected events are never deleted by retention">
                     {move || view! { <Icon icon=if protected.get() { I::Lock } else { I::LockOpen } class="icon icon--sm" /> }}

@@ -26,3 +26,7 @@ pub fn media_url(id: &str) -> Option<String> {
 fn encode(s: &str) -> String {
     js_sys::encode_uri_component(s).into()
 }
+
+pub async fn set_protected(id: &str, protected: bool) -> ApiResult<()> {
+    client::put_no_content(&format!("/recordings/{}/protected", encode(id)), &serde_json::json!({ "protected": protected })).await
+}

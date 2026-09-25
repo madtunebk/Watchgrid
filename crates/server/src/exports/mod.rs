@@ -7,7 +7,7 @@ mod repo;
 mod routes;
 mod service;
 
-pub use routes::{export_event, router};
+pub use routes::{export_event, export_recording, router};
 pub use service::Exports;
 
 #[cfg(test)]

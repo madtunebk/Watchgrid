@@ -127,7 +127,7 @@ fn parse_state(s: &str) -> ExportState {
     }
 }
 
-type JobRow = (String, String, String, String, i64, i64, Option<String>, Option<String>, DateTime<Utc>);
+type JobRow = (String, Option<String>, String, String, i64, i64, Option<String>, Option<String>, DateTime<Utc>);
 
 fn job(r: JobRow) -> ExportJob {
     let progress = if r.4 > 0 { (r.5 as f32 / r.4 as f32 * 100.0).min(100.0) } else { 0.0 };
@@ -163,7 +163,7 @@ pub async fn existing_job(db: &PgPool, recording_id: &str, target_id: &str) -> s
     Ok(row.map(job))
 }
 
-pub async fn insert_job(db: &PgPool, event_id: &str, recording_id: &str, target_id: &str) -> sqlx::Result<ExportJob> {
+pub async fn insert_job(db: &PgPool, event_id: Option<&str>, recording_id: &str, target_id: &str) -> sqlx::Result<ExportJob> {
     let row: JobRow = sqlx::query_as(&format!(
         "INSERT INTO export_jobs (event_id, recording_id, target_id, state) VALUES ($1, $2, $3, 'queued') RETURNING {JOB_COLUMNS}"
     ))
@@ -176,7 +176,7 @@ pub async fn insert_job(db: &PgPool, event_id: &str, recording_id: &str, target_
 }
 
 /// (event, recording, target) of a job.
-pub async fn job_parts(db: &PgPool, id: &str) -> sqlx::Result<Option<(String, String, String)>> {
+pub async fn job_parts(db: &PgPool, id: &str) -> sqlx::Result<Option<(Option<String>, String, String)>> {
     sqlx::query_as("SELECT event_id, recording_id, target_id FROM export_jobs WHERE id = $1").bind(id).fetch_optional(db).await
 }
 

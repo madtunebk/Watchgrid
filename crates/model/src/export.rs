@@ -72,7 +72,9 @@ pub enum ExportState {
 #[serde(rename_all = "camelCase")]
 pub struct ExportJob {
     pub id: Id,
-    pub event_id: Id,
+    /// The exported event; none when a recording was exported directly.
+    #[serde(default)]
+    pub event_id: Option<Id>,
     pub target_id: Id,
     pub state: ExportState,
     /// 0-100

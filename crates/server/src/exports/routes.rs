@@ -1,4 +1,5 @@
-//! `/api/v1/exports/*` and `POST /api/v1/events/{id}/export`.
+//! `/api/v1/exports/*`, `POST /api/v1/events/{id}/export` and
+//! `POST /api/v1/recordings/{id}/export`.
 
 use std::time::Instant;
 
@@ -118,6 +119,11 @@ async fn job(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult<Jso
 #[serde(rename_all = "camelCase")]
 pub struct ExportRequest {
     target_id: String,
+}
+
+/// `POST /api/v1/recordings/{id}/export`
+pub async fn export_recording(State(s): State<AppState>, Path(recording_id): Path<String>, Json(body): Json<ExportRequest>) -> ApiResult<Json<ExportJob>> {
+    s.exports.enqueue_recording(&recording_id, &body.target_id).await.map(Json)
 }
 
 /// `POST /api/v1/events/{id}/export`

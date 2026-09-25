@@ -1,11 +1,14 @@
-//! Side panel that plays a recording and links to its events.
+//! Side panel that plays a recording, links to its events and exports or
+//! protects it.
 
 use leptos::ev;
 use leptos::prelude::*;
+use leptos::task::spawn_local;
 use leptos_router::components::A;
 
 use super::labels;
 use crate::api::{self, Recording};
+use crate::features::clip_export::{ExportMenu, ExportSubject};
 use crate::features::playback::{Clip, Player};
 use crate::format;
 use crate::ui::{I, Icon};
@@ -38,8 +41,27 @@ pub fn RecordingDrawer(recording: Recording, camera_name: String, on_close: Call
         ("Ended", recording.end_time.map(t).unwrap_or_else(|| "Recording now".into())),
         ("Length", format::duration(recording.duration)),
         ("Size", format::bytes(recording.file_size)),
-        ("Protected", if recording.protected { "Yes" } else { "No" }.to_string()),
     ];
+    // Finished clips only: one still recording has no file yet.
+    let saved = recording.end_time.is_some();
+    let subject = ExportSubject::Recording { id: recording.id.clone(), camera_id: recording.camera_id.clone(), start: recording.start_time };
+    let protected = RwSignal::new(recording.protected);
+    let busy = RwSignal::new(false);
+    let protect_error = RwSignal::new(None::<String>);
+    let toggle_protect = {
+        let id = recording.id.clone();
+        move |_| {
+            let (id, next) = (id.clone(), !protected.get_untracked());
+            busy.set(true);
+            spawn_local(async move {
+                match api::set_recording_protected(id, next).await {
+                    Ok(()) => protected.set(next),
+                    Err(e) => protect_error.set(Some(e.to_string())),
+                }
+                busy.set(false);
+            });
+        }
+    };
     let rec = recording.clone();
     let cam_id = recording.camera_id.clone();
     let single = recording.event_ids.len() == 1;
@@ -64,6 +86,17 @@ pub fn RecordingDrawer(recording: Recording, camera_name: String, on_close: Call
                 <dl class="facts">
                     {rows.into_iter().map(|(k, v)| view! { <div><dt>{k}</dt><dd>{v}</dd></div> }).collect_view()}
                 </dl>
+                {saved.then(|| view! {
+                    <div class="drawer__actions">
+                        <ExportMenu subject=subject.clone() />
+                        <button class="btn" class:btn--primary=protected class:btn--secondary=move || !protected.get() disabled=busy on:click=toggle_protect.clone()
+                            title="Protected recordings are never deleted by retention">
+                            {move || view! { <Icon icon=if protected.get() { I::Lock } else { I::LockOpen } class="icon icon--sm" /> }}
+                            {move || if protected.get() { "Protected" } else { "Protect" }}
+                        </button>
+                        {move || protect_error.get().map(|e| view! { <p class="drawer__note">{e}</p> })}
+                    </div>
+                })}
                 <div class="drawer__links">
                     {event_links.into_iter().map(|(i, id)| view! {
                         <A href=format!("/events/{id}") attr:class="btn btn--secondary btn--sm">

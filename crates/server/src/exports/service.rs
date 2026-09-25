@@ -83,12 +83,27 @@ impl Exports {
         if event.end_time.is_none() {
             return Err(ApiError::conflict("The clip is still being recorded; try again when it has finished"));
         }
-        if let Some(job) = repo::existing_job(&self.db, &recording_id, target_id).await? {
+        self.queue_job(Some(event_id), &recording_id, target_id).await
+    }
+
+    /// Upload a saved recording directly (e.g. a continuous clip).
+    pub async fn enqueue_recording(&self, recording_id: &str, target_id: &str) -> ApiResult<ExportJob> {
+        let target = repo::target_by_id(&self.db, target_id).await?.ok_or_else(|| ApiError::not_found("Export destination"))?;
+        if let Some(p) = &target.problem {
+            return Err(ApiError::conflict(format!("{} isn't ready: {p}", target.name)));
+        }
+        // Rows exist only for finished, saved clips.
+        crate::recordings::get(&self.db, recording_id).await?.ok_or_else(|| ApiError::not_found("Recording"))?;
+        self.queue_job(None, recording_id, target_id).await
+    }
+
+    async fn queue_job(&self, event_id: Option<&str>, recording_id: &str, target_id: &str) -> ApiResult<ExportJob> {
+        if let Some(job) = repo::existing_job(&self.db, recording_id, target_id).await? {
             return Ok(job);
         }
-        let job = repo::insert_job(&self.db, event_id, &recording_id, target_id).await?;
+        let job = repo::insert_job(&self.db, event_id, recording_id, target_id).await?;
         let _ = self.queue.send(job.id.clone());
-        tracing::info!(job = %job.id, event = %event_id, target = %target_id, "export queued");
+        tracing::info!(job = %job.id, recording = %recording_id, target = %target_id, "export queued");
         Ok(job)
     }
 
@@ -144,9 +159,10 @@ impl Exports {
         let size = tokio::fs::metadata(&file).await.map_err(|e| format!("the clip file is missing: {e}"))?.len();
         repo::job_started(&self.db, id, size as i64).await.map_err(|e| e.to_string())?;
 
-        // `<camera>/<day>/<camera>_<time>Z_<event>.mp4` (UTC).
+        // `<camera>/<day>/<camera>_<time>Z[_<event>].mp4` (UTC).
         let t = recording.start_time;
-        let name = format!("{c}/{}/{c}_{}Z_{event_id}.mp4", t.format("%Y-%m-%d"), t.format("%Y%m%d-%H%M%S"), c = recording.camera_id);
+        let event = event_id.map(|e| format!("_{e}")).unwrap_or_default();
+        let name = format!("{c}/{}/{c}_{}Z{event}.mp4", t.format("%Y-%m-%d"), t.format("%Y%m%d-%H%M%S"), c = recording.camera_id);
 
         let sent = Arc::new(AtomicU64::new(0));
         let reporter = {

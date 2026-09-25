@@ -2,7 +2,8 @@
 
 use axum::extract::{Path, Query, Request, State};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::http::StatusCode;
+use axum::routing::{get, put};
 use axum::{Json, Router};
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
@@ -11,11 +12,12 @@ use tower_http::services::ServeFile;
 use watchgrid_model::Recording;
 
 use super::repo;
+use crate::bus::BusEvent;
 use crate::error::{ApiError, ApiResult};
 use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
-    Router::new().route("/", get(list)).route("/{id}", get(one)).route("/{id}/media", get(media))
+    Router::new().route("/", get(list)).route("/{id}", get(one)).route("/{id}/media", get(media)).route("/{id}/protected", put(protect))
 }
 
 #[derive(Deserialize)]
@@ -43,4 +45,17 @@ async fn media(State(s): State<AppState>, Path(id): Path<String>, req: Request) 
         Ok(resp) => Ok(resp.into_response()),
         Err(e) => Err(ApiError::internal(e)),
     }
+}
+
+#[derive(Deserialize)]
+struct Protect {
+    protected: bool,
+}
+
+/// Protected recordings are never deleted by retention.
+async fn protect(State(s): State<AppState>, Path(id): Path<String>, Json(body): Json<Protect>) -> ApiResult<StatusCode> {
+    repo::get(&s.db, &id).await?.ok_or_else(|| ApiError::not_found("Recording"))?;
+    repo::set_protected(&s.db, &id, body.protected).await?;
+    s.bus.publish(BusEvent::RecordingsChanged);
+    Ok(StatusCode::NO_CONTENT)
 }
