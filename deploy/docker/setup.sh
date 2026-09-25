@@ -22,9 +22,15 @@ fi
 
 # 1. Which PostgreSQL: an existing container (PG_CONTAINER or the first
 #    running postgres image), else a bundled one in this stack.
-PG=${PG_CONTAINER:-$($D ps --format '{{.Names}} {{.Image}}' | awk 'tolower($2) ~ /postgres|postgis|timescale/ {print $1; exit}')}
+# Our own bundled database (from an earlier run) is never "an existing one".
+OWN_DB=watchgrid-db
+if [ -z "${PG_CONTAINER:-}" ] && $D ps -a --format '{{.Names}}' | grep -qx "$OWN_DB"; then
+    PG=""
+else
+    PG=${PG_CONTAINER:-$($D ps --format '{{.Names}} {{.Image}}' | awk -v own="$OWN_DB" '$1 != own && tolower($2) ~ /postgres|postgis|timescale/ {print $1; exit}')}
+fi
 if [ -z "$PG" ]; then
-    STOPPED=$($D ps -a --format '{{.Names}} {{.Image}}' | awk 'tolower($2) ~ /postgres|postgis|timescale/ {print $1}')
+    STOPPED=$($D ps -a --format '{{.Names}} {{.Image}}' | awk -v own="$OWN_DB" '$1 != own && tolower($2) ~ /postgres|postgis|timescale/ {print $1}')
     [ -z "$STOPPED" ] || echo "note: stopped PostgreSQL container(s) found: $STOPPED (start one and re-run to use it instead)"
     echo "PostgreSQL: bundled (postgres:16-alpine, data in $(pwd)/db)"
     BUNDLED=1
