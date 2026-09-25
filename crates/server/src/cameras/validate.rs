@@ -64,6 +64,9 @@ pub fn check(i: &CameraInput) -> Result<(), ApiError> {
     if i.motion.sensitivity > 100 {
         return invalid("Motion sensitivity must be between 0 and 100");
     }
+    if i.recording.retention_days.is_some_and(|d| !(1..=3650).contains(&d)) {
+        return invalid("Keep recordings between 1 and 3650 days, or without a camera limit");
+    }
     Ok(())
 }
 
@@ -140,5 +143,6 @@ mod tests {
             i.recording.schedule = vec![window(vec![0, 1], 22 * 60, 6 * 60)];
         }));
         assert!(rejects(|i| i.motion.sensitivity = 101));
+        assert!(rejects(|i| i.recording.retention_days = Some(0)));
     }
 }

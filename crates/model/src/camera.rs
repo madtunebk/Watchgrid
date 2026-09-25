@@ -122,6 +122,10 @@ pub struct RecordingSettings {
     /// When "scheduled" mode records (server time zone).
     #[serde(default)]
     pub schedule: Vec<ScheduleWindow>,
+    /// Keep this camera's recordings at most this many days (on top of the
+    /// global retention policy). `None`: only the global policy applies.
+    #[serde(default)]
+    pub retention_days: Option<u32>,
 }
 
 /// A weekly recording window. `end` before `start` runs past midnight into
@@ -167,6 +171,7 @@ impl Default for RecordingSettings {
             max_clip_seconds: 600,
             event_merge_seconds: 10,
             schedule: Vec::new(),
+            retention_days: None,
         }
     }
 }

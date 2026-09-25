@@ -115,9 +115,18 @@ pub async fn protected_bytes(db: &PgPool) -> sqlx::Result<u64> {
 
 /// Unprotected recordings, oldest first.
 pub async fn retention_candidates(db: &PgPool) -> sqlx::Result<Vec<Candidate>> {
-    let rows: Vec<(String, i64, DateTime<Utc>)> =
-        sqlx::query_as("SELECT id, file_size, end_time FROM recordings WHERE NOT protected ORDER BY start_time, id").fetch_all(db).await?;
-    Ok(rows.into_iter().map(|(id, bytes, end_time)| Candidate { id, bytes: bytes as u64, end_time }).collect())
+    // The camera's own limit lives in its recording settings (JSON).
+    let rows: Vec<(String, i64, DateTime<Utc>, Option<i32>)> = sqlx::query_as(
+        "SELECT r.id, r.file_size, r.end_time, (c.recording->>'retentionDays')::int
+         FROM recordings r LEFT JOIN cameras c ON c.id = r.camera_id
+         WHERE NOT r.protected ORDER BY r.start_time, r.id",
+    )
+    .fetch_all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(id, bytes, end_time, days)| Candidate { id, bytes: bytes as u64, end_time, camera_max_days: days.and_then(|d| u32::try_from(d).ok()) })
+        .collect())
 }
 
 /// Remove a recording's row. Never removes protected ones.

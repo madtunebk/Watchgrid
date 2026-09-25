@@ -2,7 +2,7 @@
 
 use leptos::prelude::*;
 
-use crate::api::{CameraInput, MotionSettings, OnvifConfig, RecordingSettings};
+use crate::api::{CameraInput, MotionSettings, OnvifConfig, RecordingDefaults, RecordingSettings};
 
 #[derive(Clone, Copy)]
 pub struct Draft {
@@ -24,7 +24,14 @@ pub struct Draft {
 }
 
 impl Draft {
-    pub fn blank() -> Self {
+    /// A new camera, recording as Settings → Recording says new cameras do.
+    pub fn blank(defaults: Option<&RecordingDefaults>) -> Self {
+        let mut recording = RecordingSettings::default();
+        if let Some(d) = defaults {
+            recording.mode = d.mode;
+            recording.pre_record_seconds = d.pre_record_seconds;
+            recording.post_record_seconds = d.post_record_seconds;
+        }
         Self::from_input(&CameraInput {
             name: String::new(),
             description: String::new(),
@@ -36,7 +43,7 @@ impl Draft {
             main_stream_url: String::new(),
             sub_stream_url: None,
             onvif: None,
-            recording: RecordingSettings::default(),
+            recording,
             motion: MotionSettings::default(),
         })
     }

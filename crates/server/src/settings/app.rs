@@ -64,7 +64,11 @@ pub async fn local_clock(db: &PgPool) -> sqlx::Result<(u8, u16)> {
 }
 
 pub async fn load(db: &PgPool, bind: std::net::SocketAddr) -> ApiResult<Settings> {
-    Ok(store::load(db, KEY).await?.unwrap_or_else(|| defaults(bind)))
+    let mut s: Settings = store::load(db, KEY).await?.unwrap_or_else(|| defaults(bind));
+    // The listen address comes from the environment; show the real one.
+    s.network.http_bind = bind.ip().to_string();
+    s.network.http_port = bind.port();
+    Ok(s)
 }
 
 pub async fn save(db: &PgPool, mut s: Settings) -> ApiResult<Settings> {

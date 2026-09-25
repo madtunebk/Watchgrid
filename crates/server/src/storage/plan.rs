@@ -9,6 +9,8 @@ pub struct Candidate {
     pub id: String,
     pub bytes: u64,
     pub end_time: DateTime<Utc>,
+    /// The camera's own age limit, if it has one.
+    pub camera_max_days: Option<u32>,
 }
 
 /// State of the volume when planning.
@@ -23,12 +25,20 @@ pub struct Usage {
 /// Ids to delete, oldest first. `candidates` must be sorted oldest first.
 ///
 /// Rules, each applied on top of the previous:
+/// 0. each camera's own age limit (Camera → Storage);
 /// 1. `max_age_days`: everything that ended longer ago than that;
 /// 2. `max_usage`: oldest first until recordings fit the limit;
 /// 3. `min_free`: oldest first until the volume has that much free space.
 pub fn plan(policy: &RetentionPolicy, candidates: &[Candidate], usage: Usage, now: DateTime<Utc>) -> Vec<String> {
     let mut chosen = vec![false; candidates.len()];
     let mut freed = 0u64;
+
+    for (i, c) in candidates.iter().enumerate() {
+        if c.camera_max_days.is_some_and(|days| c.end_time < now - Duration::days(i64::from(days))) {
+            chosen[i] = true;
+            freed += c.bytes;
+        }
+    }
 
     if let Some(days) = policy.max_age_days {
         let cutoff = now - Duration::days(i64::from(days));
@@ -74,7 +84,7 @@ mod tests {
 
     /// Four 1 GB recordings that ended 10, 5, 2 and 0 days ago.
     fn candidates() -> Vec<Candidate> {
-        [10, 5, 2, 0].iter().enumerate().map(|(i, d)| Candidate { id: format!("r{i}"), bytes: GB, end_time: now() - Duration::days(*d) }).collect()
+        [10, 5, 2, 0].iter().enumerate().map(|(i, d)| Candidate { id: format!("r{i}"), bytes: GB, end_time: now() - Duration::days(*d), camera_max_days: None }).collect()
     }
 
     fn policy(days: Option<u32>, max: Option<u64>, free: Option<u64>) -> RetentionPolicy {
@@ -122,5 +132,15 @@ mod tests {
     #[test]
     fn cannot_delete_more_than_exists() {
         assert_eq!(plan(&policy(None, None, Some(1000 * GB)), &candidates(), usage(4 * GB, 0), now()).len(), 4);
+    }
+
+    #[test]
+    fn a_camera_limit_applies_to_that_camera_only() {
+        let mut c = candidates();
+        c[1].camera_max_days = Some(3); // 5 days old, camera keeps 3
+        c[2].camera_max_days = Some(3); // 2 days old: kept
+        assert_eq!(plan(&policy(None, None, None), &c, Usage { recordings_bytes: 4 * GB, free: None }, now()), ["r1"]);
+        // Together with the global limit.
+        assert_eq!(plan(&policy(Some(7), None, None), &c, Usage { recordings_bytes: 4 * GB, free: None }, now()), ["r0", "r1"]);
     }
 }

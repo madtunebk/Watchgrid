@@ -64,10 +64,10 @@ impl Sweeper {
             }
             Err(e) => tracing::warn!("event retention failed: {e}"),
         }
-        if policy == retention::default_policy() {
+        let candidates = recordings::retention_candidates(&self.db).await.map_err(|e| e.to_string())?;
+        if policy == retention::default_policy() && candidates.iter().all(|c| c.camera_max_days.is_none()) {
             return Ok(0);
         }
-        let candidates = recordings::retention_candidates(&self.db).await.map_err(|e| e.to_string())?;
         let recordings_bytes = recordings::usage_by_camera(&self.db).await.map_err(|e| e.to_string())?.iter().map(|u| u.bytes).sum();
         let free = disk::space(&self.files.root()).ok().map(|d| d.free);
         let doomed = plan::plan(&policy, &candidates, Usage { recordings_bytes, free }, Utc::now());

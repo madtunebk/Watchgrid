@@ -30,7 +30,19 @@ pub fn CameraFormPage() -> impl IntoView {
     let id = params.with_untracked(|p| p.get("id"));
 
     match id {
-        None => view! { <Page title="Add camera"><CameraForm draft=Draft::blank() camera_id=None /></Page> }.into_any(),
+        None => {
+            // New cameras start from Settings → Recording (defaults if unreadable).
+            let settings = LocalResource::new(api::get_settings);
+            view! {
+                <Page title="Add camera">
+                    {move || settings.get().map(|s| {
+                        let defaults = s.ok().map(|s| s.recording);
+                        view! { <CameraForm draft=Draft::blank(defaults.as_ref()) camera_id=None /> }
+                    })}
+                </Page>
+            }
+            .into_any()
+        }
         Some(id) => {
             // Load once: background refreshes must not overwrite what the user is typing.
             let camera = LocalResource::new({

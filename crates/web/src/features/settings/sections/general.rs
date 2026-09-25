@@ -10,29 +10,25 @@ const ZONES: &[&str] = &[
     "Europe/Athens", "Europe/Kyiv", "Europe/Moscow", "America/New_York", "America/Chicago", "America/Denver",
     "America/Los_Angeles", "America/Sao_Paulo", "Asia/Dubai", "Asia/Kolkata", "Asia/Shanghai", "Asia/Tokyo", "Australia/Sydney",
 ];
-const LANGUAGES: &[(&str, &str)] = &[("en", "English"), ("ro", "Română")];
-
 #[component]
 pub fn GeneralSection(settings: Signal<Settings>) -> impl IntoView {
     let g = settings.get_untracked().general;
     let name = RwSignal::new(g.nvr_name);
     let zone = RwSignal::new(g.timezone);
-    let language = RwSignal::new(g.language);
     let date_format = RwSignal::new(g.date_format);
     let clock_24h = RwSignal::new(g.clock_24h);
     let state = SaveState::new();
 
-    let draft = move || (name.get(), zone.get(), language.get(), date_format.get(), clock_24h.get());
+    let draft = move || (name.get(), zone.get(), date_format.get(), clock_24h.get());
     let dirty = Signal::derive(move || {
         let g = settings.get().general;
-        draft() != (g.nvr_name, g.timezone, g.language, g.date_format, g.clock_24h)
+        draft() != (g.nvr_name, g.timezone, g.date_format, g.clock_24h)
     });
     let on_save = Callback::new(move |_| {
-        let (n, z, l, d, c) = draft();
+        let (n, z, d, c) = draft();
         save(state, &settings.get_untracked(), |s| {
             s.general.nvr_name = n.trim().into();
             s.general.timezone = z;
-            s.general.language = l;
             s.general.date_format = d;
             s.general.clock_24h = c;
         });
@@ -41,7 +37,6 @@ pub fn GeneralSection(settings: Signal<Settings>) -> impl IntoView {
         let g = settings.get_untracked().general;
         name.set(g.nvr_name);
         zone.set(g.timezone);
-        language.set(g.language);
         date_format.set(g.date_format);
         clock_24h.set(g.clock_24h);
     });
@@ -69,18 +64,11 @@ pub fn GeneralSection(settings: Signal<Settings>) -> impl IntoView {
                 </Field>
             </FormSection>
             <FormSection title="Region">
-                <div class="form-grid">
-                    <Field label="Time zone" hint="Used for schedules, day boundaries and timestamps in clips.">
-                        <select class="select" on:change=move |ev| zone.set(event_target_value(&ev))>
-                            {ZONES.iter().map(|z| view! { <option value=*z selected=move || zone.get() == *z>{*z}</option> }).collect_view()}
-                        </select>
-                    </Field>
-                    <Field label="Language" hint="Interface translations arrive in a later version.">
-                        <select class="select" on:change=move |ev| language.set(event_target_value(&ev))>
-                            {LANGUAGES.iter().map(|(code, label)| view! { <option value=*code selected=move || language.get() == *code>{*label}</option> }).collect_view()}
-                        </select>
-                    </Field>
-                </div>
+                <Field label="Time zone" hint="Used for schedules, day boundaries and timestamps in clips.">
+                    <select class="select" on:change=move |ev| zone.set(event_target_value(&ev))>
+                        {ZONES.iter().map(|z| view! { <option value=*z selected=move || zone.get() == *z>{*z}</option> }).collect_view()}
+                    </select>
+                </Field>
                 <Field label="Date format"><RadioCards value=date_format options=formats name="date-format" /></Field>
                 <Switch checked=clock_24h label="24-hour clock" />
                 <p class="note">"Preview: " <strong class="mono">{preview}</strong></p>

@@ -80,4 +80,20 @@ mod sweep {
         assert_eq!(left, ["fresh", "protected"]);
         let _ = std::fs::remove_dir_all(dir);
     }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn a_camera_limit_works_without_a_global_policy(db: PgPool) {
+        let dir = std::env::temp_dir().join(format!("watchgrid-sweep-cam-{}", std::process::id()));
+        let files = Arc::new(RecordingFiles::new(dir.clone()));
+        sqlx::query("INSERT INTO cameras (id, name, host, main_stream_url, recording, motion) VALUES ('cam-a', 'A', 'h', 'rtsp://h/', '{\"retentionDays\": 7}', '{}')")
+            .execute(&db)
+            .await
+            .unwrap();
+        let old = add(&db, &files, "old", 30).await;
+        let fresh = add(&db, &files, "fresh", 1).await;
+        let sweeper = Sweeper::new(db.clone(), files, Bus::new());
+        assert_eq!(sweeper.pass().await.unwrap(), 1);
+        assert!(!old.exists() && fresh.exists());
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }
