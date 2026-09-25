@@ -95,6 +95,9 @@ async fn protect(State(s): State<AppState>, Path(id): Path<String>, Json(body): 
     }
     s.bus.publish(BusEvent::EventsChanged);
     s.bus.publish(BusEvent::RecordingsChanged);
+    if body.protected {
+        s.exports.on_protected(&id).await;
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 

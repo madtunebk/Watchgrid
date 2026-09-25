@@ -24,6 +24,10 @@ impl ApiError {
         self.status
     }
 
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
     pub fn unauthenticated() -> Self {
         Self::new(StatusCode::UNAUTHORIZED, "unauthenticated", "Please sign in")
     }

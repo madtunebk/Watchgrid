@@ -10,6 +10,7 @@ use tower_http::services::{ServeDir, ServeFile};
 use crate::{auth, cameras};
 use crate::error::ApiError;
 use crate::events;
+use crate::exports;
 use crate::media;
 use crate::notifications;
 use crate::recordings;
@@ -24,7 +25,8 @@ pub fn router(state: AppState, ui_dir: &Path) -> Router {
         .route("/health", get(health))
         .route("/ws", get(ws::upgrade))
         .nest("/cameras", cameras::router().route("/{id}/live", get(media::upgrade)))
-        .nest("/events", events::router())
+        .nest("/events", events::router().route("/{id}/export", axum::routing::post(exports::export_event)))
+        .nest("/exports", exports::router())
         .nest("/notifications", notifications::router())
         .nest("/recordings", recordings::router())
         .nest("/storage", storage::router())

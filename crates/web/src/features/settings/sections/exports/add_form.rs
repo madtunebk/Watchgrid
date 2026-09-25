@@ -8,9 +8,13 @@ use crate::api::{self, AutoUpload, ConnectionProbe, ExportKind, ExportTargetInpu
 use crate::ui::form::{Choice, Field, FormSection, RadioCards, TextInput};
 use crate::ui::{I, Icon};
 
+/// Google Drive / Dropbox sign-in works on the real server only once OAuth
+/// is implemented; the demo (mock) build simulates it.
+const OAUTH_READY: bool = cfg!(not(feature = "live-api"));
+
 #[component]
 pub fn AddDestination(on_done: Callback<()>) -> impl IntoView {
-    let kind = RwSignal::new(ExportKind::GoogleDrive);
+    let kind = RwSignal::new(if OAUTH_READY { ExportKind::GoogleDrive } else { ExportKind::S3 });
     let name = RwSignal::new(String::new());
     let endpoint = RwSignal::new(String::new());
     let location = RwSignal::new(String::new());
@@ -75,11 +79,12 @@ pub fn AddDestination(on_done: Callback<()>) -> impl IntoView {
     let oauth = move || labels::uses_oauth(kind.get());
     let can_save = move || !busy.get() && (!oauth() || signed_in.get());
 
+    let oauth_choice = |c: Choice<ExportKind>| if OAUTH_READY { c } else { c.tag("Soon").disabled_because("Sign-in with this service arrives in a later version") };
     let kinds = vec![
-        Choice::new(ExportKind::GoogleDrive, "Google Drive").describe("Sign in with Google; clips go to a Drive folder."),
+        oauth_choice(Choice::new(ExportKind::GoogleDrive, "Google Drive").describe("Sign in with Google; clips go to a Drive folder.")),
         Choice::new(ExportKind::S3, "S3 / MinIO").describe("Any S3-compatible bucket: AWS, MinIO, Wasabi, Backblaze B2."),
-        Choice::new(ExportKind::Nextcloud, "Nextcloud").describe("WebDAV with an app password."),
-        Choice::new(ExportKind::Dropbox, "Dropbox").describe("Sign in with Dropbox; clips go to an app folder."),
+        Choice::new(ExportKind::Nextcloud, "Nextcloud / WebDAV").describe("Nextcloud with an app password, or any WebDAV folder URL."),
+        oauth_choice(Choice::new(ExportKind::Dropbox, "Dropbox").describe("Sign in with Dropbox; clips go to an app folder.")),
     ];
 
     view! {

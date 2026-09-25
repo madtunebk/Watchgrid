@@ -33,4 +33,10 @@ zeroize = { version = "1", features = ["serde"] }
 quick-xml = "0.38"
 sha1 = "0.10"
 base64 = "0.22"
+# HTTPS for cloud export targets: pure-Rust TLS with bundled root certificates
+# (never the system's OpenSSL or CA store, which differ on every NAS).
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-webpki-roots-no-provider", "stream", "http2"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+hmac = "0.12"
+sha2 = "0.10"
 futures = "0.3.34"

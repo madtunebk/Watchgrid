@@ -223,6 +223,12 @@ pub async fn list(db: &PgPool, q: &EventQuery, tz: &str) -> sqlx::Result<(Vec<Ev
     Ok((rows.into_iter().map(Row::into_model).collect(), total as u32))
 }
 
+/// Events linked to a recording, oldest first.
+pub async fn of_recording(db: &PgPool, recording_id: &str) -> sqlx::Result<Vec<Event>> {
+    let rows: Vec<Row> = sqlx::query_as(&format!("SELECT {COLUMNS} FROM events WHERE recording_id = $1 ORDER BY start_time, id")).bind(recording_id).fetch_all(db).await?;
+    Ok(rows.into_iter().map(Row::into_model).collect())
+}
+
 pub async fn get(db: &PgPool, id: &str) -> sqlx::Result<Option<Event>> {
     let row: Option<Row> = sqlx::query_as(&format!("SELECT {COLUMNS} FROM events WHERE id = $1")).bind(id).fetch_optional(db).await?;
     Ok(row.map(Row::into_model))

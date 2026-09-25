@@ -20,6 +20,7 @@ mod credentials;
 mod db;
 mod error;
 mod events;
+mod exports;
 mod http;
 mod httpc;
 mod live;
@@ -227,6 +228,8 @@ async fn serve(logs: system::logs::LogBuffer) -> Result<(), String> {
         state.auto_record.apply(&id, true);
     }
     tokio::spawn(state.retention.clone().run());
+    state.exports.start().await;
+    exports_auto_upload(&state);
     let recorder = state.recorder.clone();
     let app = http::router(state, &config.ui_dir);
 
@@ -241,6 +244,28 @@ async fn serve(logs: system::logs::LogBuffer) -> Result<(), String> {
         })
         .await
         .map_err(|e| e.to_string())
+}
+
+/// Auto-upload finished clips to destinations whose rule asks for it.
+fn exports_auto_upload(state: &AppState) {
+    let mut events = state.bus.subscribe();
+    let exports = state.exports.clone();
+    tokio::spawn(async move {
+        loop {
+            match events.recv().await {
+                Ok(bus::BusEvent::RecordingStopped { recording_id: Some(id), .. }) => {
+                    let exports = exports.clone();
+                    tokio::spawn(async move {
+                        // Let the event journal link the clip's events first.
+                        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                        exports.on_clip_saved(&id).await;
+                    });
+                }
+                Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                Err(_) => return,
+            }
+        }
+    });
 }
 
 /// Ctrl+C, or SIGTERM from a service manager (systemd, Docker).

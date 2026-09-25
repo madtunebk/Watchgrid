@@ -4,6 +4,7 @@ pub mod auth;
 pub mod capacity;
 pub mod cameras;
 pub mod events;
+pub mod exports;
 pub mod logs;
 pub mod notifications;
 mod client;

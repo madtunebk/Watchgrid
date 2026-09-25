@@ -6,6 +6,7 @@ use sqlx::PgPool;
 use crate::bus::Bus;
 use crate::credentials::CredentialStore;
 use crate::live::LiveRegistry;
+use crate::exports::Exports;
 use crate::media::MediaHub;
 use crate::onvif::{WatchDeps, Watchers};
 use crate::recorder::{self, AutoRecorders, Recorder};
@@ -33,6 +34,8 @@ pub struct AppState {
     /// Event recording controllers (cameras in "events" mode).
     pub auto_record: Arc<AutoRecorders>,
     pub recording_files: Arc<RecordingFiles>,
+    /// Upload queue for export destinations.
+    pub exports: Arc<Exports>,
     /// Retention enforcement (started by `serve`).
     pub retention: Arc<Sweeper>,
     pub started_at: chrono::DateTime<chrono::Utc>,
@@ -77,6 +80,7 @@ impl AppState {
             unreachable!("only tests build inert state")
         };
         let retention = Arc::new(Sweeper::new(deps.db.clone(), files.clone(), deps.bus.clone()));
+        let exports = Arc::new(Exports::new(deps.db.clone(), deps.credentials.clone(), files.clone()));
         Self {
             db: deps.db,
             credentials: deps.credentials,
@@ -93,6 +97,7 @@ impl AppState {
             login_limiter: Arc::default(),
             recorder,
             auto_record: Arc::new(auto_record),
+            exports,
             recording_files: files,
         }
     }
