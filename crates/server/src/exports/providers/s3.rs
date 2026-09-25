@@ -127,7 +127,8 @@ impl S3 {
 /// `s3.<region>.amazonaws.com`, `s3-<region>.amazonaws.com`,
 /// `s3.<region>.backblazeb2.com`, `s3.<region>.wasabisys.com`,
 /// `s3.<region>.scw.cloud`, `<region>.digitaloceanspaces.com`,
-/// `<region>.your-objectstorage.com` (Hetzner)… Cloudflare R2 uses `auto`.
+/// `<region>.your-objectstorage.com` (Hetzner), `<region>.s3.synologyc2.net`
+/// (Synology C2)… Cloudflare R2 uses `auto`.
 /// Anything else (MinIO on a LAN) gets `us-east-1`, which such servers accept.
 fn region_of(host: &str) -> String {
     let host = host.to_ascii_lowercase();
@@ -138,9 +139,12 @@ fn region_of(host: &str) -> String {
         return "us-east-1".into();
     }
     let labels: Vec<&str> = host.split('.').collect();
-    // The label that names the region: after an "s3" label, or the first one.
+    // The label that names the region: after a leading "s3" label
+    // (s3.<region>.…), before an inner one (<region>.s3.… — Synology C2),
+    // or the first one.
     let candidate = match labels.iter().position(|l| *l == "s3") {
-        Some(i) => labels.get(i + 1).copied(),
+        Some(0) => labels.get(1).copied(),
+        Some(i) => labels.get(i - 1).copied(),
         None => labels.first().and_then(|l| l.strip_prefix("s3-")).or_else(|| labels.first().copied()),
     };
     match candidate {
@@ -187,6 +191,8 @@ mod tests {
             ("nyc3.digitaloceanspaces.com", "nyc3"),
             ("fsn1.your-objectstorage.com", "fsn1"),
             ("abc123.r2.cloudflarestorage.com", "auto"),
+            ("eu-002.s3.synologyc2.net", "eu-002"),
+            ("us-001.s3.synologyc2.net", "us-001"),
             ("minio.lan", "us-east-1"),
             ("nas.home.lan", "us-east-1"),
             ("192.168.1.112", "us-east-1"),
