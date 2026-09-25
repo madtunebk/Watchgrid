@@ -25,6 +25,8 @@ pub enum AutoUpload {
     Protected,
     /// Person detections.
     Person,
+    /// Any detection: motion (camera or software), person, vehicle, animal.
+    Motion,
     /// Every event clip.
     AllEvents,
 }

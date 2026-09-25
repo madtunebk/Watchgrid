@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use sqlx::PgPool;
 use tokio::sync::{Mutex, mpsc};
-use watchgrid_model::{AutoUpload, EventType, ExportJob};
+use watchgrid_model::{AutoUpload, Event, EventType, ExportJob};
 
 use super::providers::{Provider, TargetConfig};
 use super::repo::{self, StoredTarget};
@@ -110,17 +110,13 @@ impl Exports {
     /// Auto-upload after a clip was saved, per destination rule.
     pub async fn on_clip_saved(&self, recording_id: &str) {
         let Ok(targets) = repo::targets(&self.db).await else { return };
-        let wanted: Vec<_> = targets.into_iter().filter(|t| matches!(t.auto_upload, AutoUpload::AllEvents | AutoUpload::Person) && t.problem.is_none()).collect();
+        let wanted: Vec<_> = targets.into_iter().filter(|t| matches!(t.auto_upload, AutoUpload::AllEvents | AutoUpload::Person | AutoUpload::Motion) && t.problem.is_none()).collect();
         if wanted.is_empty() {
             return;
         }
         let events = crate::events::events_of_recording(&self.db, recording_id).await.unwrap_or_default();
         for t in wanted {
-            let pick = match t.auto_upload {
-                AutoUpload::Person => events.iter().find(|e| e.kind == EventType::Person),
-                _ => events.first(),
-            };
-            if let Some(e) = pick
+            if let Some(e) = pick(t.auto_upload, &events)
                 && let Err(err) = self.enqueue(&e.id, &t.id).await
             {
                 tracing::warn!(target = %t.id, event = %e.id, "auto-upload skipped: {}", err.message());
@@ -184,5 +180,47 @@ impl Exports {
             let _ = repo::set_problem(&self.db, &target.id, Some(e)).await;
         }
         result
+    }
+}
+
+/// The clip's event a rule uploads under, if the rule wants the clip.
+fn pick(rule: AutoUpload, events: &[Event]) -> Option<&Event> {
+    match rule {
+        AutoUpload::Person => events.iter().find(|e| e.kind == EventType::Person),
+        AutoUpload::Motion => events.iter().find(|e| matches!(e.kind, EventType::Motion | EventType::Person | EventType::Vehicle | EventType::Animal)),
+        AutoUpload::AllEvents => events.first(),
+        AutoUpload::Off | AutoUpload::Protected => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn event(id: &str, kind: EventType) -> Event {
+        let at = chrono::Utc::now();
+        Event {
+            id: id.into(),
+            camera_id: "cam".into(),
+            kind,
+            start_time: at,
+            end_time: Some(at),
+            duration: 0,
+            recording_id: Some("rec".into()),
+            thumbnail: None,
+            protected: false,
+            detections: Vec::new(),
+            source: String::new(),
+        }
+    }
+
+    #[test]
+    fn rules_pick_the_matching_event() {
+        let clip = [event("e1", EventType::Scheduled), event("e2", EventType::Motion), event("e3", EventType::Person)];
+        assert_eq!(pick(AutoUpload::Motion, &clip).map(|e| e.id.as_str()), Some("e2"));
+        assert_eq!(pick(AutoUpload::Person, &clip).map(|e| e.id.as_str()), Some("e3"));
+        assert_eq!(pick(AutoUpload::AllEvents, &clip).map(|e| e.id.as_str()), Some("e1"));
+        assert_eq!(pick(AutoUpload::Motion, &clip[..1]), None, "no detection in the clip");
+        assert_eq!(pick(AutoUpload::Protected, &clip), None, "uploaded when protected instead");
     }
 }

@@ -22,9 +22,10 @@ pub fn uses_oauth(k: ExportKind) -> bool {
     matches!(k, ExportKind::GoogleDrive | ExportKind::Dropbox)
 }
 
-pub const AUTO: [(AutoUpload, &str, &str); 4] = [
+pub const AUTO: [(AutoUpload, &str, &str); 5] = [
     (AutoUpload::Off, "off", "Manual only"),
     (AutoUpload::Protected, "protected", "Protected events"),
+    (AutoUpload::Motion, "motion", "Motion detections"),
     (AutoUpload::Person, "person", "Person detections"),
     (AutoUpload::AllEvents, "all", "Every event"),
 ];

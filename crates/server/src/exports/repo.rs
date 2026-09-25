@@ -27,6 +27,7 @@ pub fn rule_name(r: AutoUpload) -> &'static str {
         AutoUpload::Off => "off",
         AutoUpload::Protected => "protected",
         AutoUpload::Person => "person",
+        AutoUpload::Motion => "motion",
         AutoUpload::AllEvents => "all_events",
     }
 }
@@ -35,6 +36,7 @@ fn parse_rule(s: &str) -> AutoUpload {
     match s {
         "protected" => AutoUpload::Protected,
         "person" => AutoUpload::Person,
+        "motion" => AutoUpload::Motion,
         "all_events" => AutoUpload::AllEvents,
         _ => AutoUpload::Off,
     }
