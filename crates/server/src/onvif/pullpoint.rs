@@ -70,7 +70,30 @@ impl Subscription {
     }
 }
 
-/// Event time as reported by the camera, else now.
+/// Beyond this, the camera's clock is wrong (no NTP without internet,
+/// 1970 after a reboot) and its time would misplace events and their clips.
+const MAX_CLOCK_SKEW: chrono::TimeDelta = chrono::TimeDelta::seconds(30);
+
+/// Event time as reported by the camera, unless its clock is off; else now.
 pub fn when(n: &Notification) -> DateTime<Utc> {
-    n.time.unwrap_or_else(Utc::now)
+    trusted_time(n.time, Utc::now())
+}
+
+fn trusted_time(camera: Option<DateTime<Utc>>, now: DateTime<Utc>) -> DateTime<Utc> {
+    camera.filter(|t| (*t - now).abs() <= MAX_CLOCK_SKEW).unwrap_or(now)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_wrong_camera_clock_is_not_trusted() {
+        let now: DateTime<Utc> = "2026-09-25T18:00:00Z".parse().unwrap();
+        let close = now - chrono::TimeDelta::seconds(2);
+        assert_eq!(trusted_time(Some(close), now), close, "a synced camera keeps its exact time");
+        assert_eq!(trusted_time(Some("1970-01-01T00:05:00Z".parse().unwrap()), now), now, "reset clock");
+        assert_eq!(trusted_time(Some(now + chrono::TimeDelta::hours(3)), now), now, "wrong time zone / drift");
+        assert_eq!(trusted_time(None, now), now);
+    }
 }
