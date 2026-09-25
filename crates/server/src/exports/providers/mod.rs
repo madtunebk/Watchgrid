@@ -94,7 +94,11 @@ fn read_chunks(f: tokio::fs::File, progress: impl Fn(u64) + Send + Sync + 'stati
 async fn failure(what: &str, resp: reqwest::Response) -> String {
     let status = resp.status();
     let body = resp.text().await.unwrap_or_default();
-    let detail = extract_message(&body);
+    describe_failure(what, status, &body)
+}
+
+fn describe_failure(what: &str, status: reqwest::StatusCode, body: &str) -> String {
+    let detail = extract_message(body);
     let hint = match status.as_u16() {
         401 | 403 => " — check the credentials and permissions",
         404 => " — check the bucket / folder",
