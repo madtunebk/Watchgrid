@@ -12,6 +12,8 @@ pub struct HostMetrics {
     pub cpu: f32,
     pub memory_used: u64,
     pub memory_total: u64,
+    /// Watchgrid's own resident memory.
+    pub process_memory: u64,
     /// Bytes per second, all interfaces except loopback.
     pub rx: u64,
     pub tx: u64,
@@ -39,6 +41,7 @@ impl Sampler {
                 cpu: cpu_percent(prev_cpu, cpu),
                 memory_used: used,
                 memory_total: total,
+                process_memory: read_process_memory().unwrap_or(0),
                 rx: rate(net.0.0, prev_net.0.0),
                 tx: rate(net.0.1, prev_net.0.1),
             };
@@ -64,6 +67,16 @@ fn parse_cpu(stat: &str) -> Option<(u64, u64)> {
 fn cpu_percent(before: (u64, u64), now: (u64, u64)) -> f32 {
     let total = now.1.saturating_sub(before.1);
     if total == 0 { 0.0 } else { now.0.saturating_sub(before.0) as f32 / total as f32 * 100.0 }
+}
+
+/// Resident memory of this process, from `/proc/self/status` (VmRSS, kB).
+fn read_process_memory() -> Option<u64> {
+    parse_rss(&std::fs::read_to_string("/proc/self/status").ok()?)
+}
+
+fn parse_rss(status: &str) -> Option<u64> {
+    let kb: u64 = status.lines().find(|l| l.starts_with("VmRSS:"))?.split_whitespace().nth(1)?.parse().ok()?;
+    Some(kb * 1024)
 }
 
 /// (used, total) bytes; "used" excludes reclaimable cache.
@@ -104,5 +117,6 @@ mod tests {
         assert_eq!(parse_memory("MemTotal:  1000 kB\nMemFree: 1 kB\nMemAvailable:  250 kB\n"), Some((750 * 1024, 1000 * 1024)));
         let dev = "Inter-| Receive\n face |bytes\n    lo: 999 1 0 0 0 0 0 0 999 1 0 0 0 0 0 0\n  eth0: 100 1 0 0 0 0 0 0 40 1 0 0 0 0 0 0\n  wg0: 5 1 0 0 0 0 0 0 6 1 0 0 0 0 0 0\n";
         assert_eq!(parse_net(dev), (105, 46));
+        assert_eq!(parse_rss("Name:\twatchgrid\nVmRSS:\t   7788 kB\n"), Some(7788 * 1024));
     }
 }

@@ -55,8 +55,8 @@ pub fn Metrics(status: LocalResource<ApiResult<SystemStatus>>) -> impl IntoView 
             <Stat label="CPU" value=v(|s| format!("{:.0}%", s.cpu_usage))>
                 <Sparkline values=series(|h| h.cpu.clone()) />
             </Stat>
-            <Stat label="Memory" value=v(|s| format::bytes(s.memory_used))
-                detail=Signal::derive(move || current.get().map_or(String::new(), |s| format!("{:.0}% of {}", mem_pct.get(), format::bytes(s.memory_total)))) >
+            <Stat label="Memory" value=v(|s| format::bytes(s.process_memory))
+                detail=Signal::derive(move || current.get().map_or(String::new(), |s| format!("Watchgrid · host {} of {} ({:.0}%)", format::bytes(s.memory_used), format::bytes(s.memory_total), mem_pct.get()))) >
                 <Sparkline values=series(|h| h.memory.clone()) tone="stream" />
             </Stat>
             <Stat label="Disk" value=v(|s| format!("{:.0}%", s.disk_usage)) detail="Recording volume".to_string()>
@@ -69,7 +69,8 @@ pub fn Metrics(status: LocalResource<ApiResult<SystemStatus>>) -> impl IntoView 
                 {move || view! { <Sparkline values=series(|h| h.tx.clone()) max=net_max.get() tone="motion" /> }}
             </Stat>
             <Stat label="RTSP connections" value=v(|s| s.active_streams.to_string()) tone=Tone::Stream />
-            <Stat label="Recording" value=v(|s| s.active_recordings.to_string()) tone=Tone::Recording />
+            <Stat label="Recording" value=v(|s| s.active_recordings.to_string())
+                tone=Signal::derive(move || if current.get().is_some_and(|s| s.active_recordings > 0) { Tone::Recording } else { Tone::Offline }) />
             <Stat label="Cameras connected" value=v(|s| format!("{} / {}", s.connected_cameras, s.total_cameras)) tone=Tone::Online>
                 <Meter value=Signal::derive(move || current.get().map_or(0.0, |s| s.connected_cameras as f32 / s.total_cameras.max(1) as f32 * 100.0)) tone=Tone::Online />
             </Stat>

@@ -22,6 +22,7 @@ pub async fn status() -> ApiResult<SystemStatus> {
             cpu_usage: jitter(6.0 + online as f64 * 2.5, 6.0).max(1.0) as f32,
             memory_used: (jitter(180.0 + online as f64 * 55.0, 20.0) * MB) as u64,
             memory_total: (2048.0 * MB) as u64,
+            process_memory: (38.0 * MB) as u64,
             network_rx: (jitter(0.55 * online as f64, 0.3).max(0.0) * MB) as u64,
             network_tx: (jitter(0.08 * online as f64, 0.05).max(0.0) * MB) as u64,
             active_streams: online,

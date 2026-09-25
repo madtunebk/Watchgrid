@@ -29,6 +29,7 @@ async fn status(State(s): State<AppState>) -> ApiResult<Json<SystemStatus>> {
         cpu_usage: host.cpu,
         memory_used: host.memory_used,
         memory_total: host.memory_total,
+        process_memory: host.process_memory,
         network_rx: host.rx,
         network_tx: host.tx,
         active_streams: s.media.active_feeds() as u32,

@@ -28,8 +28,12 @@ pub struct SystemStatus {
     pub uptime: u64,
     /// 0-100
     pub cpu_usage: f32,
+    /// Host memory in use / installed (the whole machine).
     pub memory_used: u64,
     pub memory_total: u64,
+    /// Memory used by the Watchgrid process itself (resident set).
+    #[serde(default)]
+    pub process_memory: u64,
     /// Bytes/s
     pub network_rx: u64,
     pub network_tx: u64,

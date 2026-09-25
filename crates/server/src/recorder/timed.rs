@@ -50,7 +50,10 @@ pub(super) async fn run(ctl: &Controller, camera: &Camera) {
             continue;
         }
         if mine {
-            if !clip_started.is_some_and(|t| t.elapsed() >= plan.max_clip) {
+            // A clip already running when this controller started (e.g. after
+            // a settings edit): count its length from now, so it's still cut.
+            let started = *clip_started.get_or_insert_with(Instant::now);
+            if started.elapsed() < plan.max_clip {
                 attempt = 0;
                 continue;
             }

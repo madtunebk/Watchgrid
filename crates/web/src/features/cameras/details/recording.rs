@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 
 use super::save;
-use crate::api::{Camera, RecordingMode, ScheduleWindow};
+use crate::api::{Camera, MotionSource, RecordingMode, ScheduleWindow};
 use crate::ui::{SaveBar, SaveState};
 use crate::ui::form::{Choice, Field, FormSection, NumberInput, RadioCards};
 
@@ -24,6 +24,12 @@ pub fn RecordingTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
     };
     let dirty = Signal::derive(move || current() != saved());
     let event_based = move || mode.get() == RecordingMode::Events;
+    // Event recording needs something that reports events. Today that is
+    // the camera's own ONVIF motion; software detection comes later.
+    let has_detection = move || {
+        let c = camera.get();
+        c.motion.enabled && c.motion.source == MotionSource::Onvif && c.onvif.as_ref().is_some_and(|o| !o.url.trim().is_empty())
+    };
 
     let on_save = Callback::new(move |_| {
         let (m, a, b, c, d, e, windows) = current();
@@ -61,6 +67,13 @@ pub fn RecordingTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
         <div class="settings-tab">
             <FormSection title="Recording mode" description="Manual recording from the Record button always works, whatever the mode.">
                 <RadioCards value=mode options=modes name="recording-mode" />
+                <Show when=move || event_based() && !has_detection()>
+                    <p class="note note--warn">
+                        "This camera has no motion source yet, so in Events mode it will never record by itself. "
+                        "Turn on ONVIF events (Connection tab) if the camera supports them, or use Continuous or Scheduled. "
+                        "Motion detection by Watchgrid itself is planned."
+                    </p>
+                </Show>
             </FormSection>
 
             <Show when=move || mode.get() == RecordingMode::Scheduled>
