@@ -148,3 +148,20 @@
 }
 .schedule__day--on { background: var(--accent); border-color: var(--accent); color: #fff; }
 .schedule__time { width: 7.4667rem; }
+
+/* Zone editor */
+.zone-editor { display: grid; gap: 0.8rem; }
+.zone-editor--disabled { opacity: 0.6; }
+.zone-stage--edit { cursor: crosshair; touch-action: none; user-select: none; }
+.zone-editor--disabled .zone-stage--edit { cursor: default; }
+.zone-stage__svg--edit { pointer-events: none; }
+.zone-stage__svg--edit .zone { pointer-events: all; cursor: move; }
+.zone--selected { stroke-width: 1.2; }
+.zone--draft { fill: rgb(59 130 246 / 0.18); stroke: var(--accent); stroke-dasharray: 1.5 1; pointer-events: none; }
+.zone-list { display: grid; gap: 0.4rem; margin: 0; padding: 0; list-style: none; }
+.zone-row { display: flex; align-items: center; gap: 0.5333rem; padding: 0.3rem 0.4rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-2); }
+.zone-row--selected { border-color: var(--accent); }
+.zone-row__swatch { flex: none; width: 0.8rem; height: 0.8rem; border-radius: 3px; background: var(--online); }
+.zone-row__swatch--exclude { background: var(--danger); }
+.zone-row__name { flex: 1 1 auto; min-width: 0; }
+.zone-row__kind { flex: none; width: auto; }

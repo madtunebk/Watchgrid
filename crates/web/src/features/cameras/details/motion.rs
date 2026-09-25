@@ -1,8 +1,8 @@
 use leptos::prelude::*;
 
 use super::save;
-use crate::api::{Camera, MotionSource, MotionZone};
-use crate::features::cameras::widgets::CameraPreview;
+use super::zones::ZoneEditor;
+use crate::api::{Camera, MotionSource};
 use crate::ui::{SaveBar, SaveState};
 use crate::ui::form::{Choice, Field, FormSection, RadioCards, Slider, Switch};
 
@@ -13,19 +13,21 @@ pub fn MotionTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
     let enabled = RwSignal::new(initial.enabled);
     let source = RwSignal::new(initial.source);
     let sensitivity = RwSignal::new(initial.sensitivity);
+    let zones = RwSignal::new(initial.zones);
     let state = SaveState::new();
 
     let saved = move || {
         let m = camera.get().motion;
-        (m.enabled, m.source, m.sensitivity)
+        (m.enabled, m.source, m.sensitivity, m.zones)
     };
-    let dirty = Signal::derive(move || (enabled.get(), source.get(), sensitivity.get()) != saved());
+    let dirty = Signal::derive(move || (enabled.get(), source.get(), sensitivity.get(), zones.get()) != saved());
     let on_save = Callback::new(move |_| {
-        let (e, s, v) = (enabled.get_untracked(), source.get_untracked(), sensitivity.get_untracked());
+        let (e, s, v, z) = (enabled.get_untracked(), source.get_untracked(), sensitivity.get_untracked(), zones.get_untracked());
         save::camera(state, &camera.get_untracked(), |i| {
             i.motion.enabled = e;
             i.motion.source = s;
             i.motion.sensitivity = v;
+            i.motion.zones = z;
         });
     });
     let on_revert = Callback::new(move |_| {
@@ -33,6 +35,7 @@ pub fn MotionTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
         enabled.set(m.enabled);
         source.set(m.source);
         sensitivity.set(m.sensitivity);
+        zones.set(m.zones);
     });
 
     let onvif = Choice::new(MotionSource::Onvif, "Camera / ONVIF").tag("Recommended")
@@ -65,39 +68,15 @@ pub fn MotionTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
                         <Slider value=sensitivity disabled=off />
                     </Field>
                 </FormSection>
-                <FormSection title="Detection zones" description="Only motion inside green zones triggers; red zones are ignored.">
-                    <ZoneOverlay camera zones=camera.get_untracked().motion.zones />
-                    <p class="note">"Software detection follows these zones. Drawing and editing zones arrives in a later version."</p>
+                <FormSection title="Detection zones" description="Drag on the picture to draw a zone; drag a zone to move it. Green zones limit detection to them, red zones are ignored.">
+                    <ZoneEditor camera zones disabled=off />
+                    {move || (source.get() == MotionSource::Onvif).then(|| view! {
+                        <p class="note">"Zones apply to software detection. With ONVIF, set the detection area in the camera's own settings."</p>
+                    })}
                 </FormSection>
             </div>
 
             <SaveBar state dirty on_save on_revert />
-        </div>
-    }
-}
-
-/// Camera preview with the configured zones drawn on top.
-#[component]
-fn ZoneOverlay(camera: Signal<Camera>, zones: Vec<MotionZone>) -> impl IntoView {
-    let empty = zones.is_empty();
-    view! {
-        <div class="zone-stage">
-            {move || view! { <CameraPreview camera=camera.get() substream=true /> }}
-            <svg class="zone-stage__svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-                {zones.iter().map(|z| view! {
-                    <rect x=z.x * 100.0 y=z.y * 100.0 width=z.w * 100.0 height=z.h * 100.0
-                        class=if z.exclude { "zone zone--exclude" } else { "zone" } />
-                }).collect_view()}
-            </svg>
-            <div class="zone-stage__labels">
-                {zones.into_iter().map(|z| view! {
-                    <span class="zone-label" class:zone-label--exclude=z.exclude
-                        style:left=format!("{}%", z.x * 100.0) style:top=format!("{}%", (z.y + z.h) * 100.0)>
-                        {z.name}
-                    </span>
-                }).collect_view()}
-            </div>
-            {empty.then(|| view! { <div class="zone-stage__empty">"Whole frame (no zones defined)"</div> })}
         </div>
     }
 }

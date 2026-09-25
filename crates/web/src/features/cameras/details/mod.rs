@@ -9,6 +9,7 @@ mod recording;
 mod save;
 mod storage;
 mod stream;
+mod zones;
 
 use std::time::Duration;
 

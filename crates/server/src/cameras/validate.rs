@@ -64,6 +64,18 @@ pub fn check(i: &CameraInput) -> Result<(), ApiError> {
     if i.motion.sensitivity > 100 {
         return invalid("Motion sensitivity must be between 0 and 100");
     }
+    if i.motion.zones.len() > 16 {
+        return invalid("At most 16 motion zones");
+    }
+    for z in &i.motion.zones {
+        let inside = |v: f32| (0.0..=1.0).contains(&v);
+        if z.name.trim().is_empty() || z.name.chars().count() > 40 {
+            return invalid("Each motion zone needs a name of at most 40 characters");
+        }
+        if !(inside(z.x) && inside(z.y) && z.w > 0.0 && z.h > 0.0 && z.x + z.w <= 1.001 && z.y + z.h <= 1.001) {
+            return invalid(&format!("Motion zone `{}` must lie inside the picture", z.name.trim()));
+        }
+    }
     if i.recording.retention_days.is_some_and(|d| !(1..=3650).contains(&d)) {
         return invalid("Keep recordings between 1 and 3650 days, or without a camera limit");
     }
@@ -144,5 +156,10 @@ mod tests {
         }));
         assert!(rejects(|i| i.motion.sensitivity = 101));
         assert!(rejects(|i| i.recording.retention_days = Some(0)));
+        let zone = |x: f32, w: f32| watchgrid_model::MotionZone { id: "z".into(), name: "Door".into(), x, y: 0.1, w, h: 0.2, exclude: false };
+        assert!(!rejects(|i| i.motion.zones = vec![zone(0.5, 0.5)]));
+        assert!(rejects(|i| i.motion.zones = vec![zone(0.7, 0.5)]), "past the right edge");
+        assert!(rejects(|i| i.motion.zones = vec![zone(0.1, 0.0)]), "empty");
+        assert!(rejects(|i| i.motion.zones = vec![zone(0.1, 0.1); 17]));
     }
 }
