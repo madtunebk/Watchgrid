@@ -25,6 +25,9 @@ pub fn Tile(
     /// themselves: the wall owns it (see `view_state`).
     #[prop(optional)]
     on_fullscreen: Option<Callback<()>>,
+    /// "Back to the grid" button, shown on the opened camera next to mute.
+    #[prop(optional)]
+    on_back: Option<Callback<()>>,
 ) -> impl IntoView {
     let el = NodeRef::<Div>::new();
     let muted = RwSignal::new(true);
@@ -66,6 +69,11 @@ pub fn Tile(
                     on:click=move |_| muted.update(|m| *m = !*m)>
                     {move || view! { <Icon icon=if muted.get() { I::VolumeOff } else { I::Volume } class="icon icon--sm" /> }}
                 </button>
+                {on_back.map(|back| view! {
+                    <button class="tile__btn" title="Back to grid (Esc, Back)" aria-label="Back to grid" on:click=move |_| back.run(())>
+                        <Icon icon=I::ArrowLeft class="icon icon--sm" />
+                    </button>
+                })}
                 <span class="tile__spacer"></span>
                 {on_fullscreen.is_none().then(|| view! {
                     <button class="tile__btn" title="Single view (double-click)" aria-label="Single view" on:click=move |_| on_focus.run(())>
