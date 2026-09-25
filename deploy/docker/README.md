@@ -79,6 +79,9 @@ Watchgrid serves plain HTTP; a reverse proxy in front adds TLS.
 
 - **nginx:** `deploy/nginx/watchgrid.conf` is a complete example (WebSocket
   upgrade for live video, long timeouts, no buffering for clips).
+- **DSM's own nginx** (it holds ports 80/443): `deploy/nginx/watchgrid-dsm.conf`
+  goes to `/etc/nginx/sites-enabled/watchgrid.conf`, then
+  `sudo nginx -t && sudo systemctl reload nginx`.
 - **DSM:** Control Panel → Login Portal → Reverse Proxy: forward
   `https://nvr.example` to `http://localhost:8090` and add the WebSocket
   custom headers.
