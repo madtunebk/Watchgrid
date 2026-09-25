@@ -5,6 +5,7 @@
 //! or reset users. Every API request except health/login/session needs a
 //! valid session; viewers are read-only.
 
+mod client_ip;
 pub mod cli;
 mod guard;
 mod limiter;

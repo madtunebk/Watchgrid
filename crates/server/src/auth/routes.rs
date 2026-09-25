@@ -55,7 +55,8 @@ async fn login(
     headers: HeaderMap,
     Json(c): Json<Credentials>,
 ) -> ApiResult<Response> {
-    let ip = peer.map_or(IpAddr::V4(Ipv4Addr::LOCALHOST), |Extension(ConnectInfo(a))| a.ip());
+    let peer = peer.map_or(IpAddr::V4(Ipv4Addr::LOCALHOST), |Extension(ConnectInfo(a))| a.ip());
+    let ip = super::client_ip::client_ip(peer, &headers);
     if no_users(&s).await? {
         return Err(ApiError::no_users());
     }

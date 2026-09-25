@@ -75,6 +75,22 @@ can't be decrypted without it) and, optionally, the recordings folder.
 
 ## HTTPS
 
-DSM → Control Panel → Login Portal → Reverse Proxy: forward
-`https://nvr.example` to `http://localhost:8090`, enable WebSocket headers,
-then set `WATCHGRID_SECURE_COOKIES=1`.
+Watchgrid serves plain HTTP; a reverse proxy in front adds TLS.
+
+- **nginx:** `deploy/nginx/watchgrid.conf` is a complete example (WebSocket
+  upgrade for live video, long timeouts, no buffering for clips).
+- **DSM:** Control Panel → Login Portal → Reverse Proxy: forward
+  `https://nvr.example` to `http://localhost:8090` and add the WebSocket
+  custom headers.
+
+Then, in `watchgrid.env`, and restart (`sudo docker compose up -d`):
+
+```
+WATCHGRID_SECURE_COOKIES=1
+WATCHGRID_TRUSTED_PROXIES=127.0.0.1     # the proxy's address as Watchgrid sees it
+```
+
+Without `WATCHGRID_TRUSTED_PROXIES` every client appears as the proxy: the
+sessions list shows its address, and a few wrong passwords from anyone
+lock sign-in for everybody. `X-Forwarded-For` is only believed from the
+listed addresses.
