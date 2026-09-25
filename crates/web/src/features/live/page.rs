@@ -90,8 +90,8 @@ pub fn LiveViewPage() -> impl IntoView {
         }
         let n = pages.get_untracked();
         match e.key().as_str() {
-            // In fullscreen the browser takes Escape itself (see view_state).
-            "Escape" => view.close(),
+            // In fullscreen the browser takes Escape itself unless it's locked (see view_state).
+            "Escape" => view.escape(),
             "ArrowRight" | "PageDown" => page.update(|p| *p = (*p + 1) % n),
             "ArrowLeft" | "PageUp" => page.update(|p| *p = (*p + n - 1) % n),
             k => {

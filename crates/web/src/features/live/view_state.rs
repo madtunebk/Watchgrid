@@ -8,15 +8,23 @@
 //! own, so leaving the camera can't throw the wall out of fullscreen. The
 //! grid stays mounted under the overlay, keeping its layout and streams.
 //!
-//! Opening a camera pushes a history entry, so the close button, browser
-//! Back, the mouse Back button and Alt+Left all end in the same `popstate`
-//! that removes only the overlay. `fullscreenchange` keeps the state honest
-//! when the browser leaves fullscreen by itself (e.g. Escape).
+//! Opening a camera pushes a history entry, so browser Back, the mouse Back
+//! button and Alt+Left end in a `popstate` that removes only the overlay.
+//! Watchgrid's own close control does *not* navigate history (Chrome leaves
+//! fullscreen on history navigation): it closes the overlay and turns the
+//! entry into a plain grid entry.
+//!
+//! Escape: in fullscreen the browser consumes it to leave fullscreen. Where
+//! the Keyboard Lock API exists (secure contexts: HTTPS or localhost) the
+//! wall locks Escape while fullscreen, so a short press closes the camera
+//! first and the grid second; holding Escape still leaves fullscreen (a
+//! browser guarantee). `fullscreenchange` keeps the state honest whenever
+//! the browser leaves fullscreen by itself.
 
 use leptos::ev;
 use leptos::html::Div;
 use leptos::prelude::*;
-use wasm_bindgen::JsValue;
+use wasm_bindgen::{JsCast, JsValue};
 
 /// Marks our history entries (the value is the camera id).
 const STATE_KEY: &str = "watchgridLiveCamera";
@@ -79,19 +87,25 @@ impl WallView {
         self.focused.set(Some(camera_id));
     }
 
-    /// Leave the camera (UI close button, Escape outside fullscreen).
+    /// Leave the camera (close button, Escape). Never navigates history.
     pub fn close(&self) {
         if self.focused.get_untracked().is_none() {
             return;
         }
         if self.pushed.get_value() && current_is_ours() {
-            // `popstate` finishes the job, exactly like the browser's Back.
-            if let Ok(history) = window().history() {
-                let _ = history.back();
-                return;
-            }
+            mark_grid_entry();
         }
         self.clear();
+    }
+
+    /// Escape pressed while the page gets it (outside fullscreen, or in
+    /// fullscreen with Escape locked): camera first, then the grid.
+    pub fn escape(&self) {
+        if self.focused.get_untracked().is_some() {
+            self.close();
+        } else if self.fullscreen.get_untracked() {
+            document().exit_fullscreen();
+        }
     }
 
     /// Fullscreen button for the wall itself.
@@ -133,6 +147,7 @@ impl WallView {
             _ => false,
         };
         self.fullscreen.set(now);
+        keyboard_lock_escape(now);
         if !now {
             // Fullscreen ended (possibly by the browser, e.g. Escape): never
             // keep a fullscreen-only overlay around without fullscreen.
@@ -141,6 +156,44 @@ impl WallView {
                 self.close();
             }
         }
+    }
+}
+
+/// Lock (or release) the Escape key while the wall is fullscreen, where the
+/// Keyboard Lock API is available. Called through JS reflection because the
+/// API is still experimental in web-sys.
+fn keyboard_lock_escape(lock: bool) {
+    let Ok(keyboard) = js_sys::Reflect::get(&window().navigator(), &JsValue::from_str("keyboard")) else { return };
+    if keyboard.is_undefined() || keyboard.is_null() {
+        return; // insecure context (plain HTTP) or unsupported browser
+    }
+    let method = if lock { "lock" } else { "unlock" };
+    let Ok(f) = js_sys::Reflect::get(&keyboard, &JsValue::from_str(method)) else { return };
+    let Some(f) = wasm_bindgen::JsCast::dyn_ref::<js_sys::Function>(&f) else { return };
+    let result = if lock {
+        f.call1(&keyboard, &js_sys::Array::of1(&JsValue::from_str("Escape")))
+    } else {
+        f.call0(&keyboard)
+    };
+    // `lock` returns a promise; a rejection (e.g. not allowed) just means
+    // Escape keeps its default browser behaviour.
+    if let Ok(p) = result
+        && let Ok(p) = p.dyn_into::<js_sys::Promise>()
+    {
+        IGNORE.with(|ignore| {
+            let _ = p.catch(ignore);
+        });
+    }
+}
+
+thread_local! {
+    static IGNORE: wasm_bindgen::closure::Closure<dyn FnMut(JsValue)> = wasm_bindgen::closure::Closure::new(|_| {});
+}
+
+/// The current entry no longer shows a camera (kept, but inert on Back).
+fn mark_grid_entry() {
+    if let Ok(history) = window().history() {
+        let _ = history.replace_state(&JsValue::NULL, "");
     }
 }
 
