@@ -10,8 +10,11 @@ use leptos::prelude::*;
 use crate::api::DateFormat;
 
 thread_local! {
-    /// Reactive, so open pages re-render when the settings change.
-    static DISPLAY: RwSignal<(DateFormat, bool)> = RwSignal::new((DateFormat::Iso, true));
+    /// Reactive, so open pages re-render when the settings change. An Arc
+    /// signal belongs to no component: an arena signal would be disposed
+    /// with whichever component first touched it, and every later read
+    /// would panic and stop the whole app.
+    static DISPLAY: ArcRwSignal<(DateFormat, bool)> = ArcRwSignal::new((DateFormat::Iso, true));
 }
 
 pub fn set_display(date_format: DateFormat, clock_24h: bool) {
