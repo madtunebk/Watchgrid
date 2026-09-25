@@ -55,7 +55,7 @@ pub fn CapacitySummary(estimate: CapacityEstimate) -> impl IntoView {
                         <li class="capacity__row" class:capacity__row--limit=bottleneck title=r.detail.clone()>
                             <span class="capacity__label"><Icon icon=icon(r.resource) class="icon icon--sm" />{label(r.resource)}</span>
                             <Meter value=r.percent.min(100.0) tone=tone(r.percent) />
-                            <span class="capacity__pct">{format!("{:.0}%", r.percent)}</span>
+                            <span class="capacity__pct" title=r.detail.clone()>{if r.percent > 0.0 && r.percent < 1.0 { "<1%".to_string() } else { format!("{:.0}%", r.percent) }}</span>
                         </li>
                     }
                 }).collect_view()}
