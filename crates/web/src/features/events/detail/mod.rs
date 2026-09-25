@@ -105,7 +105,7 @@ pub fn EventDetailPage() -> impl IntoView {
                 _ => view! { <Player clip=Clip::for_event(&e, d.recording.as_ref(), camera_name.clone()) theater /> }.into_any(),
             };
             let facts = view! { <EventFacts event=e.clone() recording=d.recording.clone() camera_name=camera_name.clone() /> };
-            let actions = view! { <EventActions event_id=e.id.clone() camera_id=e.camera_id.clone() protected on_deleted=after_delete /> };
+            let actions = view! { <EventActions event_id=e.id.clone() camera_id=e.camera_id.clone() protected has_clip=d.recording.is_some() on_deleted=after_delete /> };
             view! {
                 <Page
                     title

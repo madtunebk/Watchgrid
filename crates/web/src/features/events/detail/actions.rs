@@ -11,6 +11,9 @@ pub fn EventActions(
     event_id: String,
     camera_id: String,
     #[prop(into)] protected: Signal<bool>,
+    /// Export and protection are about the video clip; events without one
+    /// (camera offline/online, detections still recording) don't offer them.
+    has_clip: bool,
     /// Called after deletion with where to go next.
     on_deleted: Callback<()>,
 ) -> impl IntoView {
@@ -53,12 +56,14 @@ pub fn EventActions(
 
     view! {
         <div class="event-actions">
-            <ExportMenu event_id=event_id.clone() />
-            <button class="btn" class:btn--primary=protected class:btn--secondary=move || !protected.get() disabled=busy on:click=toggle_protect
-                title="Protected events are never deleted by retention">
-                {move || view! { <Icon icon=if protected.get() { I::Lock } else { I::LockOpen } class="icon icon--sm" /> }}
-                {move || if protected.get() { "Protected" } else { "Protect" }}
-            </button>
+            {has_clip.then(|| view! {
+                <ExportMenu event_id=event_id.clone() />
+                <button class="btn" class:btn--primary=protected class:btn--secondary=move || !protected.get() disabled=busy on:click=toggle_protect
+                    title="Protected events are never deleted by retention">
+                    {move || view! { <Icon icon=if protected.get() { I::Lock } else { I::LockOpen } class="icon icon--sm" /> }}
+                    {move || if protected.get() { "Protected" } else { "Protect" }}
+                </button>
+            })}
             <A href=format!("/cameras/{camera_id}") attr:class="btn btn--secondary">
                 <Icon icon=I::Cctv class="icon icon--sm" />"Open camera"
             </A>
@@ -69,7 +74,8 @@ pub fn EventActions(
             </button>
             {move || note.get().map(|n| view! { <p class="event-actions__note">{n}</p> })}
             <ConfirmDialog open=confirm title="Delete event?" confirm_label="Delete event" danger=true busy error=delete_error
-                message="The event and its recording will be deleted permanently.".to_string() on_confirm=do_delete />
+                message=if has_clip { "The event and its recording will be deleted permanently." } else { "The event will be deleted permanently." }.to_string()
+                on_confirm=do_delete />
         </div>
     }
 }
