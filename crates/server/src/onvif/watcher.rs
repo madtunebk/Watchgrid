@@ -76,7 +76,13 @@ impl Detections {
     }
 }
 
+/// Let the RTSP stream connect first: some Tapo firmware (TC71) delivers an
+/// ONVIF reply on the RTSP connection when both are opened at the same
+/// moment, which drops the stream (seen at every service start).
+const START_DELAY: Duration = Duration::from_secs(10);
+
 async fn run(deps: Deps, id: String) {
+    tokio::time::sleep(START_DELAY).await;
     let mut attempt = 0u32;
     let mut state = Detections::default();
     loop {
