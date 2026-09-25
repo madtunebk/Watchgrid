@@ -41,5 +41,6 @@ pub fn router(state: AppState, ui_dir: &Path) -> Router {
 }
 
 async fn health() -> Json<Value> {
-    Json(json!({ "status": "ok", "version": env!("CARGO_PKG_VERSION") }))
+    // `build`: the git commit, set by the release packaging (else "dev").
+    Json(json!({ "status": "ok", "version": env!("CARGO_PKG_VERSION"), "build": option_env!("WATCHGRID_BUILD").unwrap_or("dev") }))
 }
