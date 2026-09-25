@@ -8,7 +8,7 @@ use leptos_router::components::A;
 
 use crate::api::{Camera, CameraStatus};
 use crate::features::cameras::{CameraPreview, RecordButton};
-use crate::ui::{I, Icon, fullscreen, snapshot as snap};
+use crate::ui::{I, Icon, snapshot as snap};
 
 #[component]
 pub fn Tile(
@@ -20,6 +20,9 @@ pub fn Tile(
     on_focus: Callback<()>,
     /// Remove the camera from this tile.
     on_remove: Callback<()>,
+    /// Fullscreen button. Tiles never request browser fullscreen themselves:
+    /// the wall owns it (see `view_state`).
+    on_fullscreen: Callback<()>,
 ) -> impl IntoView {
     let el = NodeRef::<Div>::new();
     let muted = RwSignal::new(true);
@@ -35,11 +38,7 @@ pub fn Tile(
         flash.set(true);
         set_timeout(move || flash.set(false), Duration::from_millis(1600));
     };
-    let go_fullscreen = move |_| {
-        if let Some(el) = el.get() {
-            fullscreen::toggle(&el);
-        }
-    };
+    let go_fullscreen = move |_| on_fullscreen.run(());
 
     view! {
         <div class="tile" node_ref=el class:tile--flash=flash on:dblclick=move |_| on_focus.run(())>

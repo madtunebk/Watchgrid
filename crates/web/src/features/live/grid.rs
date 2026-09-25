@@ -10,8 +10,8 @@ use super::empty_slot::EmptySlot;
 use super::layout::GridLayout;
 use super::slots::Slots;
 use super::tile::Tile;
+use super::view_state::WallView;
 use crate::api::Camera;
-use crate::ui::{I, Icon};
 
 #[component]
 pub fn Grid(
@@ -21,8 +21,8 @@ pub fn Grid(
     page: Signal<usize>,
     slots: Slots,
     #[prop(into)] cameras: Signal<HashMap<String, Camera>>,
-    /// Camera shown alone (single view), if any.
-    focused: RwSignal<Option<String>>,
+    /// Opens a camera over the wall.
+    view: WallView,
 ) -> impl IntoView {
     let dragging = RwSignal::new(None::<usize>);
     let over = RwSignal::new(None::<usize>);
@@ -60,7 +60,11 @@ pub fn Grid(
                 <Tile
                     camera
                     substream
-                    on_focus=Callback::new(move |_| focused.set(Some(id.clone())))
+                    on_focus=Callback::new({
+                        let id = id.clone();
+                        move |_| view.open(id.clone(), false)
+                    })
+                    on_fullscreen=Callback::new(move |_| view.open(id.clone(), true))
                     on_remove=Callback::new(move |_| slots.clear(i))
                 />
             }
@@ -84,38 +88,17 @@ pub fn Grid(
         }
     };
 
-    view! {
-        {move || match focused.get() {
-            Some(id) => {
-                let camera = Signal::derive({
-                    let id = id.clone();
-                    move || cameras.get().get(&id).cloned()
-                });
-                view! {
-                    <div class="live-grid" style:--cols="1">
-                        <div class="grid-cell">
-                            <Tile camera on_focus=Callback::new(move |_| focused.set(None)) on_remove=Callback::new(move |_| focused.set(None)) />
-                        </div>
-                    </div>
-                    <button class="btn btn--secondary btn--sm live-back" on:click=move |_| focused.set(None)>
-                        <Icon icon=I::ArrowLeft class="icon icon--sm" />"Back to grid"
-                    </button>
-                }
-                .into_any()
-            }
-            None => {
-                let l = layout.get();
-                let start = page.get() * l.cells();
-                let substream = prefers_substream(l.columns());
-                // Re-render cells when the arrangement changes.
-                slots.track();
-                view! {
-                    <div class="live-grid" style:--cols=l.columns().to_string()>
-                        {(start..start + l.cells()).map(|i| cell(i, substream)).collect_view()}
-                    </div>
-                }
-                .into_any()
-            }
-        }}
+    // Always mounted, also under an open camera: layout and streams survive.
+    move || {
+        let l = layout.get();
+        let start = page.get() * l.cells();
+        let substream = prefers_substream(l.columns());
+        // Re-render cells when the arrangement changes.
+        slots.track();
+        view! {
+            <div class="live-grid" style:--cols=l.columns().to_string()>
+                {(start..start + l.cells()).map(|i| cell(i, substream)).collect_view()}
+            </div>
+        }
     }
 }

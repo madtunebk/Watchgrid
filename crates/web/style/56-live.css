@@ -21,7 +21,23 @@
   width: min(100cqw - 1.0667rem, (100cqh - 3.4667rem) * 16 / 9);
 }
 .live-wall:fullscreen .live-grid { width: min(100cqw, 100cqh * 16 / 9); gap: 2px; }
-.live-wall:fullscreen .wall-footer, .live-wall:fullscreen .live-back { display: none; }
+.live-wall:fullscreen .wall-footer { display: none; }
+
+/* One camera over the wall (CAM_FS); the grid stays mounted underneath. */
+.live-wall { position: relative; }
+.live-focus {
+  position: absolute; inset: 0; z-index: 5;
+  container-type: size;
+  display: flex; align-items: center; justify-content: center;
+  background: #000;
+}
+.live-focus__stage { width: min(100cqw, 100cqh * 16 / 9); }
+.live-focus__back {
+  position: absolute; top: 0.8rem; left: 0.8rem; z-index: 6;
+  background: rgb(0 0 0 / 0.55); border-color: rgb(255 255 255 / 0.15); color: #fff;
+  opacity: 0.85;
+}
+.live-focus__back:hover { opacity: 1; }
 
 .grid-cell { position: relative; min-width: 0; border-radius: 2px; outline: 2px solid transparent; transition: outline-color 0.1s, opacity 0.1s; }
 .grid-cell[draggable="true"] { cursor: grab; }
@@ -82,7 +98,6 @@
 .tile__hint { font-size: 0.8rem; color: var(--faint); }
 .live-grid[style*="--cols: 4"] .tile__hint, .live-grid[style*="--cols:4"] .tile__hint { display: none; }
 
-.live-back { flex-shrink: 0; }
 /* Footer: load, pager, hint */
 .wall-footer {
   flex-shrink: 0;

@@ -6,16 +6,18 @@ use leptos::html::Div;
 use leptos::prelude::*;
 
 use super::budget::page_load;
+use super::focus::CameraOverlay;
 use super::footer::WallFooter;
 use super::grid::Grid;
 use super::layout::GridLayout;
 use super::slots::Slots;
+use super::view_state::WallView;
 use crate::api::{self, Topic, use_query};
 use crate::clock::use_interval;
 use crate::features::cameras::NoCameras;
 use crate::prefs;
 use crate::ui::form::Segmented;
-use crate::ui::{I, Icon, Page, Skeleton, fullscreen};
+use crate::ui::{I, Icon, Page, Skeleton};
 
 const LAYOUT_KEY: &str = "ui.live.layout";
 const CYCLE_EVERY: Duration = Duration::from_secs(15);
@@ -33,7 +35,9 @@ pub fn LiveViewPage() -> impl IntoView {
     let saved_layout = prefs::get(LAYOUT_KEY).and_then(|k| GridLayout::from_key(&k));
     let layout = RwSignal::new(saved_layout.unwrap_or(GridLayout::Two));
     Effect::new(move || prefs::set(LAYOUT_KEY, layout.get().key()));
-    let focused = RwSignal::new(None::<String>);
+    let wall = NodeRef::<Div>::new();
+    let view = WallView::new(wall);
+    let focused = view.focused;
     let page = RwSignal::new(0usize);
     let cycle = RwSignal::new(false);
 
@@ -86,12 +90,13 @@ pub fn LiveViewPage() -> impl IntoView {
         }
         let n = pages.get_untracked();
         match e.key().as_str() {
-            "Escape" => focused.set(None),
+            // In fullscreen the browser takes Escape itself (see view_state).
+            "Escape" => view.close(),
             "ArrowRight" | "PageDown" => page.update(|p| *p = (*p + 1) % n),
             "ArrowLeft" | "PageUp" => page.update(|p| *p = (*p + n - 1) % n),
             k => {
                 if let Some(l) = GridLayout::from_key(k) {
-                    focused.set(None);
+                    view.close();
                     layout.set(l);
                 }
             }
@@ -99,7 +104,6 @@ pub fn LiveViewPage() -> impl IntoView {
     });
     on_cleanup(move || keys.remove());
 
-    let wall = NodeRef::<Div>::new();
     let subtitle = Signal::derive(move || {
         list.get().map(|l| {
             let n = l.iter().filter(|c| c.streaming()).count();
@@ -118,11 +122,11 @@ pub fn LiveViewPage() -> impl IntoView {
                         <Icon icon=l.icon() class="icon icon--sm" /><span>{l.label()}</span>
                     }.into_any())).collect() />
                 <button class="btn btn--secondary btn--sm" title="Place all cameras in order"
-                    on:click=move |_| if let Some(l) = list.get_untracked() { focused.set(None); page.set(0); slots.arrange(&l); }>
+                    on:click=move |_| if let Some(l) = list.get_untracked() { view.close(); page.set(0); slots.arrange(&l); }>
                     <Icon icon=I::RotateCcw class="icon icon--sm" />"Auto-arrange"
                 </button>
                 <button class="btn btn--secondary btn--sm" title="Show the whole grid fullscreen"
-                    on:click=move |_| if let Some(el) = wall.get() { fullscreen::toggle(&el) }>
+                    on:click=move |_| view.toggle_wall_fullscreen()>
                     <Icon icon=I::Maximize class="icon icon--sm" />"Fullscreen"
                 </button>
             }
@@ -131,8 +135,9 @@ pub fn LiveViewPage() -> impl IntoView {
                 {move || match list.get() {
                     None => view! { <div class="live-wall__loading"><Skeleton lines=1 height="60vh" /></div> }.into_any(),
                     Some(l) if l.is_empty() => view! { <div class="live-wall__empty"><NoCameras /></div> }.into_any(),
-                    Some(_) => view! { <Grid layout page slots cameras=by_id focused /> }.into_any(),
+                    Some(_) => view! { <Grid layout page slots cameras=by_id view /> }.into_any(),
                 }}
+                <CameraOverlay view cameras=by_id />
                 <WallFooter page pages cycle load />
             </div>
         </Page>
