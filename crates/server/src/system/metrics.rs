@@ -14,6 +14,8 @@ pub struct HostMetrics {
     pub memory_total: u64,
     /// Watchgrid's own resident memory.
     pub process_memory: u64,
+    /// Watchgrid's own CPU use, percent of one core.
+    pub process_cpu: f32,
     /// Bytes per second, all interfaces except loopback.
     pub rx: u64,
     pub tx: u64,
@@ -30,6 +32,7 @@ impl Sampler {
     pub async fn run(self) {
         let mut prev_cpu = read_cpu();
         let mut prev_net = (read_net(), Instant::now());
+        let mut prev_ticks = read_process_ticks();
         loop {
             tokio::time::sleep(EVERY).await;
             let cpu = read_cpu();
@@ -37,11 +40,15 @@ impl Sampler {
             let (used, total) = read_memory().unwrap_or((0, 0));
             let secs = net.1.duration_since(prev_net.1).as_secs_f64().max(0.001);
             let rate = |now: u64, before: u64| (now.saturating_sub(before) as f64 / secs) as u64;
+            let ticks = read_process_ticks();
+            let process_cpu = ticks.saturating_sub(prev_ticks) as f64 / clock_ticks_per_second() / secs * 100.0;
+            prev_ticks = ticks;
             let m = HostMetrics {
                 cpu: cpu_percent(prev_cpu, cpu),
                 memory_used: used,
                 memory_total: total,
                 process_memory: read_process_memory().unwrap_or(0),
+                process_cpu: process_cpu as f32,
                 rx: rate(net.0.0, prev_net.0.0),
                 tx: rate(net.0.1, prev_net.0.1),
             };
@@ -67,6 +74,24 @@ fn parse_cpu(stat: &str) -> Option<(u64, u64)> {
 fn cpu_percent(before: (u64, u64), now: (u64, u64)) -> f32 {
     let total = now.1.saturating_sub(before.1);
     if total == 0 { 0.0 } else { now.0.saturating_sub(before.0) as f32 / total as f32 * 100.0 }
+}
+
+/// CPU time (user + system) this process has used, in clock ticks.
+fn read_process_ticks() -> u64 {
+    std::fs::read_to_string("/proc/self/stat").ok().and_then(|s| parse_process_ticks(&s)).unwrap_or(0)
+}
+
+fn parse_process_ticks(stat: &str) -> Option<u64> {
+    // Fields after the parenthesised command name; utime/stime are 14 and 15.
+    let rest = &stat[stat.rfind(')')? + 2..];
+    let f: Vec<&str> = rest.split_whitespace().collect();
+    Some(f.get(11)?.parse::<u64>().ok()? + f.get(12)?.parse::<u64>().ok()?)
+}
+
+fn clock_ticks_per_second() -> f64 {
+    // SAFETY: sysconf has no preconditions.
+    let t = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+    if t > 0 { t as f64 } else { 100.0 }
 }
 
 /// Resident memory of this process, from `/proc/self/status` (VmRSS, kB).
@@ -117,6 +142,7 @@ mod tests {
         assert_eq!(parse_memory("MemTotal:  1000 kB\nMemFree: 1 kB\nMemAvailable:  250 kB\n"), Some((750 * 1024, 1000 * 1024)));
         let dev = "Inter-| Receive\n face |bytes\n    lo: 999 1 0 0 0 0 0 0 999 1 0 0 0 0 0 0\n  eth0: 100 1 0 0 0 0 0 0 40 1 0 0 0 0 0 0\n  wg0: 5 1 0 0 0 0 0 0 6 1 0 0 0 0 0 0\n";
         assert_eq!(parse_net(dev), (105, 46));
+        assert_eq!(parse_process_ticks("123 (watch grid) S 1 2 3 4 5 6 7 8 9 10 250 50 0 0"), Some(300));
         assert_eq!(parse_rss("Name:\twatchgrid\nVmRSS:\t   7788 kB\n"), Some(7788 * 1024));
     }
 }

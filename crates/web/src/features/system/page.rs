@@ -49,7 +49,7 @@ pub fn SystemPage() -> impl IntoView {
                                 <div><dt>"Started"</dt><dd>{started}</dd></div>
                                 {hw.map(|h| view! {
                                     <div><dt>"CPU"</dt><dd>{format!("{} ({} cores)", h.cpu_model, h.cpu_cores)}</dd></div>
-                                    <div><dt>"Decoding"</dt><dd>{if h.hw_decode { "Hardware (VAAPI / Quick Sync)" } else { "Software only" }}</dd></div>
+                                    <div><dt>"Decoding"</dt><dd>"Not needed: video is stored and streamed as the camera sends it"</dd></div>
                                     <div><dt>"Memory"</dt><dd>{format::bytes(h.memory_total)}</dd></div>
                                 })}
                             </dl>

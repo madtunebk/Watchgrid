@@ -1,6 +1,7 @@
 //! HTTP implementation of the API against the Watchgrid server (`/api/v1`).
 
 pub mod auth;
+pub mod capacity;
 pub mod cameras;
 pub mod events;
 pub mod logs;

@@ -14,6 +14,7 @@
 mod auth;
 mod bus;
 mod cameras;
+mod capacity;
 mod config;
 mod credentials;
 mod db;

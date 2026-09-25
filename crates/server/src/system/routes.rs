@@ -11,7 +11,11 @@ use crate::error::ApiResult;
 use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
-    Router::new().route("/info", get(info)).route("/status", get(status)).route("/logs", get(logs))
+    Router::new()
+        .route("/info", get(info))
+        .route("/status", get(status))
+        .route("/logs", get(logs))
+        .route("/capacity", get(crate::capacity::handler))
 }
 
 async fn info(State(s): State<AppState>) -> ApiResult<Json<ServerInfo>> {
