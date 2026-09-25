@@ -3,10 +3,12 @@
 //! a WebSocket into Media Source Extensions.
 
 mod boxes;
+pub mod dump;
 mod feed;
 mod fmp4;
 mod fragmenter;
 mod hub;
+mod nal;
 mod preroll;
 pub mod mp4;
 mod timing;

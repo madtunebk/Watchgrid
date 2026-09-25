@@ -42,7 +42,7 @@ use config::Config;
 use credentials::CredentialStore;
 use state::AppState;
 
-const USAGE: &str = "usage:\n  watchgrid [serve]\n  watchgrid init\n  watchgrid storage show|set-path <folder>\n  watchgrid probe <camera-id> [--sub] [--seconds N]\n  watchgrid probe-onvif <camera-id> [--url URL]\n  watchgrid watch-onvif <camera-id> [--seconds N]\n  watchgrid user create|list|passwd|enable|disable|delete <username>\n\nEnvironment (or .env, or /etc/watchgrid/watchgrid.env): DATABASE_URL, WATCHGRID_BIND, WATCHGRID_DATA_DIR, WATCHGRID_KEY_FILE, WATCHGRID_RECORDINGS_DIR, WATCHGRID_UI_DIR";
+const USAGE: &str = "usage:\n  watchgrid [serve]\n  watchgrid init\n  watchgrid storage show|set-path <folder>\n  watchgrid probe <camera-id> [--sub] [--seconds N]\n  watchgrid live-dump <camera-id> [--sub] [--seconds N] [--out FILE]\n  watchgrid probe-onvif <camera-id> [--url URL]\n  watchgrid watch-onvif <camera-id> [--seconds N]\n  watchgrid user create|list|passwd|enable|disable|delete <username>\n\nEnvironment (or .env, or /etc/watchgrid/watchgrid.env): DATABASE_URL, WATCHGRID_BIND, WATCHGRID_DATA_DIR, WATCHGRID_KEY_FILE, WATCHGRID_RECORDINGS_DIR, WATCHGRID_UI_DIR";
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -73,6 +73,14 @@ async fn main() -> ExitCode {
             Some(id) => watch_onvif(id, args.iter().position(|a| a == "--seconds").and_then(|i| args.get(i + 1)).and_then(|s| s.parse().ok()).unwrap_or(30)).await,
             None => Err(format!("watch-onvif needs a camera id\n\n{USAGE}")),
         },
+        Some("live-dump") => match args.get(1) {
+            Some(id) => {
+                let seconds = args.iter().position(|a| a == "--seconds").and_then(|i| args.get(i + 1)).and_then(|s| s.parse().ok()).unwrap_or(10);
+                let out = args.iter().position(|a| a == "--out").and_then(|i| args.get(i + 1)).cloned().unwrap_or_else(|| format!("{id}-live.mp4"));
+                live_dump(id, args.iter().any(|a| a == "--sub"), seconds, &out).await
+            }
+            None => Err(format!("live-dump needs a camera id\n\n{USAGE}")),
+        },
         Some("probe-onvif") => match args.get(1) {
             Some(id) => probe_onvif(id, args.iter().position(|a| a == "--url").and_then(|i| args.get(i + 1)).map(String::as_str)).await,
             None => Err(format!("probe-onvif needs a camera id\n\n{USAGE}")),
@@ -90,6 +98,14 @@ async fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// Diagnostics: save the live stream as the browser gets it.
+async fn live_dump(id: &str, sub: bool, seconds: u64, out: &str) -> Result<(), String> {
+    let config = Config::from_env()?;
+    let state = open_state(&config).await?;
+    let kind = if sub { media::StreamKind::Sub } else { media::StreamKind::Main };
+    media::dump::run(&state.media, id, kind, seconds, out).await
 }
 
 /// Diagnostics: ONVIF device info and event topics with the stored login.
