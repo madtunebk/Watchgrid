@@ -61,3 +61,16 @@ pub fn clock(t: DateTime<Local>) -> String {
 pub fn time_of_day(t: chrono::DateTime<chrono::Utc>) -> String {
     t.with_timezone(&Local).format("%H:%M").to_string()
 }
+
+/// "Chrome 153 · Linux" from a User-Agent string (full string on hover).
+pub fn client(user_agent: &str) -> String {
+    let ua = user_agent;
+    let version = |name: &str| ua.split(name).nth(1).and_then(|r| r.split(['.', ' ', ';']).next()).filter(|v| !v.is_empty()).map(|v| format!("{} {v}", name.trim_end_matches('/')));
+    let browser = version("Edg/").map(|b| b.replace("Edg", "Edge"))
+        .or_else(|| version("Firefox/"))
+        .or_else(|| version("Chrome/"))
+        .or_else(|| ua.contains("Safari/").then(|| version("Version/").map(|v| v.replace("Version", "Safari")).unwrap_or_else(|| "Safari".into())))
+        .unwrap_or_else(|| ua.split('/').next().unwrap_or("Unknown").to_string());
+    let os = if ua.contains("Android") { "Android" } else if ua.contains("iPhone") || ua.contains("iPad") { "iOS" } else if ua.contains("Windows") { "Windows" } else if ua.contains("Mac OS") { "macOS" } else if ua.contains("Linux") { "Linux" } else { "" };
+    if os.is_empty() { browser } else { format!("{browser} · {os}") }
+}

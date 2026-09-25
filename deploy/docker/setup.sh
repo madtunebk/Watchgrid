@@ -28,10 +28,12 @@ if [ -z "$PG" ]; then
     [ -z "$STOPPED" ] || echo "note: stopped PostgreSQL container(s) found: $STOPPED (start one and re-run to use it instead)"
     echo "PostgreSQL: bundled (postgres:16-alpine, data in $(pwd)/db)"
     BUNDLED=1
-    DB_HOST=db
-    DB_PORT=5432
-    NETWORK="    ports:
-      - \"8090:8090\"
+    # Host networking: Watchgrid sees clients' real addresses (sessions,
+    # sign-in throttling) and reaches cameras directly. The database only
+    # listens on the NAS's loopback.
+    DB_HOST=127.0.0.1
+    DB_PORT=${WATCHGRID_DB_PORT:-5433}
+    NETWORK="    network_mode: host
     depends_on:
       db:
         condition: service_healthy
@@ -40,6 +42,8 @@ if [ -z "$PG" ]; then
     container_name: watchgrid-db
     restart: unless-stopped
     env_file: db.env
+    ports:
+      - \"127.0.0.1:$DB_PORT:5432\"
     volumes:
       - ./db:/var/lib/postgresql/data
     stop_grace_period: 30s

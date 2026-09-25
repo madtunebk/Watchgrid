@@ -28,8 +28,15 @@ pub async fn run(hub: Arc<MediaHub>, key: Key, ch: Arc<Channels>) {
                 attempt = 0;
                 tracing::info!(camera = %id, ?kind, "live feed started");
                 match pump(&hub, &key, &ch, opened, &mut idle).await {
-                    Some(reason) => reason,
-                    None => break, // no viewers left
+                    PumpEnd::Failed(reason) => reason,
+                    PumpEnd::Idle => break, // no viewers left
+                    // New settings: reconnect right away; not an outage.
+                    PumpEnd::Reload => {
+                        tracing::info!(camera = %id, ?kind, "reconnecting with new settings");
+                        ch.state.send_replace(FeedState::Connecting);
+                        attempt = 0;
+                        continue;
+                    }
                 }
             }
         };
@@ -64,22 +71,31 @@ async fn open(hub: &MediaHub, id: &str, kind: StreamKind) -> Result<Opened, Stri
     session::open(&url, &info.username, info.password.as_deref()).await
 }
 
-/// Forward frames until the stream fails (`Some(reason)`) or the feed goes idle (`None`).
-async fn pump(hub: &MediaHub, key: &Key, ch: &Channels, mut opened: Opened, idle: &mut Idle) -> Option<String> {
+/// Why forwarding stopped.
+enum PumpEnd {
+    Failed(String),
+    /// Nobody watches any more.
+    Idle,
+    /// Camera settings changed.
+    Reload,
+}
+
+/// Forward frames until the stream fails, the feed goes idle or settings change.
+async fn pump(hub: &MediaHub, key: &Key, ch: &Channels, mut opened: Opened, idle: &mut Idle) -> PumpEnd {
     // Timestamps restart with every session.
     ch.preroll.clear();
     let mut ticker = tokio::time::interval(TICK);
     loop {
         tokio::select! {
             item = opened.stream.next() => match item {
-                None => return Some("the camera closed the stream".into()),
-                Some(Err(e)) => return Some(format!("stream error: {e}")),
+                None => return PumpEnd::Failed("the camera closed the stream".into()),
+                Some(Err(e)) => return PumpEnd::Failed(format!("stream error: {e}")),
                 Some(Ok(CodecItem::VideoFrame(f))) if f.stream_id() == opened.video => {
                     if f.has_new_parameters() || !matches!(*ch.state.borrow(), FeedState::Streaming(_)) {
                         match track_info(&opened) {
                             Ok(Some(info)) => { ch.state.send_replace(FeedState::Streaming(Arc::new(info))); }
                             Ok(None) => continue, // parameters not known yet
-                            Err(e) => return Some(e),
+                            Err(e) => return PumpEnd::Failed(e),
                         }
                     }
                     let ts = f.timestamp();
@@ -94,9 +110,9 @@ async fn pump(hub: &MediaHub, key: &Key, ch: &Channels, mut opened: Opened, idle
                 }
                 Some(Ok(_)) => {}
             },
-            _ = ch.reload.notified() => return Some("camera settings changed".into()),
+            _ = ch.reload.notified() => return PumpEnd::Reload,
             _ = ticker.tick() => if idle.expired(hub, key, ch) {
-                return None;
+                return PumpEnd::Idle;
             }
         }
     }

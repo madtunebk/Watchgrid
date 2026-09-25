@@ -74,7 +74,7 @@ pub fn AuthSection(settings: Signal<Settings>) -> impl IntoView {
                                     let id = s.id.clone();
                                     view! {
                                         <tr>
-                                            <td class="table__primary">{s.client}{s.current.then(|| view! { <span class="muted">" (you)"</span> })}</td>
+                                            <td class="table__primary" title=s.client.clone()>{format::client(&s.client)}{s.current.then(|| view! { <span class="muted">" (you)"</span> })}</td>
                                             <td>{s.username}</td>
                                             <td class="mono">{s.address}</td>
                                             <td class="muted">{format::relative(s.last_seen)}</td>

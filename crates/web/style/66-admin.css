@@ -92,3 +92,6 @@
 /* Account management happens on the server: show the commands. */
 .cli-help { margin-top: 0.8rem; }
 .cli-help__cmds { margin: 0.4rem 0; padding: 0.6667rem 0.8rem; border-radius: var(--radius); background: var(--surface-3); font: 0.8667rem var(--font-mono); overflow-x: auto; white-space: pre; }
+/* Long values never push a table out of its card. */
+.settings-tab .table { table-layout: auto; width: 100%; }
+.settings-tab .table td { overflow-wrap: anywhere; }

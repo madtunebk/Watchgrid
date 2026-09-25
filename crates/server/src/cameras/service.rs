@@ -137,7 +137,7 @@ pub async fn create(state: &AppState, mut input: CameraInput) -> ApiResult<Camer
         other => other?,
     }
     tracing::info!(camera = %id, "camera added");
-    changed(state, &id, Some(input.enabled));
+    changed(state, &id, Some(input.enabled), true);
     get(state, &id).await
 }
 
@@ -156,13 +156,16 @@ pub async fn update(state: &AppState, id: &str, mut input: CameraInput) -> ApiRe
             None => Secret::Keep,
         },
     };
+    let before = connection_key(state, id).await?;
     match repo::update(&state.db, id, &input, password, onvif_password).await {
         Err(e) if repo::is_unique_violation(&e) => Err(duplicate(&input.name)),
         Err(e) => Err(e.into()),
         Ok(false) => Err(ApiError::not_found("Camera")),
         Ok(true) => {
-            tracing::info!(camera = %id, "camera updated");
-            changed(state, id, Some(input.enabled));
+            // Renaming or tuning motion/recording must not drop the stream.
+            let reconnect = before != connection_key(state, id).await?;
+            tracing::info!(camera = %id, reconnect, "camera updated");
+            changed(state, id, Some(input.enabled), reconnect);
             get(state, id).await
         }
     }
@@ -173,7 +176,7 @@ pub async fn set_enabled(state: &AppState, id: &str, enabled: bool) -> ApiResult
         return Err(ApiError::not_found("Camera"));
     }
     tracing::info!(camera = %id, enabled, "camera availability changed");
-    changed(state, id, Some(enabled));
+    changed(state, id, Some(enabled), true);
     get(state, id).await
 }
 
@@ -182,7 +185,7 @@ pub async fn delete(state: &AppState, id: &str) -> ApiResult<()> {
         return Err(ApiError::not_found("Camera"));
     }
     tracing::info!(camera = %id, "camera deleted");
-    changed(state, id, None);
+    changed(state, id, None, true);
     Ok(())
 }
 
@@ -263,18 +266,28 @@ pub async fn stream_credentials(state: &AppState, id: &str) -> ApiResult<(String
     Ok((info.username, info.password))
 }
 
-/// Tell the supervisor and UI subscribers that a camera's config changed.
-fn changed(state: &AppState, id: &str, enabled: Option<bool>) {
-    match enabled {
-        Some(enabled) => state.supervisor.apply(id, enabled),
-        None => state.supervisor.stop(id),
+/// What the RTSP connection depends on; the stream is only reopened when it changes.
+async fn connection_key(state: &AppState, id: &str) -> ApiResult<Option<(bool, String, Option<String>, String, Option<String>)>> {
+    let info = connection_info(&state.db, &state.credentials, id).await.map_err(ApiError::internal)?;
+    Ok(info.map(|i| (i.enabled, i.main_url, i.sub_url, i.username, i.password)))
+}
+
+/// Tell the background tasks and UI subscribers that a camera's config
+/// changed. `reconnect`: the connection settings changed (or it was
+/// added, enabled, disabled or deleted), so the stream is reopened.
+fn changed(state: &AppState, id: &str, enabled: Option<bool>, reconnect: bool) {
+    if reconnect {
+        match enabled {
+            Some(enabled) => state.supervisor.apply(id, enabled),
+            None => state.supervisor.stop(id),
+        }
+        state.media.reload(id);
     }
     state.onvif.apply(id, enabled.is_some());
     state.auto_record.apply(id, enabled.is_some());
     if enabled != Some(true) {
         state.bus.publish(BusEvent::CameraStopped { camera_id: id.to_string(), at: chrono::Utc::now() });
     }
-    state.media.reload(id);
     state.bus.publish(BusEvent::CamerasChanged);
 }
 
