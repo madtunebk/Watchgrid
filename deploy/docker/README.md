@@ -70,8 +70,29 @@ Open `http://<nas>:8090`.
 
 ## Backup
 
-Together: the database (`pg_dump`), `./config/master.key` (camera passwords
-can't be decrypted without it) and, optionally, the recordings folder.
+A backup is one `.wgbackup` file: the database **and** the master key
+(camera passwords and export secrets can't be decrypted without it). The
+recordings folder is not included — cover it with the NAS's own backup.
+
+- **Automatic:** every day, in `./state/backups/` (the newest 7
+  `watchgrid-auto-*` files are kept). Include `./state/backups` in Hyper
+  Backup or copy them off the NAS.
+- **By hand**, e.g. before an upgrade:
+  `sudo docker exec watchgrid watchgrid backup` → `./state/backups/watchgrid-<time>.wgbackup`
+  (never rotated).
+- **Restore** (Watchgrid must be stopped; `--replace` overwrites existing data):
+
+  ```
+  sudo docker compose stop watchgrid
+  sudo docker compose run --rm watchgrid restore /var/lib/watchgrid/backups/<file>.wgbackup --replace
+  sudo docker compose start watchgrid
+  ```
+
+  A backup made by an older version restores fine: the database is brought
+  up to date afterwards. A different master key already in `./config` is
+  kept as `master.key.replaced-<time>`.
+
+The files hold the master key: keep them as private as `./config`.
 
 ## HTTPS
 

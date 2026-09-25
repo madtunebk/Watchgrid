@@ -42,4 +42,7 @@ sha2 = "0.10"
 futures = "0.3.34"
 # Software motion detection decodes the substream (Cisco OpenH264, BSD,
 # compiled from bundled source).
+# Backups: one .wgbackup file (tar + gzip, pure Rust).
+tar = "0.4"
+flate2 = "1"
 openh264 = { version = "0.9", default-features = false, features = ["source"] }

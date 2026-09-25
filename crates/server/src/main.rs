@@ -12,6 +12,7 @@
 //! deletes or resets users.
 
 mod auth;
+mod backup;
 mod bus;
 mod cameras;
 mod capacity;
@@ -45,7 +46,7 @@ use config::Config;
 use credentials::CredentialStore;
 use state::AppState;
 
-const USAGE: &str = "usage:\n  watchgrid [serve]\n  watchgrid init\n  watchgrid storage show|set-path <folder>\n  watchgrid probe <camera-id> [--sub] [--seconds N]\n  watchgrid live-dump <camera-id> [--sub] [--seconds N] [--out FILE]\n  watchgrid probe-onvif <camera-id> [--url URL]\n  watchgrid watch-onvif <camera-id> [--seconds N]\n  watchgrid user create|list|passwd|enable|disable|delete <username>\n\nEnvironment (or .env, or /etc/watchgrid/watchgrid.env): DATABASE_URL, WATCHGRID_BIND, WATCHGRID_DATA_DIR, WATCHGRID_KEY_FILE, WATCHGRID_RECORDINGS_DIR, WATCHGRID_UI_DIR";
+const USAGE: &str = "usage:\n  watchgrid [serve]\n  watchgrid init\n  watchgrid storage show|set-path <folder>\n  watchgrid probe <camera-id> [--sub] [--seconds N]\n  watchgrid live-dump <camera-id> [--sub] [--seconds N] [--out FILE]\n  watchgrid probe-onvif <camera-id> [--url URL]\n  watchgrid watch-onvif <camera-id> [--seconds N]\n  watchgrid user create|list|passwd|enable|disable|delete <username>\n  watchgrid backup [--out FILE]\n  watchgrid restore <FILE> [--replace]\n\nEnvironment (or .env, or /etc/watchgrid/watchgrid.env): DATABASE_URL, WATCHGRID_BIND, WATCHGRID_DATA_DIR, WATCHGRID_KEY_FILE, WATCHGRID_RECORDINGS_DIR, WATCHGRID_UI_DIR, WATCHGRID_BACKUP_DIR";
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -77,6 +78,11 @@ async fn main() -> ExitCode {
         Some("user") => user(&args[1..]).await,
         Some("storage") => storage_cmd(&args[1..]).await,
         Some("init") => init().await,
+        Some("backup") => backup_cmd(args.iter().position(|a| a == "--out").and_then(|i| args.get(i + 1)).map(std::path::PathBuf::from)).await,
+        Some("restore") => match args.get(1).filter(|a| !a.starts_with("--")) {
+            Some(file) => restore_cmd(std::path::Path::new(file), args.iter().any(|a| a == "--replace")).await,
+            None => Err(format!("restore needs a backup file\n\n{USAGE}")),
+        },
         Some("watch-onvif") => match args.get(1) {
             Some(id) => watch_onvif(id, args.iter().position(|a| a == "--seconds").and_then(|i| args.get(i + 1)).and_then(|s| s.parse().ok()).unwrap_or(30)).await,
             None => Err(format!("watch-onvif needs a camera id\n\n{USAGE}")),
@@ -106,6 +112,31 @@ async fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// `watchgrid backup`: database + master key into one file.
+async fn backup_cmd(out: Option<std::path::PathBuf>) -> Result<(), String> {
+    let config = Config::from_env()?;
+    let db = db::connect(&config.database_url).await?;
+    let out = out.unwrap_or_else(|| backup::default_path(&config.backup_dir));
+    let m = backup::create(&db, &config.key_file, &out).await?;
+    let size = std::fs::metadata(&out).map(|m| m.len()).unwrap_or(0);
+    println!("backup written: {} ({:.1} MB, {} tables, schema {})", out.display(), size as f64 / 1e6, m.tables.len(), m.schema_version);
+    println!("It contains the master key: keep it as private as the key itself. Recordings are not included.");
+    Ok(())
+}
+
+/// `watchgrid restore`: the server must be stopped.
+async fn restore_cmd(file: &std::path::Path, replace: bool) -> Result<(), String> {
+    let config = Config::from_env()?;
+    let options: sqlx::postgres::PgConnectOptions = config.database_url.parse().map_err(|e| format!("DATABASE_URL: {e}"))?;
+    let r = backup::restore(&options, &config.key_file, file, replace).await?;
+    println!("restored the backup of {} (build {}, {} tables)", r.manifest.created_at.format("%Y-%m-%d %H:%M UTC"), r.manifest.build, r.manifest.tables.len());
+    if let Some(old) = r.old_key {
+        println!("the previous master key was kept as {}", old.display());
+    }
+    println!("Start Watchgrid again. Recordings are not part of backups: their files must still be in the recordings folder.");
+    Ok(())
 }
 
 /// Diagnostics: save the live stream as the browser gets it.
@@ -210,6 +241,11 @@ async fn probe(id: &str, sub: bool, seconds: u64) -> Result<(), String> {
 
 async fn serve(logs: system::logs::LogBuffer) -> Result<(), String> {
     let config = Config::from_env()?;
+    // One server per database; a restore waits for it to stop.
+    let options: sqlx::postgres::PgConnectOptions = config.database_url.parse().map_err(|e| format!("DATABASE_URL: {e}"))?;
+    let _server_lock = backup::take_server_lock(&options)
+        .await?
+        .ok_or("another Watchgrid (or a restore) is using this database; stop it first")?;
     let mut state = open_state(&config).await?;
     state.logs = logs;
     state.bind = config.bind;
@@ -242,6 +278,7 @@ async fn serve(logs: system::logs::LogBuffer) -> Result<(), String> {
         state.auto_record.apply(&id, true);
     }
     tokio::spawn(state.retention.clone().run());
+    backup::start_daily(state.db.clone(), config.key_file.clone(), config.backup_dir.clone());
     state.exports.start().await;
     exports_auto_upload(&state);
     let recorder = state.recorder.clone();

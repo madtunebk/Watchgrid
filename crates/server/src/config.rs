@@ -20,6 +20,8 @@ pub struct Config {
     pub recordings_dir: PathBuf,
     /// Built web UI (`cargo web build` output).
     pub ui_dir: PathBuf,
+    /// Automatic daily backups (database + master key).
+    pub backup_dir: PathBuf,
 }
 
 /// Load config files into the environment (never overriding what is
@@ -60,6 +62,7 @@ impl Config {
             key_file: var("WATCHGRID_KEY_FILE").map_or_else(|| data_dir.join("master.key"), PathBuf::from),
             recordings_dir: var("WATCHGRID_RECORDINGS_DIR").map_or_else(|| data_dir.join("recordings"), PathBuf::from),
             ui_dir: var("WATCHGRID_UI_DIR").unwrap_or_else(|| "dist".into()).into(),
+            backup_dir: var("WATCHGRID_BACKUP_DIR").map_or_else(|| data_dir.join("backups"), PathBuf::from),
         })
     }
 }
