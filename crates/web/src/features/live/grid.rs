@@ -60,11 +60,7 @@ pub fn Grid(
                 <Tile
                     camera
                     substream
-                    on_focus=Callback::new({
-                        let id = id.clone();
-                        move |_| view.open(id.clone(), false)
-                    })
-                    on_fullscreen=Callback::new(move |_| view.open(id.clone(), true))
+                    on_focus=Callback::new(move |_| view.open(id.clone(), false))
                     on_remove=Callback::new(move |_| slots.clear(i))
                 />
             }
