@@ -9,12 +9,19 @@ use crate::ui::{Badge, ConfirmDialog, Icon, Tone};
 pub fn TargetCard(target: ExportTarget) -> impl IntoView {
     let busy = RwSignal::new(false);
     let confirm = RwSignal::new(false);
+    let error = RwSignal::new(None::<String>);
     let id = target.id.clone();
 
+    // Every action shows its outcome: an error stays on the card (or in the
+    // remove dialog, which stays open until the server answered).
     let run = move |f: std::pin::Pin<Box<dyn std::future::Future<Output = api::ApiResult<()>>>>| {
         busy.set(true);
+        error.set(None);
         spawn_local(async move {
-            let _ = f.await;
+            match f.await {
+                Ok(()) => confirm.set(false),
+                Err(e) => error.set(Some(e.to_string())),
+            }
             invalidate(Topic::Settings);
             busy.set(false);
         });
@@ -29,7 +36,7 @@ pub fn TargetCard(target: ExportTarget) -> impl IntoView {
         }
     };
     let reconnect = { let id = id.clone(); move |_| run(Box::pin(api::reconnect_export_target(id.clone()))) };
-    let delete = Callback::new({ let id = id.clone(); move |_| { confirm.set(false); run(Box::pin(api::delete_export_target(id.clone()))) } });
+    let delete = Callback::new({ let id = id.clone(); move |_| run(Box::pin(api::delete_export_target(id.clone()))) });
     let rule = target.auto_upload;
 
     view! {
@@ -39,13 +46,15 @@ pub fn TargetCard(target: ExportTarget) -> impl IntoView {
                 <div class="dest__title">
                     <span>{target.name.clone()}</span>
                     {if target.ready {
-                        view! { <Badge tone=Tone::Online label="CONNECTED" dot=true /> }.into_any()
+                        // No known problem (checked when added, and on every upload).
+                        view! { <Badge tone=Tone::Online label="READY" dot=true /> }.into_any()
                     } else {
                         view! { <Badge tone=Tone::Warning label="NEEDS ATTENTION" dot=true /> }.into_any()
                     }}
                 </div>
                 <div class="dest__meta">{format!("{} · {}", labels::kind(target.kind), target.location)}</div>
                 {target.problem.clone().map(|p| view! { <div class="dest__problem">{p}</div> })}
+                {move || error.get().filter(|_| !confirm.get()).map(|e| view! { <div class="dest__problem">{e}</div> })}
             </div>
             <label class="dest__auto">
                 <span class="dest__auto-label">"Auto-upload"</span>
@@ -57,8 +66,8 @@ pub fn TargetCard(target: ExportTarget) -> impl IntoView {
                 {(!target.ready).then(|| view! { <button class="btn btn--primary btn--sm" disabled=busy on:click=reconnect.clone()>"Reconnect"</button> })}
                 <button class="btn btn--danger btn--sm" disabled=busy on:click=move |_| confirm.set(true)>"Remove"</button>
             </div>
-            <ConfirmDialog open=confirm title="Remove destination?" confirm_label="Remove" danger=true
-                message=format!("Watchgrid will stop uploading to \"{}\". Files already uploaded stay there.", target.name) on_confirm=delete />
+            <ConfirmDialog open=confirm title="Remove destination?" confirm_label="Remove" danger=true busy error
+                message=format!("Watchgrid will stop uploading to \"{}\": queued uploads are cancelled, one already running may still finish. Files already uploaded stay there.", target.name) on_confirm=delete />
         </article>
     }
 }

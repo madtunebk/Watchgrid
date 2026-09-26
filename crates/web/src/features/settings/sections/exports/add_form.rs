@@ -53,11 +53,20 @@ pub fn AddDestination(on_done: Callback<()>) -> impl IntoView {
         // Real flow: open the provider's consent page, receive the token on the server.
         set_timeout(move || { signed_in.set(true); busy.set(false); }, std::time::Duration::from_millis(900));
     };
+    // A test result is about the details it tested: editing them clears it.
+    Effect::new(move || {
+        input();
+        probe.set(None);
+    });
     let test = move |_| {
         let i = input();
         busy.set(true);
         spawn_local(async move {
-            probe.set(api::test_export_target(i).await.ok());
+            let result = match api::test_export_target(i).await {
+                Ok(p) => p,
+                Err(e) => ConnectionProbe { ok: false, message: e.to_string(), latency_ms: None, device: None },
+            };
+            probe.set(Some(result));
             busy.set(false);
         });
     };

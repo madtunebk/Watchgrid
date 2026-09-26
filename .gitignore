@@ -12,3 +12,4 @@ watchgrid.env
 *.dump
 *.sql.gz
 /*.txt
+/suggestion/
