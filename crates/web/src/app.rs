@@ -15,10 +15,12 @@ use crate::features::settings::SettingsPage;
 use crate::features::storage::StoragePage;
 use crate::features::system::SystemPage;
 use crate::shell::NotFound;
+use crate::ui::{ToastHost, provide_toaster};
 
 #[component]
 pub fn App() -> impl IntoView {
     provide_queries();
+    provide_toaster();
 
     view! {
         <AuthGate>
@@ -50,5 +52,6 @@ pub fn App() -> impl IntoView {
             </Routes>
         </Router>
         </AuthGate>
+        <ToastHost />
     }
 }

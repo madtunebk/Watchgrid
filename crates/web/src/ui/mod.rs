@@ -23,6 +23,7 @@ mod sparkline;
 mod stat;
 mod status;
 mod tabs;
+mod toast;
 
 pub use async_view::{ErrorBox, Skeleton, async_view};
 pub use badge::Badge;
@@ -36,6 +37,7 @@ pub use page::Page;
 pub use pager::Pager;
 pub use panel::Panel;
 pub use popover::Popover;
+pub use toast::{ToastHost, provide_toaster, use_toaster};
 pub use save_bar::{SaveBar, SaveState};
 pub use selection::{ResultNote, SelectCell, Selection, SelectionBar, keep_only_shown};
 pub use sparkline::Sparkline;

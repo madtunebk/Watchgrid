@@ -168,7 +168,9 @@ fn job(r: JobRow) -> ExportJob {
         target_id: r.2,
         progress: if state == ExportState::Done { 100.0 } else { progress },
         state,
-        link: r.6,
+        // Where the file landed stays on the server (database, logs): the UI
+        // doesn't show paths inside a destination.
+        link: None,
         message: r.7,
         created_at: r.8,
     }

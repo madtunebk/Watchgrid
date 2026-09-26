@@ -12,7 +12,7 @@ use chrono::{DateTime, Utc};
 
 use crate::api::{self, ApiResult, ExportJob, ExportKind, ExportState, ExportTarget, Id, Topic, use_query};
 use crate::clock::use_interval;
-use crate::ui::{I, Icon, Popover, clipboard};
+use crate::ui::{I, Icon, Popover, Tone, clipboard, use_toaster};
 
 fn icon(kind: ExportKind) -> I {
     match kind {
@@ -51,6 +51,9 @@ pub fn ExportMenu(subject: ExportSubject) -> impl IntoView {
     let targets = use_query(Topic::Settings, None, api::get_export_targets);
     let jobs = RwSignal::new(Vec::<(ExportJob, String)>::new());
     let note = RwSignal::new(None::<String>);
+    let toaster = use_toaster();
+    // A finished upload leaves the list and is announced in a toast.
+    let uploaded = move |name: &str| toaster.show(Tone::Online, format!("Clip uploaded to {name}"));
 
     // Poll unfinished uploads.
     use_interval(Duration::from_millis(600), move || {
@@ -58,11 +61,17 @@ pub fn ExportMenu(subject: ExportSubject) -> impl IntoView {
             if matches!(job.state, ExportState::Queued | ExportState::Uploading) {
                 spawn_local(async move {
                     if let Ok(fresh) = api::get_export_job(job.id.clone()).await {
-                        jobs.update(|list| {
-                            if let Some(entry) = list.iter_mut().find(|(j, _)| j.id == fresh.id) {
-                                entry.0 = fresh;
-                            }
-                        });
+                        let Some(name) = jobs.get_untracked().into_iter().find(|(j, _)| j.id == fresh.id).map(|(_, n)| n) else { return };
+                        if fresh.state == ExportState::Done {
+                            jobs.update(|list| list.retain(|(j, _)| j.id != fresh.id));
+                            uploaded(&name);
+                        } else {
+                            jobs.update(|list| {
+                                if let Some(entry) = list.iter_mut().find(|(j, _)| j.id == fresh.id) {
+                                    entry.0 = fresh;
+                                }
+                            });
+                        }
                     }
                 });
             }
@@ -76,6 +85,8 @@ pub fn ExportMenu(subject: ExportSubject) -> impl IntoView {
             let subject = subject.clone();
             spawn_local(async move {
                 match subject.upload(t.id.clone()).await {
+                    // An earlier upload of this clip is reused.
+                    Ok(job) if job.state == ExportState::Done => toaster.show(Tone::Online, format!("Already uploaded to {}", t.name)),
                     Ok(job) => jobs.update(|l| l.insert(0, (job, t.name.clone()))),
                     Err(e) => note.set(Some(format!("{}: {e}", t.name))),
                 }
@@ -155,7 +166,7 @@ pub fn ExportMenu(subject: ExportSubject) -> impl IntoView {
                                             <Icon icon=icon(t.kind) class="icon icon--sm" />
                                             <span class="export__target-text">
                                                 <span>{t.name.clone()}</span>
-                                                <span class="export__target-loc">{t.problem.clone().unwrap_or(t.location.clone())}</span>
+                                                {t.problem.clone().map(|p| view! { <span class="export__target-loc">{p}</span> })}
                                             </span>
                                         </button>
                                     }
@@ -189,9 +200,6 @@ fn JobRow(job: ExportJob, name: String) -> impl IntoView {
             <span class="job__text">{text}</span>
             {(job.state == ExportState::Uploading || job.state == ExportState::Queued).then(|| view! {
                 <span class="job__bar"><span style:width=format!("{:.0}%", job.progress)></span></span>
-            })}
-            {job.link.map(|href| view! {
-                <a class="link job__link" href=href target="_blank" rel="noopener">"Open"<Icon icon=I::ExternalLink class="icon icon--sm" /></a>
             })}
         </li>
     }

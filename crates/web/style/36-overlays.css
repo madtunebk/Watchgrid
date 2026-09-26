@@ -28,3 +28,30 @@
 .menu__item--danger { color: var(--danger); }
 .menu__item--danger .icon { color: var(--danger); }
 .menu__error { max-width: 16rem; padding: 0.4rem 0.8rem; color: var(--danger); font-size: 0.8667rem; }
+
+/* Toasts: short messages that go away by themselves. */
+.toasts {
+  position: fixed; z-index: 95; right: 1.0667rem; bottom: 1.0667rem;
+  display: flex; flex-direction: column; gap: 0.5333rem;
+  width: min(24rem, calc(100vw - 2.1333rem));
+  pointer-events: none;
+}
+.toast {
+  display: flex; align-items: center; gap: 0.6667rem;
+  padding: 0.8rem 0.9333rem;
+  background: var(--surface-2);
+  border-left: 0.2rem solid var(--accent);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-popover);
+  pointer-events: auto;
+  animation: pop-in 0.14s ease-out;
+}
+.toast--online { border-left-color: var(--online); }
+.toast--online > .icon { color: var(--online); }
+.toast--danger { border-left-color: var(--danger); }
+.toast--danger > .icon { color: var(--danger); }
+.toast--warning { border-left-color: var(--warning); }
+.toast--warning > .icon { color: var(--warning); }
+.toast__text { flex: 1; min-width: 0; color: var(--fg-strong); }
+.toast__close { display: grid; place-items: center; padding: 0.2rem; color: var(--muted); background: none; border: 0; cursor: pointer; }
+.toast__close:hover { color: var(--fg-strong); }
