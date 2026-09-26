@@ -1,6 +1,7 @@
 use leptos::prelude::*;
+use leptos::task::spawn_local;
 
-use crate::api::Settings;
+use crate::api::{self, Settings, Topic};
 use crate::features::settings::save::save;
 use crate::ui::form::{Field, FormSection, Switch, TextInput};
 use crate::ui::{SaveBar, SaveState};
@@ -57,7 +58,43 @@ pub fn NotificationsSection(settings: Signal<Settings>) -> impl IntoView {
                     <TextInput value=webhook placeholder="https://homeassistant.local/api/webhook/watchgrid" mono=true />
                 </Field>
             </FormSection>
+            <FormSection title="Test" description="Send one notification now: it appears in the bell and goes to the saved webhook.">
+                <TestButton />
+            </FormSection>
             <SaveBar state dirty on_save on_revert />
+        </div>
+    }
+}
+
+/// "Send test notification" and what came of it.
+#[component]
+fn TestButton() -> impl IntoView {
+    let busy = RwSignal::new(false);
+    let result = RwSignal::new(None::<(bool, String)>);
+    let send = move |_| {
+        busy.set(true);
+        result.set(None);
+        spawn_local(async move {
+            result.set(Some(match api::send_test_notification().await {
+                Ok(r) => {
+                    api::invalidate(Topic::Notifications);
+                    match (r.webhook, r.webhook_ok) {
+                        (None, _) => (true, "Sent. Check the bell. (No webhook is saved.)".into()),
+                        (Some(status), true) => (true, format!("Sent. Check the bell; the webhook accepted it ({status}).")),
+                        (Some(error), false) => (false, format!("In the bell, but the webhook failed: {error}.")),
+                    }
+                }
+                Err(e) => (false, e.to_string()),
+            }));
+            busy.set(false);
+        });
+    };
+    view! {
+        <div class="test-notify">
+            <button class="btn btn--secondary" disabled=busy on:click=send>
+                {move || if busy.get() { "Sending…" } else { "Send test notification" }}
+            </button>
+            {move || result.get().map(|(ok, text)| view! { <p class="test-notify__result" class:test-notify__result--error=!ok>{text}</p> })}
         </div>
     }
 }

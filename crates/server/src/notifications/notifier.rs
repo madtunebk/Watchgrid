@@ -94,7 +94,9 @@ impl Notifier {
         self.bus.publish(BusEvent::NotificationsChanged);
         if let Some(url) = webhook_url {
             let (url, name) = (url.to_string(), nvr_name.to_string());
-            tokio::spawn(async move { webhook::send(&url, &stored, &name).await });
+            tokio::spawn(async move {
+                let _ = webhook::send(&url, &stored, &name).await;
+            });
         }
     }
 }

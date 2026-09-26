@@ -95,3 +95,8 @@
 /* Long values never push a table out of its card. */
 .settings-tab .table { table-layout: auto; width: 100%; }
 .settings-tab .table td { overflow-wrap: anywhere; }
+
+/* Settings → Notifications → Test */
+.test-notify { display: flex; flex-wrap: wrap; align-items: center; gap: 0.8rem; }
+.test-notify__result { color: var(--muted); font-size: 0.9333rem; }
+.test-notify__result--error { color: var(--danger); }

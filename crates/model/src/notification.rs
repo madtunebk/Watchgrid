@@ -61,3 +61,13 @@ pub struct NotificationBulkRequest {
 pub struct NotificationBulkResult {
     pub changed: u32,
 }
+
+/// What happened to a test notification.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestNotificationResult {
+    /// The webhook's outcome ("HTTP 200", or the error); `None` without a webhook.
+    pub webhook: Option<String>,
+    /// Whether the webhook accepted it.
+    pub webhook_ok: bool,
+}

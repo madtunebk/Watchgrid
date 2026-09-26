@@ -5,15 +5,16 @@ use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
-use watchgrid_model::{NOTIFICATION_BULK_MAX, NotificationBulkRequest, NotificationBulkResult, NotificationPage};
+use watchgrid_model::{NOTIFICATION_BULK_MAX, NotificationBulkRequest, NotificationBulkResult, NotificationLevel, NotificationPage, TestNotificationResult};
 
-use super::repo;
+use super::rules::Draft;
+use super::{repo, webhook};
 use crate::bus::BusEvent;
 use crate::error::{ApiError, ApiResult};
 use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
-    Router::new().route("/", get(list)).route("/read", post(mark_read)).route("/bulk", post(bulk))
+    Router::new().route("/", get(list)).route("/read", post(mark_read)).route("/bulk", post(bulk)).route("/test", post(test))
 }
 
 #[derive(Deserialize)]
@@ -49,4 +50,25 @@ async fn mark_read(State(s): State<AppState>, Json(body): Json<Read>) -> ApiResu
     repo::mark_read(&s.db, body.ids.as_deref()).await?;
     s.bus.publish(BusEvent::NotificationsChanged);
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// A notification on demand, the same way real ones go: stored, shown in
+/// the bell, and sent to the saved webhook (whose answer is returned).
+async fn test(State(s): State<AppState>) -> ApiResult<Json<TestNotificationResult>> {
+    let settings = crate::settings::load_app(&s.db, s.bind).await?;
+    let draft = Draft {
+        kind: "test",
+        camera_id: None,
+        level: NotificationLevel::Info,
+        title: "Test notification".into(),
+        message: "Sent from Settings → Notifications. If you see this, notifications work.".into(),
+        link: Some("/notifications".into()),
+    };
+    let stored = repo::insert(&s.db, &draft).await?;
+    s.bus.publish(BusEvent::NotificationsChanged);
+    let Some(url) = settings.notifications.webhook_url else { return Ok(Json(TestNotificationResult::default())) };
+    Ok(Json(match webhook::send(&url, &stored, &settings.general.nvr_name).await {
+        Ok(status) => TestNotificationResult { webhook: Some(format!("HTTP {status}")), webhook_ok: true },
+        Err(e) => TestNotificationResult { webhook: Some(e), webhook_ok: false },
+    }))
 }
