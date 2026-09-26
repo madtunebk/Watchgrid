@@ -16,7 +16,7 @@ use leptos_router::hooks::{use_navigate, use_query_map};
 
 use crate::api::{self, Topic, use_query};
 use crate::prefs;
-use crate::ui::{EmptyState, ErrorBox, I, Page, Skeleton, keep_only_shown};
+use crate::ui::{EmptyState, ErrorBox, I, Page, Pager, Skeleton, keep_only_shown};
 use bulk_bar::BulkBar;
 use filter_bar::FilterBar;
 use filters::Filters;
@@ -80,8 +80,9 @@ pub fn EventsPage() -> impl IntoView {
                     }
                 }
                 Some(Ok(page)) => {
-                    let first = page_no.get_untracked() * PAGE;
                     let shown = page.events.len() as u32;
+                    // Per-day counts are only true when every event is on this page.
+                    let one_page = page.total <= PAGE;
                     let names = names.get();
                     view! {
                         {day_groups::by_day(page.events).into_iter().map(|(day, list)| {
@@ -90,7 +91,7 @@ pub fn EventsPage() -> impl IntoView {
                                 <section class="day-group">
                                     <h2 class="day-group__title">
                                         {day_groups::heading(day)}
-                                        <span class="day-group__count">{count}</span>
+                                        {one_page.then(|| view! { <span class="day-group__count">{count}</span> })}
                                     </h2>
                                     <div class="evt-list">
                                         {list.into_iter().map(|event| {
@@ -101,22 +102,7 @@ pub fn EventsPage() -> impl IntoView {
                                 </section>
                             }
                         }).collect_view()}
-                        {(page.total > PAGE).then(|| {
-                            let (total, last) = (page.total, (page.total - 1) / PAGE);
-                            let at = page_no.get_untracked();
-                            let (on_first, on_last) = (at == 0, at >= last);
-                            let to_page = move |p: u32| {
-                                page_no.set(p);
-                                window().scroll_to_with_x_and_y(0.0, 0.0);
-                            };
-                            view! {
-                                <div class="load-more">
-                                    <button class="btn btn--secondary btn--sm" disabled=on_first on:click=move |_| to_page(at.saturating_sub(1))>"Previous"</button>
-                                    <span class="muted">{format!("{}–{} of {total}", first + 1, first + shown)}</span>
-                                    <button class="btn btn--secondary btn--sm" disabled=on_last on:click=move |_| to_page((at + 1).min(last))>"Next"</button>
-                                </div>
-                            }
-                        })}
+                        <Pager page=page_no per_page=PAGE total=page.total shown />
                     }.into_any()
                 }
             }}

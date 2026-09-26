@@ -16,7 +16,9 @@ use super::toolbar::Toolbar;
 use crate::api::{self, Recording, RecordingQuery, Topic, use_query};
 use crate::features::cameras::NoCameras;
 use crate::format;
-use crate::ui::{EmptyState, ErrorBox, I, Page, Skeleton, keep_only_shown};
+use crate::ui::{EmptyState, ErrorBox, I, Page, Pager, Skeleton, keep_only_shown};
+
+const CLIPS_PAGE: u32 = 100;
 
 #[component]
 pub fn RecordingsPage() -> impl IntoView {
@@ -34,11 +36,28 @@ pub fn RecordingsPage() -> impl IntoView {
     });
     // Clips ticked for a bulk action; another day, camera or view starts over.
     let ticked = RwSignal::new(BTreeSet::<String>::new());
+    // Clips list: pages of CLIPS_PAGE, newest first.
+    let clip_page = RwSignal::new(0u32);
     Effect::new(move || {
         state.track();
         ticked.set(BTreeSet::new());
+        clip_page.set(0);
     });
-    let shown = Signal::derive(move || recordings.get().and_then(Result::ok).map(|l| l.into_iter().map(|r| r.id).collect()).unwrap_or_default());
+    let page_of = move |list: Vec<Recording>| -> Vec<Recording> {
+        let skip = clip_page.get() as usize * CLIPS_PAGE as usize;
+        let mut page: Vec<Recording> = list.into_iter().rev().skip(skip).take(CLIPS_PAGE as usize).collect();
+        page.reverse(); // ClipList shows oldest-first input newest first
+        page
+    };
+    let shown = Signal::derive(move || recordings.get().and_then(Result::ok).map(|l| page_of(l).into_iter().map(|r| r.id).collect()).unwrap_or_default());
+    // Deleting the last clips of the last page: go back to the new last page.
+    Effect::new(move || {
+        let total = recordings.get().and_then(Result::ok).map_or(0, |l| l.len() as u32);
+        let at = clip_page.get_untracked();
+        if at > 0 && at * CLIPS_PAGE >= total {
+            clip_page.set(total.saturating_sub(1) / CLIPS_PAGE);
+        }
+    });
     keep_only_shown(ticked, shown);
     let clips_view = move || state.with(|s| s.view == View::Clips);
 
@@ -105,7 +124,13 @@ pub fn RecordingsPage() -> impl IntoView {
                             }.into_any(),
                             View::Clips => {
                                 let names: HashMap<String, String> = shown.into_iter().map(|c| (c.id, c.name)).collect();
-                                view! { <ClipList recordings=list names selected=ticked on_open=open /> }.into_any()
+                                let total = list.len() as u32;
+                                let page = page_of(list);
+                                let on_page = page.len() as u32;
+                                view! {
+                                    <ClipList recordings=page names selected=ticked on_open=open />
+                                    <Pager page=clip_page per_page=CLIPS_PAGE total shown=on_page />
+                                }.into_any()
                             }
                         }
                     }
