@@ -180,7 +180,9 @@ impl Mp4Writer {
         Ok(())
     }
 
-    /// Write the index and flush everything to disk. The file is playable afterwards.
+    /// Write the index and flush everything to disk. The file is playable
+    /// afterwards, with the index in front of the data (see [`mp4`]); if
+    /// that rewrite fails, the index goes at the end instead.
     pub async fn finish(mut self, track: &VideoTrack) -> io::Result<Finished> {
         if let Some(prev) = self.pending.take() {
             self.write(prev, self.clock.last()).await?;
@@ -190,20 +192,58 @@ impl Mp4Writer {
         let data_len = self.position - self.start.data_start;
         file.seek(SeekFrom::Start(self.start.mdat_size_at)).await?;
         file.write_all(&mp4::mdat_size(data_len).to_be_bytes()).await?;
-        file.seek(SeekFrom::End(0)).await?;
-        let (moov, duration, samples, audio_samples) = {
+        file.flush().await?;
+        let (moov_at_end, moov_in_front, duration, samples, audio_samples) = {
             let index = self.index.lock().expect("recording index lock");
-            let audio = index.audio.as_ref().map(|(t, table)| (t, table));
-            (mp4::moov(track, &index.video, audio), index.video.duration(), index.video.len(), index.audio.as_ref().map_or(0, |(_, t)| t.len()))
+            let at_end = mp4::moov(track, &index.video, index.audio.as_ref().map(|(t, table)| (t, table)));
+            let by = at_end.len() as u64;
+            let audio = index.audio.as_ref().map(|(t, table)| (t, table.shifted(by)));
+            let in_front = mp4::moov(track, &index.video.shifted(by), audio.as_ref().map(|(t, table)| (*t, table)));
+            debug_assert_eq!(in_front.len(), at_end.len(), "co64 offsets keep the index size");
+            (at_end, in_front, index.video.duration(), index.video.len(), index.audio.as_ref().map_or(0, |(_, t)| t.len()))
         };
-        file.write_all(&moov).await?;
-        file.sync_all().await?;
-        Ok(Finished { path: self.path, size: self.position + moov.len() as u64, duration, samples, audio_samples })
+        let size = self.position + moov_at_end.len() as u64;
+        match faststart(&self.path, self.start.mdat_at(), self.position, &moov_in_front).await {
+            Ok(()) => drop(file),
+            Err(e) => {
+                tracing::warn!(path = %self.path.display(), "cannot put the index first, appending it: {e}");
+                file.seek(SeekFrom::End(0)).await?;
+                file.write_all(&moov_at_end).await?;
+                file.sync_all().await?;
+            }
+        }
+        Ok(Finished { path: self.path, size, duration, samples, audio_samples })
     }
 
     pub fn path(&self) -> &Path {
         &self.path
     }
+}
+
+/// Rewrite `path` as `ftyp`, `moov`, `mdat` (`mdat` starts at `mdat_at`,
+/// the file ends at `end`), then replace the original in one rename.
+async fn faststart(path: &Path, mdat_at: u64, end: u64, moov: &[u8]) -> io::Result<()> {
+    let temp = path.with_extension("faststart");
+    let result = async {
+        let mut source = File::open(path).await?;
+        let mut out = BufWriter::with_capacity(BUFFER, File::create(&temp).await?);
+        let mut ftyp = vec![0; mdat_at as usize];
+        tokio::io::AsyncReadExt::read_exact(&mut source, &mut ftyp).await?;
+        out.write_all(&ftyp).await?;
+        out.write_all(moov).await?;
+        let copied = tokio::io::copy(&mut tokio::io::AsyncReadExt::take(source, end - mdat_at), &mut out).await?;
+        if copied != end - mdat_at {
+            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "the recording is shorter than written"));
+        }
+        out.flush().await?;
+        out.into_inner().sync_all().await?;
+        tokio::fs::rename(&temp, path).await
+    }
+    .await;
+    if result.is_err() {
+        let _ = tokio::fs::remove_file(&temp).await;
+    }
+    result
 }
 
 #[cfg(test)]
@@ -232,6 +272,45 @@ mod tests {
         let file = std::fs::read(&path).unwrap();
         assert_eq!(file.windows(4).filter(|w| *w == b"trak").count(), 2);
         assert_eq!(file.windows(4).filter(|w| *w == b"stss").count(), 1, "only video has sync tables");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn the_index_comes_first_and_its_offsets_hit_the_samples() {
+        let path = std::env::temp_dir().join(format!("wg-writer-faststart-{}.mp4", std::process::id()));
+        let track = AudioTrack { channels: 1, pre_skip: 312, input_rate: 8000 };
+        let mut w = Mp4Writer::create(path.clone(), Some(track)).await.unwrap();
+        let frames = [(0i64, true, vec![0, 0, 0, 1, 0x65, 1]), (3_600, false, vec![0, 0, 0, 2, 0x41, 2, 3]), (7_200, false, vec![0, 0, 0, 1, 0x41])];
+        for (pts, key, data) in &frames {
+            w.push(Frame { pts: *pts, keyframe: *key, data: data.clone().into() }).await.unwrap();
+            w.push_audio(&AudioFrame { pts: *pts, data: vec![0xfc, 0xaa].into() }).await.unwrap();
+        }
+        let video = VideoTrack { width: 640, height: 360, avcc: vec![1, 0x64, 0, 0x1e, 0xff, 0xe0, 0] };
+        let done = w.finish(&video).await.unwrap();
+        let file = std::fs::read(&path).unwrap();
+        assert_eq!(done.size, file.len() as u64);
+        assert!(!path.with_extension("faststart").exists());
+
+        let u32_at = |i: usize| u32::from_be_bytes(file[i..i + 4].try_into().unwrap());
+        let (mut at, mut order) = (0, Vec::new());
+        while at < file.len() {
+            let size = match u32_at(at) {
+                1 => u64::from_be_bytes(file[at + 8..at + 16].try_into().unwrap()) as usize,
+                s => s as usize,
+            };
+            order.push(String::from_utf8_lossy(&file[at + 4..at + 8]).into_owned());
+            at += size;
+        }
+        assert_eq!(order, ["ftyp", "moov", "mdat"]);
+        assert_eq!(at, file.len(), "the mdat size still covers the data");
+
+        // The first co64 is the video track's.
+        let co64 = file.windows(4).position(|w| w == b"co64").unwrap() - 4;
+        assert_eq!(u32_at(co64 + 12), 3);
+        for (i, (_, _, data)) in frames.iter().enumerate() {
+            let offset = u64::from_be_bytes(file[co64 + 16 + i * 8..co64 + 24 + i * 8].try_into().unwrap()) as usize;
+            assert_eq!(&file[offset..offset + data.len()], &data[..]);
+        }
         let _ = std::fs::remove_file(path);
     }
 

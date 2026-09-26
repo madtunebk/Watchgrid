@@ -1,9 +1,10 @@
 //! Progressive (non-fragmented) MP4 files for recordings.
 //!
-//! Layout: `ftyp`, then `mdat` with samples appended as they arrive, then
-//! `moov` written once at the end. Until `moov` exists the file is not
-//! playable, which is why recordings are written as incomplete files and
-//! only published after finalizing. The sample tables are kept in memory
+//! Layout while recording: `ftyp`, then `mdat` with samples appended as
+//! they arrive. Finalizing puts `moov` in front of `mdat` ("faststart"), so
+//! players start and seek without fetching the end of the file first. Until
+//! `moov` exists the file is not playable, which is why recordings are
+//! written as incomplete files and only published after finalizing. The sample tables are kept in memory
 //! (~16 bytes per sample). Audio, when recorded, is a second track whose
 //! samples are interleaved with the video in the same `mdat`.
 
@@ -33,6 +34,13 @@ pub fn file_start() -> FileStart {
 /// Value for the `mdat` largesize field once `data_len` sample bytes were written.
 pub fn mdat_size(data_len: u64) -> u64 {
     MDAT_HEADER + data_len
+}
+
+impl FileStart {
+    /// Where `mdat` begins (the end of `ftyp`).
+    pub fn mdat_at(&self) -> u64 {
+        self.data_start - MDAT_HEADER
+    }
 }
 
 #[derive(Debug, Default)]
@@ -77,6 +85,20 @@ impl SampleTable {
             durations: self.durations[..n].to_vec(),
             sync: self.sync.iter().copied().filter(|k| *k as usize <= n).collect(),
             total: self.durations[..n].iter().map(|d| u64::from(*d)).sum(),
+            all_sync: self.all_sync,
+        }
+    }
+
+    /// The same samples with every offset moved `by` bytes (the index put
+    /// in front of the data). Offsets are always 64-bit (`co64`), so the
+    /// index keeps its size.
+    pub fn shifted(&self, by: u64) -> Self {
+        Self {
+            offsets: self.offsets.iter().map(|o| o + by).collect(),
+            sizes: self.sizes.clone(),
+            durations: self.durations.clone(),
+            sync: self.sync.clone(),
+            total: self.total,
             all_sync: self.all_sync,
         }
     }
