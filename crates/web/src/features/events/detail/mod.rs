@@ -105,6 +105,12 @@ pub fn EventDetailPage() -> impl IntoView {
                 (None, EventType::Manual | EventType::Scheduled) => view! {
                     <EmptyState icon=I::VideoOff title="No video was saved for this recording" text="See the details for why it ended." />
                 }.into_any(),
+                // Not linked to any clip (a clip still recording is linked):
+                // deleted, removed by retention, or never recorded.
+                (None, _) if e.recording_id.is_none() && e.end_time.is_some() => view! {
+                    <EmptyState icon=I::VideoOff title="No video for this event"
+                        text="Its recording was deleted or removed by retention, or the camera wasn't recording when it happened." />
+                }.into_any(),
                 _ => view! { <Player clip=Clip::for_event(&e, d.recording.as_ref(), camera_name.clone()) theater /> }.into_any(),
             };
             let facts = view! { <EventFacts event=e.clone() recording=d.recording.clone() camera_name=camera_name.clone() /> };
