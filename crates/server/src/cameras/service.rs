@@ -239,8 +239,11 @@ pub async fn stored(db: &PgPool, id: &str) -> sqlx::Result<Option<Camera>> {
 
 /// What the ONVIF event watcher needs. `None` when the camera is gone.
 pub struct OnvifWatch {
-    /// Enabled, with ONVIF settings and motion taken from ONVIF events.
+    /// Enabled, with ONVIF settings: its events are followed (security
+    /// alerts always, detections when `motion`).
     pub active: bool,
+    /// Motion is taken from the camera's ONVIF events.
+    pub motion: bool,
     pub url: String,
     pub username: String,
     pub password: Option<String>,
@@ -250,14 +253,15 @@ pub async fn onvif_watch(db: &PgPool, credentials: &CredentialStore, id: &str) -
     let Some(row) = repo::get(db, id).await.map_err(|e| e.to_string())? else { return Ok(None) };
     let camera = row.into_model();
     let Some(onvif) = camera.onvif.filter(|o| !o.url.trim().is_empty()) else {
-        return Ok(Some(OnvifWatch { active: false, url: String::new(), username: String::new(), password: None }));
+        return Ok(Some(OnvifWatch { active: false, motion: false, url: String::new(), username: String::new(), password: None }));
     };
-    let active = camera.enabled && camera.motion.enabled && camera.motion.source == watchgrid_model::MotionSource::Onvif;
+    let active = camera.enabled;
+    let motion = camera.motion.enabled && camera.motion.source == watchgrid_model::MotionSource::Onvif;
     let password = match repo::onvif_password_enc(db, id).await.map_err(|e| e.to_string())?.flatten() {
         None => None,
         Some(bytes) => Some(String::from_utf8(credentials.open(&aad(id, "onvif-password"), &bytes).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?),
     };
-    Ok(Some(OnvifWatch { active, url: onvif.url, username: onvif.username, password }))
+    Ok(Some(OnvifWatch { active, motion, url: onvif.url, username: onvif.username, password }))
 }
 
 /// Username and decrypted password (for `watchgrid probe`).

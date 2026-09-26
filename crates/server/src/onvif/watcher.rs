@@ -72,16 +72,25 @@ impl Watchers {
 }
 
 /// Current state of each topic and what it maps to.
-#[derive(Default)]
-struct Detections(HashMap<String, (EventType, bool)>);
+struct Detections {
+    topics: HashMap<String, (EventType, bool)>,
+    /// Detections count (motion comes from ONVIF); security alerts always do.
+    motion: bool,
+}
+
+impl Default for Detections {
+    fn default() -> Self {
+        Self { topics: HashMap::new(), motion: true }
+    }
+}
 
 impl Detections {
     fn kind_active(&self, kind: EventType) -> bool {
-        self.0.values().any(|(k, on)| *k == kind && *on)
+        self.topics.values().any(|(k, on)| *k == kind && *on)
     }
 
     fn active_kinds(&self) -> Vec<EventType> {
-        let mut kinds: Vec<EventType> = self.0.values().filter(|(_, on)| *on).map(|(k, _)| *k).collect();
+        let mut kinds: Vec<EventType> = self.topics.values().filter(|(_, on)| *on).map(|(k, _)| *k).collect();
         kinds.dedup();
         kinds
     }
@@ -99,13 +108,14 @@ async fn run(deps: Deps, id: String, open: Open) {
     loop {
         let cfg = match cameras::onvif_watch(&deps.db, &deps.credentials, &id).await {
             Ok(Some(cfg)) if cfg.active => cfg,
-            Ok(_) => return, // gone, disabled, or motion not from ONVIF
+            Ok(_) => return, // gone, disabled, or without ONVIF
             Err(e) => {
                 tracing::warn!(camera = %id, "cannot load ONVIF settings: {e}");
                 tokio::time::sleep(backoff::delay(attempt.max(1))).await;
                 continue;
             }
         };
+        state.motion = cfg.motion;
         let reason = match Subscription::create(&cfg.url, &cfg.username, cfg.password).await {
             Err(e) => e,
             Ok(sub) => {
@@ -121,7 +131,7 @@ async fn run(deps: Deps, id: String, open: Open) {
         };
         // Without events we can't know when detections end: close them now.
         close_all(&deps, &id, &state.active_kinds());
-        state = Detections::default();
+        state = Detections { motion: state.motion, ..Detections::default() };
         open.lock().expect("detections lock").clear();
         attempt += 1;
         if attempt == 1 || attempt.is_multiple_of(10) {
@@ -167,9 +177,9 @@ fn apply(deps: &Deps, id: &str, state: &mut Detections, n: &Notification) {
         }
         return;
     }
-    let (Some(kind), Some(on)) = (topics::detection(&n.topic), n.active()) else { return };
+    let (true, Some(kind), Some(on)) = (state.motion, topics::detection(&n.topic), n.active()) else { return };
     let was = state.kind_active(kind);
-    state.0.insert(n.topic.clone(), (kind, on));
+    state.topics.insert(n.topic.clone(), (kind, on));
     let now = state.kind_active(kind);
     let at = pullpoint::when(n);
     if now && !was {
@@ -258,5 +268,22 @@ mod tests {
         apply(&deps, "cam", &mut s, &note("UserAlarm/IllegalAccess", false));
         assert!(matches!(rx.try_recv().unwrap(), BusEvent::SecurityAlert { .. }));
         assert!(rx.try_recv().is_err(), "the end of the alarm is not another alert, nor a detection");
+    }
+
+    #[tokio::test]
+    async fn without_onvif_motion_only_security_alerts_count() {
+        let bus = Bus::new();
+        let mut rx = bus.subscribe();
+        let deps = Deps {
+            db: sqlx::postgres::PgPoolOptions::new().connect_lazy("postgres://unused").unwrap(),
+            credentials: Arc::new(CredentialStore::from_key(&[1u8; 32])),
+            live: Arc::new(LiveRegistry::default()),
+            bus,
+        };
+        let mut s = Detections { motion: false, ..Detections::default() };
+        apply(&deps, "cam", &mut s, &note("RuleEngine/CellMotionDetector/Motion", true));
+        apply(&deps, "cam", &mut s, &note("UserAlarm/IllegalAccess", true));
+        assert!(matches!(rx.try_recv().unwrap(), BusEvent::SecurityAlert { .. }));
+        assert!(rx.try_recv().is_err(), "motion is off: no detection");
     }
 }
