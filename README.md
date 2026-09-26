@@ -98,7 +98,8 @@ Details: [`deploy/systemd/README.md`](deploy/systemd/README.md).
 ### Build from source
 
 Needs Rust (stable), the WebAssembly target and a C/C++ compiler
-(`build-essential` on Debian/Ubuntu) — no Node.js.
+(`build-essential` on Debian/Ubuntu) — no Node.js. Optional: `nasm` makes
+the software motion detector's video decoding faster.
 
 ```sh
 rustup target add wasm32-unknown-unknown
