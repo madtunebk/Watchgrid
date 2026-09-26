@@ -3,14 +3,14 @@
 use axum::extract::{Path, Query, Request, State};
 use axum::response::{IntoResponse, Response};
 use axum::http::StatusCode;
-use axum::routing::{get, put};
+use axum::routing::{get, post, put};
 use watchgrid_model::Event;
 use axum::{Json, Router};
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
-use watchgrid_model::Recording;
+use watchgrid_model::{RECORDING_BULK_MAX, Recording, RecordingBulkRequest, RecordingBulkSummary};
 
 use super::repo;
 use crate::bus::BusEvent;
@@ -18,7 +18,11 @@ use crate::error::{ApiError, ApiResult};
 use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
-    Router::new().route("/", get(list)).route("/{id}", get(one).delete(remove)).route("/{id}/media", get(media)).route("/{id}/protected", put(protect))
+    Router::new()
+        .route("/", get(list))
+        .route("/bulk/preview", post(bulk_preview))
+        .route("/bulk", post(bulk_apply))
+        .route("/{id}", get(one).delete(remove)).route("/{id}/media", get(media)).route("/{id}/protected", put(protect))
 }
 
 #[derive(Deserialize)]
@@ -113,4 +117,27 @@ async fn protect(State(s): State<AppState>, Path(id): Path<String>, Json(body): 
     repo::set_protected(&s.db, &id, body.protected).await?;
     s.bus.publish(BusEvent::RecordingsChanged);
     Ok(StatusCode::NO_CONTENT)
+}
+
+fn check_bulk(req: &RecordingBulkRequest) -> ApiResult<()> {
+    if req.ids.is_empty() || req.ids.len() > RECORDING_BULK_MAX {
+        return Err(ApiError::invalid(format!("Select between 1 and {RECORDING_BULK_MAX} recordings")));
+    }
+    Ok(())
+}
+
+/// What a bulk action would do; changes nothing.
+async fn bulk_preview(State(s): State<AppState>, Json(req): Json<RecordingBulkRequest>) -> ApiResult<Json<RecordingBulkSummary>> {
+    check_bulk(&req)?;
+    Ok(Json(super::bulk::preview(&s, req.action, &req.ids).await?))
+}
+
+/// Protect, unprotect or delete many recordings; the summary says what happened.
+async fn bulk_apply(State(s): State<AppState>, Json(req): Json<RecordingBulkRequest>) -> ApiResult<Json<RecordingBulkSummary>> {
+    check_bulk(&req)?;
+    let done = super::bulk::apply(&s, req.action, &req.ids).await?;
+    tracing::info!(action = ?req.action, recordings = done.recordings, events = done.events, "bulk recording action");
+    s.bus.publish(BusEvent::RecordingsChanged);
+    s.bus.publish(BusEvent::EventsChanged);
+    Ok(Json(done))
 }

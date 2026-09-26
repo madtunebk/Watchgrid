@@ -1,4 +1,4 @@
-//! Bar for the selected events: protect, unprotect or delete them together.
+//! Bar for the selected clips: protect, unprotect or delete them together.
 
 use std::collections::BTreeSet;
 
@@ -7,11 +7,11 @@ use leptos::task::spawn_local;
 
 use super::bulk_delete::BulkDeleteDialog;
 use super::bulk_text;
-use crate::api::{self, EventBulkAction, EventBulkRequest, EventBulkSummary, Topic};
+use crate::api::{self, RecordingBulkAction, RecordingBulkRequest, RecordingBulkSummary, Topic};
 use crate::ui::{I, Icon, ResultNote, Selection, SelectionBar};
 
 fn refresh() {
-    for topic in [Topic::Events, Topic::Recordings, Topic::Storage, Topic::Cameras] {
+    for topic in [Topic::Recordings, Topic::Events, Topic::Storage, Topic::Cameras] {
         api::invalidate(topic);
     }
 }
@@ -23,16 +23,16 @@ pub fn BulkBar(selected: Selection, #[prop(into)] shown: Signal<Vec<String>>) ->
     let delete_open = RwSignal::new(false);
     let ids = Signal::derive(move || selected.get().into_iter().collect::<Vec<_>>());
 
-    let done = Callback::new(move |(action, summary): (EventBulkAction, EventBulkSummary)| {
+    let done = Callback::new(move |(action, summary): (RecordingBulkAction, RecordingBulkSummary)| {
         note.set(Some(bulk_text::did(action, &summary)));
         selected.set(BTreeSet::new());
         refresh();
     });
-    let run = move |action: EventBulkAction| {
-        let req = EventBulkRequest { ids: ids.get_untracked(), action };
+    let run = move |action: RecordingBulkAction| {
+        let req = RecordingBulkRequest { ids: ids.get_untracked(), action };
         busy.set(true);
         spawn_local(async move {
-            match api::apply_event_bulk(req).await {
+            match api::apply_recording_bulk(req).await {
                 Ok(summary) => done.run((action, summary)),
                 Err(e) => note.set(Some(e.to_string())),
             }
@@ -42,11 +42,11 @@ pub fn BulkBar(selected: Selection, #[prop(into)] shown: Signal<Vec<String>>) ->
 
     view! {
         <ResultNote note selected />
-        <SelectionBar selected shown label="Selected events">
-            <button class="btn btn--secondary btn--sm" disabled=busy on:click=move |_| run(EventBulkAction::Protect)>
+        <SelectionBar selected shown label="Selected recordings">
+            <button class="btn btn--secondary btn--sm" disabled=busy on:click=move |_| run(RecordingBulkAction::Protect)>
                 <Icon icon=I::Lock class="icon icon--sm" />"Protect"
             </button>
-            <button class="btn btn--secondary btn--sm" disabled=busy on:click=move |_| run(EventBulkAction::Unprotect)>
+            <button class="btn btn--secondary btn--sm" disabled=busy on:click=move |_| run(RecordingBulkAction::Unprotect)>
                 <Icon icon=I::LockOpen class="icon icon--sm" />"Unprotect"
             </button>
             <button class="btn btn--danger btn--sm" disabled=busy on:click=move |_| delete_open.set(true)>

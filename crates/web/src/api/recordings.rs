@@ -1,4 +1,4 @@
-use super::{ApiResult, Id, Recording, RecordingQuery, backend};
+use super::{ApiResult, Id, Recording, RecordingBulkRequest, RecordingBulkSummary, RecordingQuery, backend};
 
 /// GET /api/v1/recordings?… — clips overlapping the range, oldest first.
 /// URL of a recording's video, when the backend stores real files.
@@ -19,4 +19,14 @@ pub async fn set_recording_protected(id: Id, protected: bool) -> ApiResult<()> {
 /// the history. Refused while recording or protected.
 pub async fn delete_recording(id: Id) -> ApiResult<()> {
     backend::recordings::delete(&id).await
+}
+
+/// POST /api/v1/recordings/bulk/preview — what a bulk action would do; changes nothing.
+pub async fn preview_recording_bulk(req: RecordingBulkRequest) -> ApiResult<RecordingBulkSummary> {
+    backend::recordings::bulk_preview(&req).await
+}
+
+/// POST /api/v1/recordings/bulk — protect, unprotect or delete many recordings.
+pub async fn apply_recording_bulk(req: RecordingBulkRequest) -> ApiResult<RecordingBulkSummary> {
+    backend::recordings::bulk_apply(&req).await
 }

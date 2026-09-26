@@ -1,7 +1,7 @@
 //! Recordings over HTTP — same functions as the mock's `recordings` module.
 
 use super::client;
-use crate::api::{ApiResult, Recording, RecordingQuery};
+use crate::api::{ApiResult, Recording, RecordingBulkRequest, RecordingBulkSummary, RecordingQuery};
 
 pub async fn list(query: &RecordingQuery) -> ApiResult<Vec<Recording>> {
     let mut params = Vec::new();
@@ -33,4 +33,12 @@ pub async fn set_protected(id: &str, protected: bool) -> ApiResult<()> {
 
 pub async fn delete(id: &str) -> ApiResult<()> {
     client::delete(&format!("/recordings/{}", encode(id))).await
+}
+
+pub async fn bulk_preview(req: &RecordingBulkRequest) -> ApiResult<RecordingBulkSummary> {
+    client::post("/recordings/bulk/preview", Some(req)).await
+}
+
+pub async fn bulk_apply(req: &RecordingBulkRequest) -> ApiResult<RecordingBulkSummary> {
+    client::post("/recordings/bulk", Some(req)).await
 }

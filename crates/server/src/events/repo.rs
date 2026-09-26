@@ -282,7 +282,7 @@ pub(super) async fn bulk_rows(db: &PgPool, ids: &[String]) -> sqlx::Result<Vec<s
 
 /// Delete these events unless protected or still going on (with a clip).
 /// Returns the ids actually deleted.
-pub(super) async fn delete_many(db: &PgPool, ids: &[String]) -> sqlx::Result<Vec<String>> {
+pub async fn delete_many(db: &PgPool, ids: &[String]) -> sqlx::Result<Vec<String>> {
     sqlx::query_scalar("DELETE FROM events WHERE id = ANY($1) AND NOT protected AND NOT (end_time IS NULL AND recording_id IS NOT NULL) RETURNING id")
         .bind(ids)
         .fetch_all(db)

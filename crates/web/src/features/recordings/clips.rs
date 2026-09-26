@@ -7,10 +7,10 @@ use leptos::prelude::*;
 use super::labels;
 use crate::api::Recording;
 use crate::format;
-use crate::ui::{I, Icon};
+use crate::ui::{I, Icon, SelectCell, Selection};
 
 #[component]
-pub fn ClipList(recordings: Vec<Recording>, names: HashMap<String, String>, on_open: Callback<Recording>) -> impl IntoView {
+pub fn ClipList(recordings: Vec<Recording>, names: HashMap<String, String>, selected: Selection, on_open: Callback<Recording>) -> impl IntoView {
     let t = |x: chrono::DateTime<chrono::Utc>| crate::format::time_hms(x.with_timezone(&chrono::Local));
     view! {
         <div class="evt-list">
@@ -19,7 +19,13 @@ pub fn ClipList(recordings: Vec<Recording>, names: HashMap<String, String>, on_o
                 let range = format!("{} – {}", t(r.start_time), r.end_time.map(t).unwrap_or_else(|| "now".into()));
                 let events = r.event_ids.len();
                 let rec = r.clone();
+                let is_selected = {
+                    let id = r.id.clone();
+                    Memo::new(move |_| selected.with(|s| s.contains(&id)))
+                };
                 view! {
+                    <div class="select-row" class:select-row--selected=is_selected>
+                    <SelectCell id=r.id.clone() selected label="Select recording" />
                     <button class="clip-row" on:click=move |_| on_open.run(rec.clone())>
                         <span class=format!("clip-row__bar tl-seg--{}", labels::css(r.reason))></span>
                         <span class="clip-row__time">{range}</span>
@@ -31,6 +37,7 @@ pub fn ClipList(recordings: Vec<Recording>, names: HashMap<String, String>, on_o
                         <span class="clip-row__num">{format::bytes(r.file_size)}</span>
                         <Icon icon=I::ChevronRight class="icon icon--sm evt-row__chevron" />
                     </button>
+                    </div>
                 }
             }).collect_view()}
         </div>

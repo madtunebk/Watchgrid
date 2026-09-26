@@ -160,6 +160,30 @@ pub async fn clips_with_events(db: &PgPool, ids: &[String]) -> sqlx::Result<Vec<
     Ok(rows.into_iter().map(|(id, bytes, protected, event_ids)| crate::events::ClipRow { id, bytes: bytes.max(0) as u64, protected, event_ids }).collect())
 }
 
+/// The selected recordings, as a bulk action plans them.
+pub(super) async fn bulk_rows(db: &PgPool, ids: &[String]) -> sqlx::Result<Vec<super::bulk::ClipState>> {
+    let rows: Vec<(String, i64, bool, i64, Vec<String>)> = sqlx::query_as(
+        "SELECT r.id, r.file_size, r.protected,
+                COUNT(e.id) FILTER (WHERE e.protected),
+                COALESCE(array_agg(e.id) FILTER (WHERE e.id IS NOT NULL), '{}')
+         FROM recordings r LEFT JOIN events e ON e.recording_id = r.id
+         WHERE r.id = ANY($1) GROUP BY r.id",
+    )
+    .bind(ids)
+    .fetch_all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(id, bytes, protected, by_events, event_ids)| super::bulk::ClipState {
+            id,
+            bytes: bytes.max(0) as u64,
+            protected,
+            protected_by_events: by_events.max(0) as u32,
+            event_ids,
+        })
+        .collect())
+}
+
 /// Stored (root, relative path).
 pub async fn path(db: &PgPool, id: &str) -> sqlx::Result<Option<(Option<String>, String)>> {
     sqlx::query_as("SELECT root, path FROM recordings WHERE id = $1").bind(id).fetch_optional(db).await

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::time::Duration;
 
 use leptos::ev;
@@ -6,6 +6,7 @@ use leptos::prelude::*;
 use leptos_router::hooks::{use_navigate, use_query_map};
 use leptos_router::NavigateOptions;
 
+use super::bulk_bar::BulkBar;
 use super::clips::ClipList;
 use super::drawer::RecordingDrawer;
 use super::dvr::DvrPlayer;
@@ -15,7 +16,7 @@ use super::toolbar::Toolbar;
 use crate::api::{self, Recording, RecordingQuery, Topic, use_query};
 use crate::features::cameras::NoCameras;
 use crate::format;
-use crate::ui::{EmptyState, ErrorBox, I, Page, Skeleton};
+use crate::ui::{EmptyState, ErrorBox, I, Page, Skeleton, keep_only_shown};
 
 #[component]
 pub fn RecordingsPage() -> impl IntoView {
@@ -31,6 +32,16 @@ pub fn RecordingsPage() -> impl IntoView {
         let (from, to) = s.day_range();
         api::get_recordings(RecordingQuery { camera_ids: s.cameras, from: Some(from), to: Some(to) })
     });
+    // Clips ticked for a bulk action; another day, camera or view starts over.
+    let ticked = RwSignal::new(BTreeSet::<String>::new());
+    Effect::new(move || {
+        state.track();
+        ticked.set(BTreeSet::new());
+    });
+    let shown = Signal::derive(move || recordings.get().and_then(Result::ok).map(|l| l.into_iter().map(|r| r.id).collect()).unwrap_or_default());
+    keep_only_shown(ticked, shown);
+    let clips_view = move || state.with(|s| s.view == View::Clips);
+
     let selected = RwSignal::new(None::<Recording>);
     let open = Callback::new(move |r: Recording| selected.set(Some(r)));
     // DVR playback: camera, start time, and that camera's clips as they
@@ -94,12 +105,15 @@ pub fn RecordingsPage() -> impl IntoView {
                             }.into_any(),
                             View::Clips => {
                                 let names: HashMap<String, String> = shown.into_iter().map(|c| (c.id, c.name)).collect();
-                                view! { <ClipList recordings=list names on_open=open /> }.into_any()
+                                view! { <ClipList recordings=list names selected=ticked on_open=open /> }.into_any()
                             }
                         }
                     }
                 }
             }}
+            <Show when=clips_view>
+                <BulkBar selected=ticked shown />
+            </Show>
             {move || selected.get().map(|recording| {
                 let camera_name = camera_list.get_untracked().into_iter().find(|c| c.id == recording.camera_id).map(|c| c.name).unwrap_or_default();
                 view! { <RecordingDrawer recording camera_name on_close=Callback::new(move |_| selected.set(None)) /> }

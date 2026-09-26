@@ -1,5 +1,8 @@
 //! Recordings browser: a zoomable day timeline per camera, or a clip list.
 
+mod bulk_bar;
+mod bulk_delete;
+mod bulk_text;
 mod clips;
 mod drawer;
 mod dvr;

@@ -1,6 +1,7 @@
 //! Recordings: finalized video files on disk plus their metadata in
 //! PostgreSQL, and the HTTP API to list and play them.
 
+mod bulk;
 mod delete;
 mod files;
 mod live_media;

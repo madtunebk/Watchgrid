@@ -16,7 +16,7 @@ use leptos_router::hooks::{use_navigate, use_query_map};
 
 use crate::api::{self, Topic, use_query};
 use crate::prefs;
-use crate::ui::{EmptyState, ErrorBox, I, Page, Skeleton};
+use crate::ui::{EmptyState, ErrorBox, I, Page, Skeleton, keep_only_shown};
 use bulk_bar::BulkBar;
 use filter_bar::FilterBar;
 use filters::Filters;
@@ -50,13 +50,7 @@ pub fn EventsPage() -> impl IntoView {
     let events = use_query(Topic::Events, Some(Duration::from_secs(30)), move || api::get_events(filters.get().to_query(limit.get())));
 
     let shown = Signal::derive(move || events.get().and_then(Result::ok).map(|p| p.events.into_iter().map(|e| e.id).collect()).unwrap_or_default());
-    // Events that disappeared (deleted elsewhere, retention) leave the selection.
-    Effect::new(move || {
-        let ids: Vec<String> = shown.get();
-        if selected.with_untracked(|s| s.iter().any(|id| !ids.contains(id))) {
-            selected.update(|s| s.retain(|id| ids.contains(id)));
-        }
-    });
+    keep_only_shown(selected, shown);
 
     let subtitle = Signal::derive(move || {
         events.get().and_then(Result::ok).map(|p| format!("{} event{}", p.total, if p.total == 1 { "" } else { "s" })).unwrap_or_default()
