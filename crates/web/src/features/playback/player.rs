@@ -14,7 +14,7 @@ use super::clip::Clip;
 use crate::clock::use_interval;
 use crate::features::events::EventChip;
 use crate::format;
-use crate::ui::{I, Icon, fullscreen};
+use crate::ui::{I, Icon, VideoOverlay, VideoState, fullscreen};
 
 const TICK: f32 = 0.25;
 const SPEEDS: [f32; 4] = [0.5, 1.0, 2.0, 4.0];
@@ -91,7 +91,11 @@ pub fn Player(
     };
     // Where to continue after fetching a longer copy of a growing clip.
     let resume_at = RwSignal::new(None::<f64>);
+    let load = RwSignal::new(VideoState::Loading);
+    let track = move |name: &'static str| move |ev: web_sys::Event| if let Some(s) = VideoState::after(name, &ev) { load.set(s) };
+    let failed = move |ev: leptos::ev::ErrorEvent| if let Some(s) = VideoState::after("error", &ev) { load.set(s) };
     let on_loaded = move |_| {
+        load.set(VideoState::Ready);
         let Some(v) = video.get_untracked() else { return };
         if growing && v.duration().is_finite() {
             total.set(v.duration() as f32);
@@ -140,7 +144,10 @@ pub fn Player(
                 {match src {
                     Some(src) => view! {
                         <video class="player__video" node_ref=video src=src preload="metadata" playsinline=true prop:muted=muted
-                            on:timeupdate=on_time on:loadedmetadata=on_loaded on:ended=on_ended></video>
+                            on:timeupdate=on_time on:loadedmetadata=on_loaded on:ended=on_ended
+                            on:loadstart=track("loadstart") on:waiting=track("waiting") on:canplay=track("canplay")
+                            on:playing=track("playing") on:error=failed></video>
+                        <VideoOverlay state=load />
                     }.into_any(),
                     None => view! {
                         <div class="player__surface" class:player__surface--playing=playing>

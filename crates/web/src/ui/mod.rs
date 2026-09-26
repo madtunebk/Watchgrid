@@ -24,6 +24,7 @@ mod stat;
 mod status;
 mod tabs;
 mod toast;
+mod video_state;
 
 pub use async_view::{ErrorBox, Skeleton, async_view};
 pub use badge::Badge;
@@ -38,6 +39,7 @@ pub use pager::Pager;
 pub use panel::Panel;
 pub use popover::Popover;
 pub use toast::{ToastHost, provide_toaster, use_toaster};
+pub use video_state::{VideoOverlay, VideoState};
 pub use save_bar::{SaveBar, SaveState};
 pub use selection::{SelectCell, Selection, SelectionBar, keep_only_shown};
 pub use sparkline::Sparkline;

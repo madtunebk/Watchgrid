@@ -7,7 +7,7 @@ use leptos::prelude::*;
 
 use crate::api::{self, Recording};
 use crate::format;
-use crate::ui::{I, Icon};
+use crate::ui::{I, Icon, VideoOverlay, VideoState};
 
 /// Where to start: the clip covering `at` (and how far into it), else the
 /// next clip after it.
@@ -53,7 +53,11 @@ pub fn DvrPlayer(
         reloads.set(0);
         index.set(Some(i));
     };
+    let load = RwSignal::new(VideoState::Loading);
+    let track = move |name: &'static str| move |ev: web_sys::Event| if let Some(s) = VideoState::after(name, &ev) { load.set(s) };
+    let failed = move |ev: leptos::ev::ErrorEvent| if let Some(s) = VideoState::after("error", &ev) { load.set(s) };
     let on_loaded = move |_| {
+        load.set(VideoState::Ready);
         let Some(v) = video.get_untracked() else { return };
         let t = pending.get_value();
         if t > 0.0 {
@@ -102,8 +106,13 @@ pub fn DvrPlayer(
                 (None, _) => view! { <p class="dvr__empty">"No recording from this moment on today."</p> }.into_any(),
                 (Some(_), None) => view! { <p class="dvr__empty">"The demo data has no video files."</p> }.into_any(),
                 (Some(_), Some(url)) => view! {
-                    <video class="dvr__video" node_ref=video src=url controls autoplay playsinline
-                        on:loadedmetadata=on_loaded on:timeupdate=on_time on:ended=on_ended></video>
+                    <div class="dvr__stage">
+                        <video class="dvr__video" node_ref=video src=url controls autoplay playsinline
+                            on:loadedmetadata=on_loaded on:timeupdate=on_time on:ended=on_ended
+                            on:loadstart=track("loadstart") on:waiting=track("waiting") on:canplay=track("canplay")
+                            on:playing=track("playing") on:error=failed></video>
+                        <VideoOverlay state=load />
+                    </div>
                 }.into_any(),
             }}
             <div class="dvr__controls">
