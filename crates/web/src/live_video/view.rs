@@ -8,11 +8,32 @@ use super::pool;
 use crate::ui::{I, Icon};
 
 #[component]
-pub fn LiveVideo(camera_id: String, substream: bool) -> impl IntoView {
+pub fn LiveVideo(
+    camera_id: String,
+    substream: bool,
+    /// Sound off (the default: browsers only autoplay muted video).
+    #[prop(default = None)]
+    muted: Option<Signal<bool>>,
+    /// Told whether the stream has sound (to show a mute button).
+    #[prop(default = None)]
+    has_audio: Option<RwSignal<bool>>,
+) -> impl IntoView {
     let host = NodeRef::<Div>::new();
-    let Some((lease, video, state)) = pool::acquire(&socket_url(&camera_id, substream)) else {
+    let Some(pool::Acquired { lease, video, state, audio }) = pool::acquire(&socket_url(&camera_id, substream)) else {
         return view! { <div class="preview__state"><span>"Live video unavailable"</span></div> }.into_any();
     };
+    if let Some(out) = has_audio {
+        Effect::new(move || out.set(audio.get()));
+    }
+    let el = video.clone();
+    Effect::new(move || {
+        let mute = muted.is_none_or(|m| m.get());
+        el.set_muted(mute);
+        if !mute {
+            // Unmuting is a click: the browser allows sound now.
+            let _ = el.play();
+        }
+    });
     host.on_load(move |el| {
         let _ = el.prepend_with_node_1(&video);
         pool::attached(lease);
@@ -41,5 +62,7 @@ fn socket_url(camera_id: &str, substream: bool) -> String {
     let host = loc.and_then(|l| l.host().ok()).unwrap_or_default();
     let stream = if substream { "sub" } else { "main" };
     let id = js_sys::encode_uri_component(camera_id);
-    format!("{}://{host}/api/v1/cameras/{id}/live?stream={stream}", if secure { "wss" } else { "ws" })
+    // Sound comes as Opus in MP4; ask only if this browser plays that.
+    let audio = if web_sys::MediaSource::is_type_supported("audio/mp4; codecs=\"opus\"") { "&audio=1" } else { "" };
+    format!("{}://{host}/api/v1/cameras/{id}/live?stream={stream}{audio}", if secure { "wss" } else { "ws" })
 }

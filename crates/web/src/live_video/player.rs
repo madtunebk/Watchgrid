@@ -36,6 +36,9 @@ struct Control {
     #[serde(rename = "type")]
     kind: String,
     codec: Option<String>,
+    /// The stream carries audio (init message).
+    #[serde(default)]
+    audio: bool,
     state: Option<String>,
     reason: Option<String>,
 }
@@ -43,6 +46,8 @@ struct Control {
 pub struct Player {
     pub video: HtmlVideoElement,
     pub state: ArcRwSignal<PlayerState>,
+    /// The stream has a sound track.
+    pub audio: ArcRwSignal<bool>,
     inner: Rc<RefCell<Inner>>,
 }
 
@@ -50,6 +55,7 @@ struct Inner {
     url: String,
     video: HtmlVideoElement,
     state: ArcRwSignal<PlayerState>,
+    audio: ArcRwSignal<bool>,
     /// Bumped per connection so late callbacks of an old one are ignored.
     generation: u32,
     conn: Option<Connection>,
@@ -76,9 +82,10 @@ impl Player {
         video.set_attribute("playsinline", "").ok()?;
         video.set_class_name("preview__video");
         let state = ArcRwSignal::new(PlayerState::Connecting);
-        let inner = Rc::new(RefCell::new(Inner { url, video: video.clone(), state: state.clone(), generation: 0, conn: None, retry: None }));
+        let audio = ArcRwSignal::new(false);
+        let inner = Rc::new(RefCell::new(Inner { url, video: video.clone(), state: state.clone(), audio: audio.clone(), generation: 0, conn: None, retry: None }));
         connect(&inner);
-        Some(Self { video, state, inner })
+        Some(Self { video, state, audio, inner })
     }
 
     /// Resume after the element was re-attached to the page.
@@ -156,7 +163,7 @@ fn on_message(shared: &Shared, e: MessageEvent) {
     let Some(text) = data.as_string() else { return };
     let Ok(msg) = serde_json::from_str::<Control>(&text) else { return };
     match (msg.kind.as_str(), msg.state.as_deref()) {
-        ("init", _) => on_init(shared, msg.codec.unwrap_or_default()),
+        ("init", _) => on_init(shared, msg.codec.unwrap_or_default(), msg.audio),
         ("status", Some("offline")) => set_state(shared, PlayerState::Offline(msg.reason.unwrap_or_else(|| "camera unreachable".into()))),
         ("status", _) => set_state(shared, PlayerState::Connecting),
         _ => {}
@@ -164,13 +171,16 @@ fn on_message(shared: &Shared, e: MessageEvent) {
 }
 
 /// Create the source buffer for the stream's codec (once per connection).
-fn on_init(shared: &Shared, codec: String) {
+fn on_init(shared: &Shared, codec: String, audio: bool) {
     let mime = format!("video/mp4; codecs=\"{codec}\"");
     if !MediaSource::is_type_supported(&mime) {
         set_state(shared, PlayerState::Unsupported(format!("this browser can't play {codec}")));
         return;
     }
     let mut inner = shared.borrow_mut();
+    if inner.audio.get_untracked() != audio {
+        inner.audio.set(audio);
+    }
     let generation = inner.generation;
     let weak = Rc::downgrade(shared);
     let Some(conn) = inner.conn.as_mut() else { return };

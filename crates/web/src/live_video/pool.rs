@@ -30,8 +30,16 @@ thread_local! {
     static POOL: RefCell<Pool> = RefCell::default();
 }
 
+/// What a widget gets to show a player.
+pub struct Acquired {
+    pub lease: Lease,
+    pub video: HtmlVideoElement,
+    pub state: ArcRwSignal<PlayerState>,
+    pub audio: ArcRwSignal<bool>,
+}
+
 /// Take an idle player for `url`, or start a new one.
-pub fn acquire(url: &str) -> Option<(Lease, HtmlVideoElement, ArcRwSignal<PlayerState>)> {
+pub fn acquire(url: &str) -> Option<Acquired> {
     POOL.with_borrow_mut(|pool| {
         let player = match pool.idle.get_mut(url).and_then(Vec::pop) {
             Some((_, player, _timer)) => player, // dropping the timer cancels it
@@ -39,7 +47,7 @@ pub fn acquire(url: &str) -> Option<(Lease, HtmlVideoElement, ArcRwSignal<Player
         };
         pool.next += 1;
         let lease = Lease(pool.next);
-        let out = (lease, player.video.clone(), player.state.clone());
+        let out = Acquired { lease, video: player.video.clone(), state: player.state.clone(), audio: player.audio.clone() };
         pool.active.insert(lease, (url.to_string(), player));
         Some(out)
     })

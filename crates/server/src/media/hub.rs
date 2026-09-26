@@ -8,17 +8,22 @@ use sqlx::PgPool;
 use tokio::sync::{Notify, broadcast, watch};
 
 use super::preroll::Preroll;
+use super::audio::AudioFrame;
 use super::{FeedState, Frame, StreamKind, feed};
 use crate::credentials::CredentialStore;
 
 /// Frames buffered per viewer before it is considered lagging (~10 s at 25 fps).
 const FRAME_BUFFER: usize = 256;
+/// Audio packets buffered per viewer (~10 s of 20 ms packets).
+const AUDIO_BUFFER: usize = 512;
 
 pub type Key = (String, StreamKind);
 
 /// Sending halves of a feed, owned by the hub.
 pub struct Channels {
     pub frames: broadcast::Sender<Frame>,
+    /// Opus packets, when the camera has audio.
+    pub audio: broadcast::Sender<AudioFrame>,
     pub state: watch::Sender<FeedState>,
     /// Camera settings changed: drop the session and reconnect.
     pub reload: Notify,
@@ -29,6 +34,8 @@ pub struct Channels {
 /// A viewer's handle on a feed.
 pub struct Subscription {
     pub frames: broadcast::Receiver<Frame>,
+    /// Unread audio costs nothing: old packets are simply overwritten.
+    pub audio: broadcast::Receiver<AudioFrame>,
     pub state: watch::Receiver<FeedState>,
 }
 
@@ -48,11 +55,17 @@ impl MediaHub {
         let key = (camera_id.to_string(), kind);
         let mut feeds = self.feeds.lock().expect("media hub lock");
         let channels = feeds.entry(key.clone()).or_insert_with(|| {
-            let channels = Arc::new(Channels { frames: broadcast::channel(FRAME_BUFFER).0, state: watch::channel(FeedState::Connecting).0, reload: Notify::new(), preroll: Preroll::default() });
+            let channels = Arc::new(Channels {
+                frames: broadcast::channel(FRAME_BUFFER).0,
+                audio: broadcast::channel(AUDIO_BUFFER).0,
+                state: watch::channel(FeedState::Connecting).0,
+                reload: Notify::new(),
+                preroll: Preroll::default(),
+            });
             tokio::spawn(feed::run(self.clone(), key, channels.clone()));
             channels
         });
-        Subscription { frames: channels.frames.subscribe(), state: channels.state.subscribe() }
+        Subscription { frames: channels.frames.subscribe(), audio: channels.audio.subscribe(), state: channels.state.subscribe() }
     }
 
     /// Join a feed and keep `keep_secs` of recent frames for pre-record.

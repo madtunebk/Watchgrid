@@ -11,6 +11,8 @@ use retina::client::{
 };
 use retina::codec::ParametersRef;
 
+use crate::media::audio::Source as AudioSource;
+
 /// Static facts about an opened stream.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct StreamFacts {
@@ -24,6 +26,9 @@ pub struct Opened {
     pub facts: StreamFacts,
     /// Index of the video stream within the session.
     pub video: usize,
+    /// Audio stream set up alongside, if the camera has one we can use:
+    /// (index, codec, RTP clock rate).
+    pub audio: Option<(usize, AudioSource, u32)>,
     pub stream: Demuxed,
     pub latency: Duration,
 }
@@ -74,10 +79,26 @@ pub async fn open(url: &str, username: &str, password: Option<&str>) -> Result<O
         .setup(video, SetupOptions::default().transport(transport()))
         .await
         .map_err(|e| format!("SETUP failed: {e}"))?;
+    let audio = setup_audio(&mut session).await;
     // Start RTP numbering from the first packet actually received: cameras
     // serving several clients (supervisor, tests, live view, recorder) often
     // announce a different sequence number in the PLAY response.
     let play = PlayOptions::default().initial_seq(InitialSequenceNumberPolicy::Ignore);
     let stream = session.play(play).await.map_err(|e| format!("PLAY failed: {e}"))?.demuxed().map_err(|e| format!("demux: {e}"))?;
-    Ok(Opened { facts, video, stream, latency: started.elapsed() })
+    Ok(Opened { facts, video, audio, stream, latency: started.elapsed() })
+}
+
+/// Set up the camera's audio too when it is G.711 (the only kind Watchgrid
+/// re-encodes). Audio is a bonus: any failure leaves a video-only session.
+async fn setup_audio(session: &mut Session<retina::client::Described>) -> Option<(usize, AudioSource, u32)> {
+    let (index, source, rate) = session.streams().iter().enumerate().find_map(|(i, s)| {
+        (s.media() == "audio").then(|| AudioSource::from_encoding(s.encoding_name()).map(|src| (i, src, s.clock_rate_hz())))?
+    })?;
+    match session.setup(index, SetupOptions::default().transport(transport())).await {
+        Ok(()) => Some((index, source, rate)),
+        Err(e) => {
+            tracing::debug!("audio SETUP failed, continuing without audio: {e}");
+            None
+        }
+    }
 }

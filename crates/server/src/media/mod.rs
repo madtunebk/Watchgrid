@@ -2,6 +2,7 @@
 //! viewers, repackaged as fragmented MP4 (no transcoding) and streamed over
 //! a WebSocket into Media Source Extensions.
 
+pub mod audio;
 mod boxes;
 pub mod dump;
 mod feed;
@@ -34,8 +35,10 @@ pub struct TrackInfo {
     /// RFC 6381 codec string for MSE, e.g. `avc1.640028`.
     pub codec: String,
     pub track: VideoTrack,
-    /// Audio encoding announced by the camera (not carried yet).
+    /// Audio encoding announced by the camera.
     pub audio_codec: Option<String>,
+    /// The Opus track carried alongside the video, if any.
+    pub audio: Option<audio::AudioTrack>,
 }
 
 impl TrackInfo {

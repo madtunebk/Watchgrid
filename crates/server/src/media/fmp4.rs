@@ -1,23 +1,26 @@
 //! Fragmented MP4 for Media Source Extensions: an init segment
 //! (`ftyp` + `moov`) followed by media segments (`moof` + `mdat`), one
-//! sample each for low latency. Samples are the camera's own H.264 access
-//! units (length-prefixed NAL units) — nothing is decoded.
+//! sample each for low latency. Video samples are the camera's own H.264
+//! access units — nothing is decoded; audio samples are Opus packets.
 
-use super::boxes::{self, Layout, VideoTrack, Writer};
+use super::audio::AudioTrack;
+use super::boxes::{self, Media, Trak, VideoTrack, Writer};
 
-const TRACK_ID: u32 = 1;
-
-/// `ftyp` + `moov` for the track.
-pub fn init_segment(t: &VideoTrack) -> Vec<u8> {
+/// `ftyp` + `moov` for the video track and, if any, the audio track.
+pub fn init_segment(video: &VideoTrack, audio: Option<&AudioTrack>) -> Vec<u8> {
     let mut w = Writer::new();
     boxes::ftyp(&mut w);
-    boxes::moov(&mut w, t, Layout::Fragmented);
+    let mut traks = vec![Trak { media: Media::Video(video), duration: 0, sample_tables: None }];
+    if let Some(a) = audio {
+        traks.push(Trak { media: Media::Audio(a), duration: 0, sample_tables: None });
+    }
+    boxes::moov(&mut w, &traks);
     w.0
 }
 
-/// One sample as `moof` + `mdat`.
-/// `decode_time` and `duration` are in [`boxes::TIMESCALE`] units.
-pub fn media_segment(sequence: u32, decode_time: u64, duration: u32, keyframe: bool, data: &[u8]) -> Vec<u8> {
+/// One sample of track `track` as `moof` + `mdat`. `decode_time` and
+/// `duration` are in the track's timescale; audio samples are always sync.
+pub fn media_segment(sequence: u32, track: u32, decode_time: u64, duration: u32, keyframe: bool, data: &[u8]) -> Vec<u8> {
     // trun flags: data-offset, sample-duration, sample-size, sample-flags.
     const TRUN_FLAGS: u32 = 0x000001 | 0x000100 | 0x000200 | 0x000400;
     // Sync sample vs. non-sync sample that depends on others.
@@ -32,7 +35,7 @@ pub fn media_segment(sequence: u32, decode_time: u64, duration: u32, keyframe: b
         w.boxed(b"traf", |w| {
             // default-base-is-moof: data offsets are relative to this moof.
             w.full(b"tfhd", 0, 0x020000, |w| {
-                w.u32(TRACK_ID);
+                w.u32(track);
             });
             w.full(b"tfdt", 1, 0, |w| {
                 w.u64(decode_time);
@@ -62,7 +65,7 @@ mod tests {
     #[test]
     fn init_segment_is_ftyp_then_moov_with_avcc() {
         let track = VideoTrack { width: 1280, height: 720, avcc: vec![1, 0x64, 0, 0x1f, 0xff] };
-        let init = init_segment(&track);
+        let init = init_segment(&track, None);
         let boxes: Vec<String> = top_level(&init).into_iter().map(|b| b.0).collect();
         assert_eq!(boxes, ["ftyp", "moov"]);
         let avcc = find(&init, b"avcC");
@@ -75,7 +78,7 @@ mod tests {
     #[test]
     fn media_segment_offsets_point_at_the_sample() {
         let data = [0u8, 0, 0, 3, 0x65, 0xaa, 0xbb];
-        let seg = media_segment(7, 90_000, 3600, true, &data);
+        let seg = media_segment(7, 1, 90_000, 3600, true, &data);
         let boxes = top_level(&seg);
         assert_eq!(boxes.iter().map(|b| b.0.as_str()).collect::<Vec<_>>(), ["moof", "mdat"]);
 
@@ -93,8 +96,24 @@ mod tests {
 
     #[test]
     fn non_keyframes_are_marked_dependent() {
-        let seg = media_segment(1, 0, 3000, false, &[0, 0, 0, 1, 0x41]);
+        let seg = media_segment(1, 1, 0, 3000, false, &[0, 0, 0, 1, 0x41]);
         let trun = find(&seg, b"trun");
         assert_eq!(u32_at(&seg, trun + 28), 0x0101_0000);
+    }
+
+    #[test]
+    fn init_segment_with_audio_has_an_opus_track() {
+        let video = VideoTrack { width: 640, height: 360, avcc: vec![1, 0x64, 0, 0x1e, 0xff] };
+        let audio = AudioTrack { channels: 1, pre_skip: 312, input_rate: 8000 };
+        let init = init_segment(&video, Some(&audio));
+        assert_eq!(init.windows(4).filter(|w| *w == b"trak").count(), 2);
+        assert_eq!(init.windows(4).filter(|w| *w == b"trex").count(), 2);
+        let dops = find(&init, b"dOps");
+        assert_eq!(&init[dops + 8..dops + 10], &[0, 1], "version 0, mono");
+        assert_eq!(u16::from_be_bytes([init[dops + 10], init[dops + 11]]), 312);
+        assert_eq!(u32_at(&init, dops + 12), 8000);
+        let seg = media_segment(3, 2, 960, 960, true, &[0xfc, 1]);
+        let tfhd = find(&seg, b"tfhd");
+        assert_eq!(u32_at(&seg, tfhd + 12), 2, "audio track id");
     }
 }

@@ -1,12 +1,13 @@
 //! ISO BMFF (MP4) box writing shared by the fragmented live stream and
-//! recorded files: a byte writer plus the `ftyp`/`moov` structure for one
-//! H.264 video track.
+//! recorded files: a byte writer plus the `ftyp`/`moov` structure for an
+//! H.264 video track and, when the camera has audio, an Opus track.
+
+use super::audio::{AudioTrack, OPUS_TIMESCALE};
 
 /// Track timescale: RTP video clock.
 pub const TIMESCALE: u32 = 90_000;
 /// Movie timescale (milliseconds).
 const MOVIE_TIMESCALE: u32 = 1000;
-const TRACK_ID: u32 = 1;
 
 /// Everything needed to describe the track.
 #[derive(Debug, Clone, PartialEq)]
@@ -83,67 +84,125 @@ pub fn ftyp(w: &mut Writer) {
     });
 }
 
-/// How the `moov` box is completed.
-pub enum Layout<'a> {
-    /// Fragmented: empty sample tables plus `mvex`; samples come in `moof`s.
-    Fragmented,
-    /// Complete file: `stbl` children written by the closure, total
-    /// duration in [`TIMESCALE`] ticks.
-    Progressive { duration: u64, sample_tables: &'a dyn Fn(&mut Writer) },
+/// Track ids: video first, then audio when the camera has it.
+pub const VIDEO_TRACK: u32 = 1;
+pub const AUDIO_TRACK: u32 = 2;
+
+/// What a track carries.
+pub enum Media<'a> {
+    Video(&'a VideoTrack),
+    Audio(&'a AudioTrack),
 }
 
-/// The `moov` box for one video track.
-pub fn moov(w: &mut Writer, t: &VideoTrack, layout: Layout<'_>) {
-    let duration = match layout {
-        Layout::Fragmented => 0,
-        Layout::Progressive { duration, .. } => duration,
-    };
+impl Media<'_> {
+    fn id(&self) -> u32 {
+        match self {
+            Self::Video(_) => VIDEO_TRACK,
+            Self::Audio(_) => AUDIO_TRACK,
+        }
+    }
+
+    pub fn timescale(&self) -> u32 {
+        match self {
+            Self::Video(_) => TIMESCALE,
+            Self::Audio(_) => OPUS_TIMESCALE,
+        }
+    }
+}
+
+/// One `trak`: its media, duration (in the media's timescale) and, for a
+/// complete file, a closure writing the sample tables (`None`: fragmented).
+pub struct Trak<'a> {
+    pub media: Media<'a>,
+    pub duration: u64,
+    pub sample_tables: Option<&'a dyn Fn(&mut Writer)>,
+}
+
+/// The `moov` box. Fragmented when no track has sample tables: empty
+/// tables plus `mvex`, samples then come in `moof`s.
+pub fn moov(w: &mut Writer, traks: &[Trak<'_>]) {
+    let fragmented = traks.iter().all(|t| t.sample_tables.is_none());
+    let movie_ms = |t: &Trak<'_>| t.duration * u64::from(MOVIE_TIMESCALE) / u64::from(t.media.timescale());
     // v0 boxes hold 32-bit durations; recordings are capped well below that.
-    let media_duration = duration.min(u64::from(u32::MAX)) as u32;
-    let movie_duration = (duration * u64::from(MOVIE_TIMESCALE) / u64::from(TIMESCALE)).min(u64::from(u32::MAX)) as u32;
+    let clamp = |v: u64| v.min(u64::from(u32::MAX)) as u32;
+    let movie_duration = clamp(traks.iter().map(movie_ms).max().unwrap_or(0));
 
     w.boxed(b"moov", |w| {
         w.full(b"mvhd", 0, 0, |w| {
-            w.u32(0).u32(0).u32(MOVIE_TIMESCALE).u32(movie_duration).u32(0x0001_0000).u16(0x0100).zeros(10).matrix().zeros(24).u32(TRACK_ID + 1);
+            w.u32(0).u32(0).u32(MOVIE_TIMESCALE).u32(movie_duration).u32(0x0001_0000).u16(0x0100).zeros(10).matrix().zeros(24).u32(AUDIO_TRACK + 1);
         });
-        w.boxed(b"trak", |w| {
-            w.full(b"tkhd", 0, 0x3, |w| {
-                w.u32(0).u32(0).u32(TRACK_ID).u32(0).u32(movie_duration).zeros(8).u16(0).u16(0).u16(0).u16(0).matrix();
-                w.u32(t.width << 16).u32(t.height << 16);
-            });
-            w.boxed(b"mdia", |w| {
-                w.full(b"mdhd", 0, 0, |w| {
-                    w.u32(0).u32(0).u32(TIMESCALE).u32(media_duration).u16(0x55c4).u16(0); // language "und"
-                });
-                w.full(b"hdlr", 0, 0, |w| {
-                    w.u32(0).bytes(b"vide").zeros(12).bytes(b"Watchgrid\0");
-                });
-                w.boxed(b"minf", |w| {
-                    w.full(b"vmhd", 0, 1, |w| {
-                        w.zeros(8);
-                    });
-                    w.boxed(b"dinf", |w| {
-                        w.full(b"dref", 0, 0, |w| {
-                            w.u32(1).full(b"url ", 0, 1, |_| {});
-                        });
-                    });
-                    w.boxed(b"stbl", |w| {
-                        stsd(w, t);
-                        match &layout {
-                            Layout::Fragmented => empty_sample_tables(w),
-                            Layout::Progressive { sample_tables, .. } => sample_tables(w),
-                        }
-                    });
-                });
-            });
-        });
-        if matches!(layout, Layout::Fragmented) {
+        for t in traks {
+            trak(w, t, clamp(movie_ms(t)), clamp(t.duration));
+        }
+        if fragmented {
             w.boxed(b"mvex", |w| {
-                w.full(b"trex", 0, 0, |w| {
-                    w.u32(TRACK_ID).u32(1).u32(0).u32(0).u32(0);
-                });
+                for t in traks {
+                    w.full(b"trex", 0, 0, |w| {
+                        w.u32(t.media.id()).u32(1).u32(0).u32(0).u32(0);
+                    });
+                }
             });
         }
+    });
+}
+
+fn trak(w: &mut Writer, t: &Trak<'_>, movie_duration: u32, media_duration: u32) {
+    let (width, height, volume) = match t.media {
+        Media::Video(v) => (v.width, v.height, 0),
+        Media::Audio(_) => (0, 0, 0x0100),
+    };
+    w.boxed(b"trak", |w| {
+        w.full(b"tkhd", 0, 0x3, |w| {
+            w.u32(0).u32(0).u32(t.media.id()).u32(0).u32(movie_duration).zeros(8).u16(0).u16(0).u16(volume).u16(0).matrix();
+            w.u32(width << 16).u32(height << 16);
+        });
+        w.boxed(b"mdia", |w| {
+            w.full(b"mdhd", 0, 0, |w| {
+                w.u32(0).u32(0).u32(t.media.timescale()).u32(media_duration).u16(0x55c4).u16(0); // language "und"
+            });
+            let handler = if matches!(t.media, Media::Video(_)) { b"vide" } else { b"soun" };
+            w.full(b"hdlr", 0, 0, |w| {
+                w.u32(0).bytes(handler).zeros(12).bytes(b"Watchgrid\0");
+            });
+            w.boxed(b"minf", |w| {
+                match t.media {
+                    Media::Video(_) => w.full(b"vmhd", 0, 1, |w| {
+                        w.zeros(8);
+                    }),
+                    Media::Audio(_) => w.full(b"smhd", 0, 0, |w| {
+                        w.zeros(4);
+                    }),
+                };
+                w.boxed(b"dinf", |w| {
+                    w.full(b"dref", 0, 0, |w| {
+                        w.u32(1).full(b"url ", 0, 1, |_| {});
+                    });
+                });
+                w.boxed(b"stbl", |w| {
+                    match t.media {
+                        Media::Video(v) => stsd(w, v),
+                        Media::Audio(a) => stsd_opus(w, a),
+                    }
+                    match t.sample_tables {
+                        Some(tables) => tables(w),
+                        None => empty_sample_tables(w),
+                    }
+                });
+            });
+        });
+    });
+}
+
+/// `Opus` sample entry with its `dOps` box (Opus in ISO BMFF, 4.3).
+fn stsd_opus(w: &mut Writer, a: &AudioTrack) {
+    w.full(b"stsd", 0, 0, |w| {
+        w.u32(1).boxed(b"Opus", |w| {
+            w.zeros(6).u16(1); // reserved, data_reference_index
+            w.zeros(8).u16(u16::from(a.channels)).u16(16).u16(0).u16(0).u32(OPUS_TIMESCALE << 16);
+            w.boxed(b"dOps", |w| {
+                w.bytes(&[0, a.channels]).u16(a.pre_skip).u32(a.input_rate).u16(0).bytes(&[0]);
+            });
+        });
     });
 }
 

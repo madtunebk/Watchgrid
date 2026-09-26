@@ -6,7 +6,7 @@
 //! only published after finalizing. The sample table is kept in memory
 //! (~16 bytes per frame).
 
-use super::boxes::{self, Layout, VideoTrack, Writer};
+use super::boxes::{self, Media, Trak, VideoTrack, Writer};
 
 /// `mdat` header: 32-bit size of 1, type, 64-bit "largesize".
 const MDAT_HEADER: u64 = 16;
@@ -67,7 +67,7 @@ impl SampleTable {
     pub fn moov(&self, track: &VideoTrack) -> Vec<u8> {
         let mut w = Writer::new();
         let tables = |w: &mut Writer| self.write_tables(w);
-        boxes::moov(&mut w, track, Layout::Progressive { duration: self.total, sample_tables: &tables });
+        boxes::moov(&mut w, &[Trak { media: Media::Video(track), duration: self.total, sample_tables: Some(&tables) }]);
         w.0
     }
 

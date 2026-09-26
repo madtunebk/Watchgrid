@@ -31,6 +31,8 @@ pub fn Tile(
 ) -> impl IntoView {
     let el = NodeRef::<Div>::new();
     let muted = RwSignal::new(true);
+    // Only cameras with sound get a mute button.
+    let has_audio = RwSignal::new(false);
     let flash = RwSignal::new(false);
     let toast = RwSignal::new(String::new());
 
@@ -47,7 +49,7 @@ pub fn Tile(
 
     view! {
         <div class="tile" node_ref=el class:tile--flash=flash on:dblclick=move |_| on_focus.run(())>
-            {move || camera.get().map(|c| view! { <CameraPreview camera=c substream /> })}
+            {move || camera.get().map(|c| view! { <CameraPreview camera=c substream muted=muted has_audio /> })}
             <Show when=move || flash.get()>
                 <span class="tile__toast">{move || toast.get()}</span>
             </Show>
@@ -64,11 +66,13 @@ pub fn Tile(
                 <button class="tile__btn" title="Snapshot" aria-label="Snapshot" on:click=snapshot>
                     <Icon icon=I::Camera class="icon icon--sm" />
                 </button>
-                <button class="tile__btn" aria-label=move || if muted.get() { "Unmute" } else { "Mute" }
-                    title=move || if muted.get() { "Unmute" } else { "Mute" }
-                    on:click=move |_| muted.update(|m| *m = !*m)>
-                    {move || view! { <Icon icon=if muted.get() { I::VolumeOff } else { I::Volume } class="icon icon--sm" /> }}
-                </button>
+                <Show when=move || has_audio.get()>
+                    <button class="tile__btn" aria-label=move || if muted.get() { "Unmute" } else { "Mute" }
+                        title=move || if muted.get() { "Unmute" } else { "Mute" }
+                        on:click=move |_| muted.update(|m| *m = !*m)>
+                        {move || view! { <Icon icon=if muted.get() { I::VolumeOff } else { I::Volume } class="icon icon--sm" /> }}
+                    </button>
+                </Show>
                 {on_back.map(|back| view! {
                     <button class="tile__btn" title="Back to grid (Esc, Back)" aria-label="Back to grid" on:click=move |_| back.run(())>
                         <Icon icon=I::ArrowLeft class="icon icon--sm" />

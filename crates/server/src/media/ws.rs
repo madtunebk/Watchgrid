@@ -2,8 +2,10 @@
 //!
 //! Protocol (server → browser):
 //! - text `{"type":"status","state":"connecting"|"offline","reason"?}`
-//! - text `{"type":"init","codec","width","height"}`, then one binary
-//!   message with the fMP4 init segment (again whenever parameters change)
+//! - text `{"type":"init","codec","width","height","audio"}`, then one
+//!   binary message with the fMP4 init segment (again whenever parameters
+//!   change). `codec` lists every track (`avc1.…,opus`); audio is only
+//!   included when the browser asked for it (`?audio=1`) and the camera has it.
 //! - binary messages: fMP4 media segments, starting at a keyframe
 //!
 //! The browser sends nothing; closing the socket leaves the feed.
@@ -27,6 +29,9 @@ use crate::state::AppState;
 pub struct LiveQuery {
     #[serde(default)]
     stream: Option<String>,
+    /// `1` when the browser can play Opus in MP4.
+    #[serde(default)]
+    audio: Option<String>,
 }
 
 pub async fn upgrade(ws: WebSocketUpgrade, State(state): State<AppState>, Path(id): Path<String>, Query(q): Query<LiveQuery>) -> ApiResult<Response> {
@@ -35,14 +40,17 @@ pub async fn upgrade(ws: WebSocketUpgrade, State(state): State<AppState>, Path(i
         Some("sub") => StreamKind::Sub,
         _ => StreamKind::Main,
     };
-    Ok(ws.on_upgrade(move |socket| serve(socket, state, id, kind)))
+    let wants_audio = q.audio.as_deref() == Some("1");
+    Ok(ws.on_upgrade(move |socket| serve(socket, state, id, kind, wants_audio)))
 }
 
-async fn serve(mut socket: WebSocket, state: AppState, id: String, kind: StreamKind) {
+async fn serve(mut socket: WebSocket, state: AppState, id: String, kind: StreamKind, wants_audio: bool) {
     let mut sub = state.media.subscribe(&id, kind);
     let mut fragmenter = Fragmenter::default();
     let mut current: Option<Arc<TrackInfo>> = None;
     sub.state.mark_changed();
+    // Audio is sent while the current init segment has an audio track.
+    let with_audio = |c: &Option<Arc<TrackInfo>>| wants_audio && c.as_ref().is_some_and(|i| i.audio.is_some());
 
     loop {
         let sent = tokio::select! {
@@ -51,8 +59,17 @@ async fn serve(mut socket: WebSocket, state: AppState, id: String, kind: StreamK
                     return; // feed gone
                 }
                 let feed_state = sub.state.borrow_and_update().clone();
-                on_state(&mut socket, feed_state, &mut current, &mut fragmenter).await
+                on_state(&mut socket, feed_state, &mut current, &mut fragmenter, wants_audio).await
             }
+            packet = sub.audio.recv(), if with_audio(&current) => match packet {
+                Ok(packet) => match fragmenter.push_audio(&packet) {
+                    Some(segment) => socket.send(Message::Binary(segment.into())).await,
+                    None => Ok(()),
+                },
+                // A missed packet is a 20 ms gap; carry on.
+                Err(RecvError::Lagged(_)) => Ok(()),
+                Err(RecvError::Closed) => return,
+            },
             frame = sub.frames.recv(), if current.is_some() => match frame {
                 Ok(frame) => match fragmenter.push(frame) {
                     Some(segment) => socket.send(Message::Binary(segment.into())).await,
@@ -76,7 +93,7 @@ async fn serve(mut socket: WebSocket, state: AppState, id: String, kind: StreamK
     }
 }
 
-async fn on_state(socket: &mut WebSocket, feed: FeedState, current: &mut Option<Arc<TrackInfo>>, fragmenter: &mut Fragmenter) -> Result<(), axum::Error> {
+async fn on_state(socket: &mut WebSocket, feed: FeedState, current: &mut Option<Arc<TrackInfo>>, fragmenter: &mut Fragmenter, wants_audio: bool) -> Result<(), axum::Error> {
     match feed {
         FeedState::Streaming(info) if !info.is_h264() => {
             let reason = format!("live view supports H.264 only (camera sends {})", info.codec);
@@ -86,9 +103,11 @@ async fn on_state(socket: &mut WebSocket, feed: FeedState, current: &mut Option<
             if current.as_deref() == Some(&*info) {
                 return Ok(());
             }
-            let msg = json!({ "type": "init", "codec": info.codec, "width": info.track.width, "height": info.track.height });
+            let audio = info.audio.as_ref().filter(|_| wants_audio);
+            let codec = if audio.is_some() { format!("{},opus", info.codec) } else { info.codec.clone() };
+            let msg = json!({ "type": "init", "codec": codec, "width": info.track.width, "height": info.track.height, "audio": audio.is_some() });
             socket.send(Message::Text(msg.to_string().into())).await?;
-            socket.send(Message::Binary(fmp4::init_segment(&info.track).into())).await?;
+            socket.send(Message::Binary(fmp4::init_segment(&info.track, audio).into())).await?;
             // New parameters take effect at the next keyframe.
             fragmenter.resync();
             *current = Some(info);

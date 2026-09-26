@@ -16,6 +16,12 @@ pub fn CameraPreview(
     /// Play the substream (small tiles). Ignored when the camera has none.
     #[prop(optional)]
     substream: bool,
+    /// Live sound off (default on-muted).
+    #[prop(optional, into)]
+    muted: Option<Signal<bool>>,
+    /// Set to whether the live stream has sound.
+    #[prop(optional)]
+    has_audio: Option<RwSignal<bool>>,
 ) -> impl IntoView {
     let streaming = camera.streaming();
     let connecting = camera.enabled && camera.status == CameraStatus::Connecting;
@@ -31,7 +37,7 @@ pub fn CameraPreview(
     } else if offline {
         view! { <div class="preview__state preview__state--offline"><Icon icon=I::VideoOff class="icon icon--xl" /><span>"Camera offline"</span><small>"Reconnecting…"</small></div> }.into_any()
     } else {
-        live_surface(&camera, sub.is_some())
+        live_surface(&camera, sub.is_some(), muted, has_audio)
     };
 
     view! {
@@ -54,12 +60,12 @@ pub fn CameraPreview(
 }
 
 #[cfg(feature = "live-api")]
-fn live_surface(camera: &Camera, substream: bool) -> AnyView {
+fn live_surface(camera: &Camera, substream: bool, muted: Option<Signal<bool>>, has_audio: Option<RwSignal<bool>>) -> AnyView {
     use crate::live_video::LiveVideo;
-    view! { <LiveVideo camera_id=camera.id.clone() substream /> }.into_any()
+    view! { <LiveVideo camera_id=camera.id.clone() substream muted has_audio /> }.into_any()
 }
 
 #[cfg(not(feature = "live-api"))]
-fn live_surface(_camera: &Camera, _substream: bool) -> AnyView {
+fn live_surface(_camera: &Camera, _substream: bool, _muted: Option<Signal<bool>>, _has_audio: Option<RwSignal<bool>>) -> AnyView {
     view! { <div class="preview__state preview__state--live"><Icon icon=I::Cctv class="icon icon--xl" /></div> }.into_any()
 }

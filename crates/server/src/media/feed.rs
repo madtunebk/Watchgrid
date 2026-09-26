@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 use futures::StreamExt;
 use retina::codec::{CodecItem, ParametersRef};
 
+use super::audio::Transcoder;
 use super::hub::{Channels, Key, MediaHub};
 use super::{FeedState, Frame, StreamKind, TrackInfo, boxes};
 use crate::cameras;
@@ -84,6 +85,14 @@ enum PumpEnd {
 async fn pump(hub: &MediaHub, key: &Key, ch: &Channels, mut opened: Opened, idle: &mut Idle) -> PumpEnd {
     // Timestamps restart with every session.
     ch.preroll.clear();
+    let mut audio = opened.audio.and_then(|(index, source, rate)| match Transcoder::new(source) {
+        Ok(t) => Some((index, rate, t)),
+        Err(e) => {
+            tracing::warn!("camera audio unavailable: {e}");
+            None
+        }
+    });
+    let audio_track = audio.as_ref().map(|(_, _, t)| t.track());
     let mut ticker = tokio::time::interval(TICK);
     loop {
         tokio::select! {
@@ -92,7 +101,7 @@ async fn pump(hub: &MediaHub, key: &Key, ch: &Channels, mut opened: Opened, idle
                 Some(Err(e)) => return PumpEnd::Failed(format!("stream error: {e}")),
                 Some(Ok(CodecItem::VideoFrame(f))) if f.stream_id() == opened.video => {
                     if f.has_new_parameters() || !matches!(*ch.state.borrow(), FeedState::Streaming(_)) {
-                        match track_info(&opened) {
+                        match track_info(&opened, audio_track) {
                             Ok(Some(info)) => { ch.state.send_replace(FeedState::Streaming(Arc::new(info))); }
                             Ok(None) => continue, // parameters not known yet
                             Err(e) => return PumpEnd::Failed(e),
@@ -108,6 +117,13 @@ async fn pump(hub: &MediaHub, key: &Key, ch: &Channels, mut opened: Opened, idle
                     // No receivers is fine; the idle check handles it.
                     let _ = ch.frames.send(frame);
                 }
+                Some(Ok(CodecItem::AudioFrame(f))) if audio.as_ref().is_some_and(|(index, _, _)| f.stream_id() == *index) => {
+                    let Some((_, rate, transcoder)) = audio.as_mut() else { continue };
+                    let pts = rescale(f.timestamp().elapsed(), *rate);
+                    for packet in transcoder.push(pts, f.data()) {
+                        let _ = ch.audio.send(packet);
+                    }
+                }
                 Some(Ok(_)) => {}
             },
             _ = ch.reload.notified() => return PumpEnd::Reload,
@@ -118,13 +134,13 @@ async fn pump(hub: &MediaHub, key: &Key, ch: &Channels, mut opened: Opened, idle
     }
 }
 
-fn track_info(opened: &Opened) -> Result<Option<TrackInfo>, String> {
+fn track_info(opened: &Opened, audio: Option<super::audio::AudioTrack>) -> Result<Option<TrackInfo>, String> {
     let Some(ParametersRef::Video(v)) = opened.stream.streams()[opened.video].parameters() else { return Ok(None) };
     // Any codec is delivered (the supervisor reports it); live view and the
     // recorder refuse what they can't repackage.
     let codec = v.rfc6381_codec().to_string();
     let (width, height) = v.pixel_dimensions();
-    Ok(Some(TrackInfo { codec, audio_codec: opened.facts.audio_codec.clone(), track: super::VideoTrack { width, height, avcc: v.extra_data().to_vec() } }))
+    Ok(Some(TrackInfo { codec, audio_codec: opened.facts.audio_codec.clone(), audio, track: super::VideoTrack { width, height, avcc: v.extra_data().to_vec() } }))
 }
 
 /// Convert RTP clock ticks to the 90 kHz MP4 timescale.
