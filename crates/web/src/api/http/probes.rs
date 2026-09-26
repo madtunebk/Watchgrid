@@ -11,7 +11,7 @@ pub async fn stream(req: StreamTest) -> ApiResult<StreamProbe> {
     client::post("/cameras/test-stream", Some(&req)).await
 }
 
-/// ONVIF arrives with its own milestone; say so instead of pretending.
+/// Checks the ONVIF address and login, and lists the camera's event topics.
 pub async fn onvif(config: &OnvifConfig) -> ApiResult<OnvifProbe> {
     client::post("/cameras/test-onvif", Some(config)).await
 }

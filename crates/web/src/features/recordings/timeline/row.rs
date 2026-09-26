@@ -5,12 +5,19 @@ use crate::api::Recording;
 use crate::features::recordings::labels;
 use crate::format;
 
-/// One camera's recordings as coloured segments on the day axis.
+/// One camera's recordings as coloured segments on the day axis. A click
+/// anywhere on the row plays from that moment (`on_seek`).
 #[component]
-pub fn TrackRow(recordings: Vec<Recording>, scale: Scale, zoom: u8, on_open: Callback<Recording>) -> impl IntoView {
+pub fn TrackRow(camera_id: String, recordings: Vec<Recording>, scale: Scale, zoom: u8, on_seek: Callback<(String, chrono::DateTime<chrono::Utc>)>) -> impl IntoView {
     let empty = recordings.is_empty();
+    let seek = move |ev: leptos::ev::MouseEvent| {
+        let Some(row) = ev.current_target().and_then(|t| wasm_bindgen::JsCast::dyn_into::<web_sys::Element>(t).ok()) else { return };
+        let rect = row.get_bounding_client_rect();
+        let fraction = (f64::from(ev.client_x()) - rect.left()) / rect.width().max(1.0);
+        on_seek.run((camera_id.clone(), scale.at(fraction)));
+    };
     view! {
-        <div class="tl-row">
+        <div class="tl-row" on:click=seek title="Click to play from here">
             {recordings.into_iter().filter_map(|r| {
                 let end = r.end_time.unwrap_or_else(chrono::Utc::now);
                 let (left, width) = scale.span(r.start_time, end, zoom)?;
@@ -33,7 +40,6 @@ pub fn TrackRow(recordings: Vec<Recording>, scale: Scale, zoom: u8, on_open: Cal
                         style:width=format!("{width:.4}%")
                         title=tip.clone()
                         aria-label=tip
-                        on:click=move |_| on_open.run(r.clone())
                     ></button>
                 })
             }).collect_view()}

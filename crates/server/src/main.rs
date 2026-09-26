@@ -46,7 +46,7 @@ use config::Config;
 use credentials::CredentialStore;
 use state::AppState;
 
-const USAGE: &str = "usage:\n  watchgrid [serve]\n  watchgrid init\n  watchgrid storage show|set-path <folder>\n  watchgrid probe <camera-id> [--sub] [--seconds N]\n  watchgrid live-dump <camera-id> [--sub] [--seconds N] [--out FILE]\n  watchgrid probe-onvif <camera-id> [--url URL]\n  watchgrid watch-onvif <camera-id> [--seconds N]\n  watchgrid user create|list|passwd|enable|disable|delete <username>\n  watchgrid backup [--out FILE]\n  watchgrid restore <FILE> [--replace]\n\nEnvironment (or .env, or /etc/watchgrid/watchgrid.env): DATABASE_URL, WATCHGRID_BIND, WATCHGRID_DATA_DIR, WATCHGRID_KEY_FILE, WATCHGRID_RECORDINGS_DIR, WATCHGRID_UI_DIR, WATCHGRID_BACKUP_DIR";
+const USAGE: &str = "usage:\n  watchgrid [serve]\n  watchgrid init\n  watchgrid storage show|set-path <folder>\n  watchgrid probe <camera-id> [--sub] [--seconds N]\n  watchgrid live-dump <camera-id> [--sub] [--seconds N] [--out FILE]\n  watchgrid probe-onvif <camera-id> [--url URL]\n  watchgrid watch-onvif <camera-id> [--seconds N]\n  watchgrid ptz <camera-id>\n  watchgrid user create|list|passwd|enable|disable|delete <username>\n  watchgrid backup [--out FILE]\n  watchgrid restore <FILE> [--replace]\n\nEnvironment (or .env, or /etc/watchgrid/watchgrid.env): DATABASE_URL, WATCHGRID_BIND, WATCHGRID_DATA_DIR, WATCHGRID_KEY_FILE, WATCHGRID_RECORDINGS_DIR, WATCHGRID_UI_DIR, WATCHGRID_BACKUP_DIR";
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -95,6 +95,10 @@ async fn main() -> ExitCode {
             }
             None => Err(format!("live-dump needs a camera id\n\n{USAGE}")),
         },
+        Some("ptz") => match args.get(1) {
+            Some(id) => ptz_cmd(id).await,
+            None => Err(format!("ptz needs a camera id\n\n{USAGE}")),
+        },
         Some("probe-onvif") => match args.get(1) {
             Some(id) => probe_onvif(id, args.iter().position(|a| a == "--url").and_then(|i| args.get(i + 1)).map(String::as_str)).await,
             None => Err(format!("probe-onvif needs a camera id\n\n{USAGE}")),
@@ -136,6 +140,26 @@ async fn restore_cmd(file: &std::path::Path, replace: bool) -> Result<(), String
         println!("the previous master key was kept as {}", old.display());
     }
     println!("Start Watchgrid again. Recordings are not part of backups: their files must still be in the recordings folder.");
+    Ok(())
+}
+
+/// Diagnostics: the camera's PTZ service and presets (does not move it).
+async fn ptz_cmd(id: &str) -> Result<(), String> {
+    let config = Config::from_env()?;
+    let state = open_state(&config).await?;
+    let camera = cameras::get_camera(&state, id).await.map_err(|_| format!("no camera with id `{id}`"))?;
+    let onvif = camera.onvif.ok_or("this camera has no ONVIF settings")?;
+    let (user, password) = cameras::stored_onvif_login(&state, &onvif.url).await.map_err(|_| "cannot read the ONVIF credentials".to_string())?.unwrap_or_default();
+    match onvif::ptz::Ptz::connect(&onvif.url, &user, password).await? {
+        None => println!("{}: no PTZ", camera.name),
+        Some(p) => {
+            let presets = p.presets().await?;
+            println!("{}: PTZ available, {} preset(s)", camera.name, presets.len());
+            for pr in presets {
+                println!("  {} {}", pr.token, pr.name);
+            }
+        }
+    }
     Ok(())
 }
 

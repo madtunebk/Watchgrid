@@ -4,6 +4,7 @@
 
 mod client;
 mod probe;
+pub mod ptz;
 pub mod pullpoint;
 pub mod topics;
 mod watcher;

@@ -1,6 +1,7 @@
 //! Camera configuration: validation, storage and the HTTP API.
 
 mod probes;
+pub mod ptz;
 mod repo;
 mod routes;
 mod service;

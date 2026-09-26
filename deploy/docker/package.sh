@@ -5,9 +5,11 @@
 set -eu
 cd "$(dirname "$0")/../.."
 
-# Identifies the build in /api/v1/health.
-WATCHGRID_BUILD=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)
-git diff --quiet 2>/dev/null || WATCHGRID_BUILD="$WATCHGRID_BUILD-modified"
+# Identifies the build in /api/v1/health (a release sets it to its tag).
+if [ -z "${WATCHGRID_BUILD:-}" ]; then
+    WATCHGRID_BUILD=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)
+    git diff --quiet 2>/dev/null || WATCHGRID_BUILD="$WATCHGRID_BUILD-modified"
+fi
 export WATCHGRID_BUILD
 cargo build --release -p watchgrid-server --target x86_64-unknown-linux-musl
 cargo web build --release --live

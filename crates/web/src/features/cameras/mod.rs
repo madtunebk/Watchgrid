@@ -11,4 +11,4 @@ mod widgets;
 pub use details::CameraDetailsPage;
 pub use form::CameraFormPage;
 pub use list::CamerasPage;
-pub use widgets::{CameraCard, CameraPreview, NoCameras, RecordButton};
+pub use widgets::{CameraCard, CameraPreview, NoCameras, PtzPad, RecordButton};

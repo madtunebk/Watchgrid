@@ -129,3 +129,15 @@
 /* The export menu's note and upload list take their own lines. */
 .drawer__actions .export__note, .drawer__actions .export__jobs { flex-basis: 100%; margin: 0; }
 .drawer__note { flex-basis: 100%; margin: 0; font-size: 0.8667rem; color: var(--danger); }
+
+/* DVR playback above the timeline */
+.dvr { display: grid; gap: 0.6667rem; margin-bottom: 1.0667rem; padding: 0.8rem; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); }
+.dvr__head, .dvr__controls { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6667rem; }
+.dvr__spacer { flex: 1; }
+.dvr__clock { color: var(--muted); font-size: 0.9333rem; }
+.dvr__video { width: 100%; max-height: 62vh; border-radius: var(--radius); background: #000; }
+.dvr__empty { margin: 0; padding: 2rem; text-align: center; color: var(--muted); }
+.dvr__position { font-size: 0.8667rem; color: var(--muted); }
+.dvr__note { font-size: 0.8667rem; color: var(--warning); }
+.tl-row { cursor: pointer; }
+.tl__playhead { position: absolute; top: 0; bottom: 0; z-index: 3; width: 2px; margin-left: -1px; background: var(--accent); pointer-events: none; box-shadow: 0 0 0 1px rgb(0 0 0 / 0.35); }

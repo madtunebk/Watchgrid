@@ -9,8 +9,6 @@ use url::Url;
 use super::{TargetConfig, client, failure, file_body, net_error};
 
 pub struct WebDav {
-    /// Folder URL, ending in `/`.
-    folder: Url,
     /// Web link to show for uploaded files (Nextcloud files app), if known.
     web: Option<String>,
     username: String,
@@ -40,12 +38,19 @@ impl WebDav {
         };
         let root = Url::parse(&root_str).map_err(|e| e.to_string())?;
         let folder_parts: Vec<String> = c.location.split('/').filter(|p| !p.is_empty()).map(String::from).collect();
-        let mut folder = root.clone();
-        for p in &folder_parts {
+        let web = nextcloud.then(|| format!("{}/apps/files/?dir=/{}", server.as_str().trim_end_matches('/'), folder_parts.join("/")));
+        let dav = Self { web, username: user.to_string(), password: c.secret.to_string(), folder_parts, root };
+        dav.folder()?; // an unusable folder name fails here, not at upload
+        Ok(dav)
+    }
+
+    /// The target folder's URL, ending in `/`.
+    fn folder(&self) -> Result<Url, String> {
+        let mut folder = self.root.clone();
+        for p in &self.folder_parts {
             folder = folder.join(&format!("{}/", urlencode(p))).map_err(|e| e.to_string())?;
         }
-        let web = nextcloud.then(|| format!("{}/apps/files/?dir=/{}", server.as_str().trim_end_matches('/'), folder_parts.join("/")));
-        Ok(Self { folder, web, username: user.to_string(), password: c.secret.to_string(), folder_parts, root })
+        Ok(folder)
     }
 
     fn req(&self, method: &str, url: Url) -> reqwest::RequestBuilder {
@@ -121,11 +126,11 @@ mod tests {
     fn nextcloud_urls() {
         let c = TargetConfig { kind: ExportKind::Nextcloud, endpoint: "https://cloud.example.com/", location: "/Cameras/Watch grid", username: "alice", secret: "pw" };
         let w = WebDav::new(&c).unwrap();
-        assert_eq!(w.folder.as_str(), "https://cloud.example.com/remote.php/dav/files/alice/Cameras/Watch%20grid/");
+        assert_eq!(w.folder().unwrap().as_str(), "https://cloud.example.com/remote.php/dav/files/alice/Cameras/Watch%20grid/");
         assert_eq!(w.web.as_deref(), Some("https://cloud.example.com/apps/files/?dir=/Cameras/Watch grid"));
         let generic = TargetConfig { endpoint: "https://nas.lan/webdav", ..c };
         let g = WebDav::new(&generic).unwrap();
-        assert_eq!(g.folder.as_str(), "https://nas.lan/webdav/Cameras/Watch%20grid/");
+        assert_eq!(g.folder().unwrap().as_str(), "https://nas.lan/webdav/Cameras/Watch%20grid/");
         assert!(g.web.is_none());
     }
 }

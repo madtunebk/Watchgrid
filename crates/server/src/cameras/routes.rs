@@ -21,6 +21,7 @@ pub fn router() -> Router<AppState> {
         .route("/{id}/disable", post(disable))
         .route("/{id}/recording/start", post(start_recording))
         .route("/{id}/recording/stop", post(stop_recording))
+        .merge(super::ptz::router())
 }
 
 async fn list(State(s): State<AppState>) -> ApiResult<Json<Vec<Camera>>> {

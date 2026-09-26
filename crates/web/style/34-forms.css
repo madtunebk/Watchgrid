@@ -162,6 +162,7 @@
 .select:hover { border-color: #3a4454; }
 .select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 0.2rem var(--accent-soft); }
 .select--sm { height: 2rem; font-size: 0.8667rem; }
+.input--sm { height: 2rem; font-size: 0.8667rem; }
 .select option { background: var(--surface-2); }
 /* A text field with its own action button (e.g. the recordings folder). */
 .inline-field { display: flex; gap: 0.5333rem; align-items: center; }

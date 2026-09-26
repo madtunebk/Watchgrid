@@ -7,7 +7,7 @@
 //! Everything is real with `live-api`; the mock serves only the demo build.
 
 #[cfg(feature = "live-api")]
-pub use super::http::{auth, capacity, cameras, events, exports, logs, notifications, probes, recordings, settings, storage, system};
+pub use super::http::{auth, capacity, cameras, events, exports, logs, notifications, probes, ptz, recordings, settings, storage, system};
 #[cfg(not(feature = "live-api"))]
-pub use super::mock::{auth, capacity, cameras, events, exports, logs, notifications, probes, recordings, settings, storage, system};
+pub use super::mock::{auth, capacity, cameras, events, exports, logs, notifications, probes, ptz, recordings, settings, storage, system};
 

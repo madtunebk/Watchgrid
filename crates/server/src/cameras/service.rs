@@ -289,6 +289,7 @@ fn changed(state: &AppState, id: &str, enabled: Option<bool>, reconnect: bool) {
     }
     state.onvif.apply(id, enabled.is_some());
     state.motion.apply(id, enabled.is_some());
+    state.ptz.forget(id);
     state.auto_record.apply(id, enabled.is_some());
     if enabled != Some(true) {
         state.bus.publish(BusEvent::CameraStopped { camera_id: id.to_string(), at: chrono::Utc::now() });

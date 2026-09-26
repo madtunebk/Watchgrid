@@ -1,0 +1,59 @@
+# On a version tag (v0.1.0, v0.2.0…): build the Docker bundle and the
+# bare-metal archive, and publish them as a GitHub Release.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    # Throwaway database for the tests (sqlx::test makes one per test).
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: ci
+        ports: ["5432:5432"]
+        options: --health-cmd pg_isready --health-interval 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools clang nasm binaryen
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add wasm32-unknown-unknown x86_64-unknown-linux-musl
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: release-${{ hashFiles('Cargo.lock') }}
+          restore-keys: release-
+
+      - name: Test
+        env:
+          DATABASE_URL: postgres://postgres:ci@localhost:5432/postgres
+        run: cargo test --workspace --exclude watchgrid-web
+
+      - name: Build archives
+        run: sh deploy/release.sh "$GITHUB_REF_NAME"
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Notes: this version's section of CHANGELOG.md.
+          awk -v v="## $GITHUB_REF_NAME" '$0 == v {on=1; next} /^## / {on=0} on' CHANGELOG.md > notes.md
+          [ -s notes.md ] || { echo "CHANGELOG.md has no section '## $GITHUB_REF_NAME'" >&2; exit 1; }
+          gh release create "$GITHUB_REF_NAME" target/release-out/* \
+            --title "Watchgrid $GITHUB_REF_NAME" --notes-file notes.md --verify-tag

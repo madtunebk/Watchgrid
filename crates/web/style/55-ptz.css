@@ -1,0 +1,29 @@
+/* Pan / tilt controls (cameras with ONVIF PTZ) */
+.ptz { display: flex; flex-wrap: wrap; align-items: center; gap: 1.0667rem; margin-top: 1.0667rem; }
+.ptz__pad {
+  display: grid; grid-template: repeat(3, 2.4rem) / repeat(3, 2.4rem); gap: 0.2667rem;
+  touch-action: none; user-select: none;
+}
+.ptz__btn {
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--line-strong); border-radius: var(--radius);
+  background: var(--surface-2); color: var(--fg); cursor: pointer;
+}
+.ptz__btn:hover { background: var(--surface-3); }
+.ptz__btn--held { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-strong); }
+.ptz__btn--up { grid-area: 1 / 2; }
+.ptz__btn--left { grid-area: 2 / 1; }
+.ptz__btn--right { grid-area: 2 / 3; }
+.ptz__btn--down { grid-area: 3 / 2; }
+.ptz__presets { display: grid; gap: 0.5333rem; min-width: 16rem; }
+.ptz__row { display: flex; gap: 0.5333rem; align-items: center; }
+.ptz__row .select, .ptz__row .input { flex: 1 1 auto; min-width: 0; }
+.ptz__error { flex-basis: 100%; margin: 0; font-size: 0.8667rem; color: var(--danger); }
+
+/* Over the picture in Live View's single-camera view */
+.tile__ptz { position: absolute; right: 0.8rem; bottom: 3.2rem; z-index: 3; }
+.ptz--compact { margin: 0; }
+.ptz--compact .ptz__pad { grid-template: repeat(3, 2.1333rem) / repeat(3, 2.1333rem); }
+.ptz--compact .ptz__btn { background: rgb(0 0 0 / 0.45); border-color: rgb(255 255 255 / 0.25); color: #fff; }
+.ptz--compact .ptz__btn:hover { background: rgb(0 0 0 / 0.65); }
+.ptz--compact .ptz__error { color: #fca5a5; text-shadow: 0 1px 2px #000; max-width: 16rem; }

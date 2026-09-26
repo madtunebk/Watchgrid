@@ -35,13 +35,16 @@ Everything builds with Cargo.
 
 ## Install
 
-Two ways, both with **PostgreSQL 14+**. Choose one.
+Two ways, both with **PostgreSQL 14+**. Choose one. Ready-built archives
+for x86-64 Linux are on the [Releases](../../releases) page (what changed:
+[`CHANGELOG.md`](CHANGELOG.md)); you can also build them yourself.
 
 ### A. Docker (Synology DSM, other NAS, any Docker host)
 
 The script to run is **`setup.sh`**, from the bundle.
 
-1. **Build the bundle** on a Linux machine with Rust (see
+1. **Get the bundle**: download `watchgrid-<version>-docker.tar.gz` from
+   Releases, or build it on a Linux machine with Rust (see
    [Build from source](#build-from-source)):
    ```sh
    sh deploy/docker/package.sh          # → target/watchgrid-docker.tar.gz
@@ -49,7 +52,7 @@ The script to run is **`setup.sh`**, from the bundle.
 2. **Copy it to the NAS** and unpack it into its own folder:
    ```sh
    mkdir -p ~/watchgrid && cd ~/watchgrid
-   tar -xzf watchgrid-docker.tar.gz --strip-components=1
+   tar -xzf watchgrid-*docker.tar.gz --strip-components=1
    ```
 3. **Choose the database password** (only the first time):
    ```sh
@@ -64,19 +67,22 @@ The script to run is **`setup.sh`**, from the bundle.
    sudo docker exec -it watchgrid watchgrid user create <username>
    ```
 
-**Upgrade:** build a new bundle, unpack it over the same folder, run
+**Upgrade:** download or build a new bundle, unpack it over the same folder, run
 `sudo sh setup.sh` again. Details: [`deploy/docker/README.md`](deploy/docker/README.md).
 
 ### B. Bare metal (Linux server with systemd)
 
-The script to run is **`deploy/systemd/install.sh`**, from the source folder.
+The script to run is **`deploy/systemd/install.sh`**, from the unpacked
+release archive or the source folder.
 
 1. **Create the database:**
    ```sh
    sudo -u postgres createuser --pwprompt watchgrid
    sudo -u postgres createdb --owner watchgrid watchgrid
    ```
-2. **Build** (see [Build from source](#build-from-source)):
+2. **Get the program**: download `watchgrid-<version>-linux-x86_64.tar.gz`
+   from Releases and unpack it (`tar -xzf …; cd watchgrid-*/`), or build it
+   (see [Build from source](#build-from-source)):
    ```sh
    cargo build --release -p watchgrid-server
    cargo web build --release --live
@@ -92,13 +98,15 @@ The script to run is **`deploy/systemd/install.sh`**, from the source folder.
    sudo watchgrid user create <username>
    ```
 
-**Upgrade:** pull, build again, `sudo sh deploy/systemd/install.sh`.
+**Upgrade:** unpack the new release (or pull and build again), then
+`sudo sh deploy/systemd/install.sh`.
 Details: [`deploy/systemd/README.md`](deploy/systemd/README.md).
 
 ### Build from source
 
 Needs Rust (stable), the WebAssembly target and a C/C++ compiler
-(`build-essential` on Debian/Ubuntu) — no Node.js.
+(`build-essential` on Debian/Ubuntu) — no Node.js. Optional: `nasm` makes
+the software motion detector's video decoding faster.
 
 ```sh
 rustup target add wasm32-unknown-unknown
@@ -174,7 +182,7 @@ crates/server   the NVR server (API, RTSP, recording, motion, exports…)
 crates/web      the web UI (Leptos, compiled to WebAssembly)
 crates/model    types shared by both
 xtask           `cargo web` — builds and serves the UI
-deploy          docker/, systemd/ and nginx/ setups
+deploy          docker/, systemd/ and nginx/ setups; release.sh builds the release archives
 ```
 
 ## Status

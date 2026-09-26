@@ -14,6 +14,7 @@ pub mod exports;
 pub mod logs;
 pub mod notifications;
 pub mod probes;
+pub mod ptz;
 pub mod recordings;
 pub mod settings;
 pub mod storage;

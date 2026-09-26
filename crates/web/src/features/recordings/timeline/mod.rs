@@ -1,4 +1,6 @@
-//! Day timeline: one row per camera, recordings as segments, zoomable.
+//! Day timeline: one row per camera, recordings as segments, zoomable. A
+//! click on a row plays that camera from that moment; the playing position
+//! is drawn as a line.
 
 mod row;
 mod scale;
@@ -20,7 +22,9 @@ pub fn Timeline(
     recordings: Vec<Recording>,
     scale: Scale,
     #[prop(into)] zoom: Signal<u8>,
-    on_open: Callback<Recording>,
+    on_seek: Callback<(String, chrono::DateTime<chrono::Utc>)>,
+    /// Where playback is, if something plays.
+    #[prop(into)] playhead: Signal<Option<chrono::DateTime<chrono::Utc>>>,
 ) -> impl IntoView {
     let scroller = NodeRef::<Div>::new();
     let now = use_now(Duration::from_secs(30));
@@ -74,7 +78,7 @@ pub fn Timeline(
                     <div class="tl__rows">
                         {move || {
                             let z = zoom.get();
-                            rows.clone().into_iter().map(|(_, recs)| view! { <TrackRow recordings=recs scale zoom=z on_open /> }).collect_view()
+                            rows.clone().into_iter().map(|(c, recs)| view! { <TrackRow camera_id=c.id recordings=recs scale zoom=z on_seek /> }).collect_view()
                         }}
                         <div class="tl__grid" aria-hidden="true">
                             {move || scale.ticks(zoom.get()).into_iter().map(|(pct, _)| view! {
@@ -85,13 +89,16 @@ pub fn Timeline(
                             let t = now.get().to_utc();
                             scale.contains(t).then(|| view! { <div class="tl__now" style:left=format!("{:.4}%", scale.pct(t)) title="Now"></div> })
                         }}
+                        {move || playhead.get().filter(|t| scale.contains(*t)).map(|t| view! {
+                            <div class="tl__playhead" style:left=format!("{:.4}%", scale.pct(t)) title="Playing"></div>
+                        })}
                     </div>
                 </div>
             </div>
         </div>
         <div class="tl-legend">
             {LEGEND.iter().map(|(css, label)| view! { <span class=format!("tl-legend__item tl-legend__item--{css}")>{*label}</span> }).collect_view()}
-            <span class="tl-legend__hint">"Click a segment to play it · + / − to zoom"</span>
+            <span class="tl-legend__hint">"Click a row to play from that moment · + / − to zoom"</span>
         </div>
     }
 }
