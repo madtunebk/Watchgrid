@@ -10,6 +10,8 @@ use crate::ui::{I, Icon, fullscreen, snapshot as snap};
 pub fn LiveTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
     let stage = NodeRef::<Div>::new();
     let muted = RwSignal::new(true);
+    // Only streams with sound get the mute button.
+    let has_audio = RwSignal::new(false);
     let snapshot = RwSignal::new(None::<String>);
 
     let fullscreen = move |_| {
@@ -30,7 +32,7 @@ pub fn LiveTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
     view! {
         <div class="live-tab">
             <div class="live-stage" node_ref=stage>
-                {move || view! { <CameraPreview camera=camera.get() /> }}
+                {move || view! { <CameraPreview camera=camera.get() muted=muted has_audio /> }}
             </div>
 
             <div class="live-controls">
@@ -42,14 +44,16 @@ pub fn LiveTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
                 <button class="btn btn--secondary btn--sm" on:click=fullscreen>
                     <Icon icon=I::Maximize class="icon icon--sm" />"Fullscreen"
                 </button>
-                <button class="btn btn--secondary btn--sm" aria-pressed=move || (!muted.get()).to_string()
-                    on:click=move |_| muted.update(|m| *m = !*m)>
-                    {move || if muted.get() {
-                        view! { <Icon icon=I::VolumeOff class="icon icon--sm" />"Unmute" }.into_any()
-                    } else {
-                        view! { <Icon icon=I::Volume class="icon icon--sm" />"Mute" }.into_any()
-                    }}
-                </button>
+                <Show when=move || has_audio.get()>
+                    <button class="btn btn--secondary btn--sm" aria-pressed=move || (!muted.get()).to_string()
+                        on:click=move |_| muted.update(|m| *m = !*m)>
+                        {move || if muted.get() {
+                            view! { <Icon icon=I::VolumeOff class="icon icon--sm" />"Unmute" }.into_any()
+                        } else {
+                            view! { <Icon icon=I::Volume class="icon icon--sm" />"Mute" }.into_any()
+                        }}
+                    </button>
+                </Show>
                 <button class="btn btn--secondary btn--sm" on:click=take_snapshot>
                     <Icon icon=I::Camera class="icon icon--sm" />"Snapshot"
                 </button>
