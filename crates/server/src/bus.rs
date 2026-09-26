@@ -19,6 +19,8 @@ pub enum BusEvent {
     DetectionStarted { camera_id: String, kind: EventType, topic: String, at: DateTime<Utc> },
     /// …and ending.
     DetectionEnded { camera_id: String, kind: EventType, at: DateTime<Utc> },
+    /// The camera reported a sign-in with a wrong password (ONVIF).
+    SecurityAlert { camera_id: String, topic: String, at: DateTime<Utc> },
     /// Storage settings changed (e.g. the retention policy).
     StorageChanged,
     /// Recordings were removed or changed (retention, protection, deletion).

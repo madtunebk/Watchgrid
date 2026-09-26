@@ -225,3 +225,12 @@ async fn detections_get_the_clip_they_happened_in_when_it_is_saved(db: PgPool) {
     let e = &all(&db).await[0];
     assert_eq!((e.source.as_str(), e.recording_id.as_deref()), ("Software motion", Some("rec-long")));
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn security_alerts_are_instant_events(db: PgPool) {
+    let at = t("2026-09-26T08:00:00Z");
+    let alert = BusEvent::SecurityAlert { camera_id: "cam-a".into(), topic: "UserAlarm/IllegalAccess".into(), at };
+    assert!(journal::handle(&db, &mut journal::Links::default(), &alert).await.unwrap());
+    let e = &all(&db).await[0];
+    assert_eq!((e.kind, e.start_time, e.end_time, e.source.as_str()), (EventType::Security, at, Some(at), "ONVIF: UserAlarm/IllegalAccess"));
+}

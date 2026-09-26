@@ -14,6 +14,7 @@ pub fn name(kind: EventType) -> &'static str {
         EventType::Api => "api",
         EventType::CameraOffline => "camera_offline",
         EventType::CameraOnline => "camera_online",
+        EventType::Security => "security",
     }
 }
 

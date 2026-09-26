@@ -161,6 +161,12 @@ async fn pull_until_error(deps: &Deps, id: &str, sub: &Subscription, state: &mut
 /// Turn one notification into bus transitions (per event type, so several
 /// motion-like topics count as one motion).
 fn apply(deps: &Deps, id: &str, state: &mut Detections, n: &Notification) {
+    if topics::security(&n.topic) {
+        if n.active() == Some(true) {
+            deps.bus.publish(BusEvent::SecurityAlert { camera_id: id.to_string(), topic: n.topic.clone(), at: pullpoint::when(n) });
+        }
+        return;
+    }
     let (Some(kind), Some(on)) = (topics::detection(&n.topic), n.active()) else { return };
     let was = state.kind_active(kind);
     state.0.insert(n.topic.clone(), (kind, on));
@@ -235,5 +241,22 @@ mod tests {
         assert!(matches!(rx.try_recv().unwrap(), BusEvent::DetectionStarted { kind: EventType::Motion, .. }));
         assert!(matches!(rx.try_recv().unwrap(), BusEvent::DetectionEnded { kind: EventType::Motion, .. }));
         assert!(rx.try_recv().is_err(), "exactly one start and one end");
+    }
+
+    #[tokio::test]
+    async fn illegal_access_raises_one_security_alert() {
+        let bus = Bus::new();
+        let mut rx = bus.subscribe();
+        let deps = Deps {
+            db: sqlx::postgres::PgPoolOptions::new().connect_lazy("postgres://unused").unwrap(),
+            credentials: Arc::new(CredentialStore::from_key(&[1u8; 32])),
+            live: Arc::new(LiveRegistry::default()),
+            bus,
+        };
+        let mut s = Detections::default();
+        apply(&deps, "cam", &mut s, &note("UserAlarm/IllegalAccess", true));
+        apply(&deps, "cam", &mut s, &note("UserAlarm/IllegalAccess", false));
+        assert!(matches!(rx.try_recv().unwrap(), BusEvent::SecurityAlert { .. }));
+        assert!(rx.try_recv().is_err(), "the end of the alarm is not another alert, nor a detection");
     }
 }

@@ -62,6 +62,9 @@ pub struct NotificationSettings {
     pub vehicle_detected: bool,
     pub storage_low: bool,
     pub recording_failed: bool,
+    /// A camera reported a sign-in with a wrong password.
+    #[serde(default = "yes")]
+    pub camera_security: bool,
     /// POST a JSON payload here for every notification.
     pub webhook_url: Option<String>,
 }
@@ -90,4 +93,8 @@ pub struct Settings {
     pub auth: AuthSettings,
     pub notifications: NotificationSettings,
     pub advanced: AdvancedSettings,
+}
+
+fn yes() -> bool {
+    true
 }

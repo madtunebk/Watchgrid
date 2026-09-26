@@ -35,6 +35,7 @@ pub fn defaults(bind: std::net::SocketAddr) -> Settings {
             vehicle_detected: false,
             storage_low: true,
             recording_failed: true,
+            camera_security: true,
             webhook_url: None,
         },
         advanced: AdvancedSettings { log_level: LogLevel::Info, rtsp_transport: RtspTransport::Tcp, reconnect_seconds: 2 },

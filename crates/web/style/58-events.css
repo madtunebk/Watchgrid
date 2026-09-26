@@ -45,6 +45,7 @@
 .type-toggle--scheduled.type-toggle--on { color: #a78bfa; }
 .type-toggle--offline.type-toggle--on { color: var(--danger); }
 .type-toggle--online.type-toggle--on { color: var(--online); }
+.type-toggle--security.type-toggle--on { color: var(--danger); }
 .type-toggle__future { font-size: 0.6667rem; font-weight: 600; letter-spacing: 0; text-transform: lowercase; opacity: 0.7; }
 
 /* Day-grouped list */
@@ -96,6 +97,7 @@
 .evt-thumb--scheduled { color: #a78bfa; }
 .evt-thumb--offline { color: var(--danger); }
 .evt-thumb--online { color: var(--online); }
+.evt-thumb--security { color: var(--danger); }
 
 .load-more { display: flex; align-items: center; justify-content: center; gap: 0.9333rem; margin-top: 1.0667rem; }
 

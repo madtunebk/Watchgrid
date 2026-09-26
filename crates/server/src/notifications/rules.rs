@@ -23,6 +23,7 @@ impl Draft {
         let mins = match self.kind {
             "camera_offline" => 10,
             "person" | "vehicle" => 2,
+            "security" => 10,
             "storage_low" => 6 * 60,
             _ => 1,
         };
@@ -45,6 +46,14 @@ pub fn draft(event: &BusEvent, s: &NotificationSettings, name: &str, was_offline
         BusEvent::CameraOnline { camera_id, .. } if s.camera_offline && was_offline => {
             Some(camera_draft("camera_online", camera_id, NotificationLevel::Success, format!("{name} is back online"), "Live view and recording work again.".into()))
         }
+        BusEvent::SecurityAlert { camera_id, .. } if s.camera_security => Some(Draft {
+            kind: "security",
+            camera_id: Some(camera_id.clone()),
+            level: NotificationLevel::Warning,
+            title: format!("Failed sign-in on {name}"),
+            message: "The camera reported a sign-in with a wrong password. If it wasn't you, change the camera's password.".into(),
+            link: Some(format!("/events?camera={camera_id}&types=security")),
+        }),
         BusEvent::DetectionStarted { camera_id, kind, .. } => {
             let (key, what) = match kind {
                 EventType::Person if s.person_detected => ("person", "Person"),
@@ -89,7 +98,15 @@ mod tests {
     use chrono::Utc;
 
     fn all_on() -> NotificationSettings {
-        NotificationSettings { camera_offline: true, person_detected: true, vehicle_detected: true, storage_low: true, recording_failed: true, webhook_url: None }
+        NotificationSettings {
+            camera_offline: true,
+            person_detected: true,
+            vehicle_detected: true,
+            storage_low: true,
+            recording_failed: true,
+            camera_security: true,
+            webhook_url: None,
+        }
     }
 
     #[test]
@@ -120,5 +137,14 @@ mod tests {
         assert!(storage_low(&all_on(), 10, 20).is_some());
         assert!(storage_low(&all_on(), 30, 20).is_none());
         assert!(storage_low(&NotificationSettings { storage_low: false, ..all_on() }, 10, 20).is_none());
+    }
+
+    #[test]
+    fn failed_camera_sign_ins_warn_unless_switched_off() {
+        let alert = BusEvent::SecurityAlert { camera_id: "cam-a".into(), topic: "UserAlarm/IllegalAccess".into(), at: chrono::Utc::now() };
+        let d = draft(&alert, &all_on(), "Hall", false).expect("notified");
+        assert_eq!((d.kind, d.level, d.title.as_str()), ("security", NotificationLevel::Warning, "Failed sign-in on Hall"));
+        assert_eq!(d.cooldown(), Duration::from_secs(600));
+        assert!(draft(&alert, &NotificationSettings { camera_security: false, ..all_on() }, "Hall", false).is_none());
     }
 }

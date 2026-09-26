@@ -21,6 +21,7 @@ fn topics(event: &BusEvent) -> &'static [&'static str] {
         BusEvent::EventsChanged => &["events"],
         BusEvent::NotificationsChanged => &["notifications"],
         BusEvent::DetectionStarted { .. } | BusEvent::DetectionEnded { .. } => &["cameras"],
+        BusEvent::SecurityAlert { .. } => &["events"],
         BusEvent::SettingsChanged => &["settings", "server"],
         BusEvent::CamerasChanged => &["cameras", "system", "storage"],
         BusEvent::StorageChanged => &["storage"],

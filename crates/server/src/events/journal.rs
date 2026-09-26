@@ -77,6 +77,7 @@ pub async fn handle(db: &PgPool, links: &mut Links, event: &BusEvent) -> sqlx::R
             let (source, origin) = if topic == crate::motion::TOPIC { ("Software motion".to_string(), "software") } else { (format!("ONVIF: {topic}"), "onvif") };
             repo::open_from(db, camera_id, *kind, *at, &source, recording, origin).await
         }
+        BusEvent::SecurityAlert { camera_id, topic, at } => repo::instant(db, camera_id, EventType::Security, *at, &format!("ONVIF: {topic}")).await.map(|()| true),
         BusEvent::DetectionEnded { camera_id, kind, at } => {
             let min = crate::cameras::repo_get(db, camera_id).await.ok().flatten().map_or(0, |c| c.recording.min_event_seconds);
             repo::close_detection(db, camera_id, *kind, *at, min).await

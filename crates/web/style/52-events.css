@@ -17,6 +17,7 @@
 .evt-chip--scheduled { color: #a78bfa; }
 .evt-chip--offline { color: var(--danger); }
 .evt-chip--online { color: var(--online); }
+.evt-chip--security { color: var(--danger); }
 
 .event-list { display: flex; flex-direction: column; margin: -0.4rem -0.5333rem; }
 .event-row {

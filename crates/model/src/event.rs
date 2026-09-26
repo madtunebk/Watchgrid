@@ -21,10 +21,12 @@ pub enum EventType {
     CameraOffline,
     /// The camera came back after an outage (instant).
     CameraOnline,
+    /// The camera reported a sign-in with a wrong password (instant).
+    Security,
 }
 
 impl EventType {
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 11] = [
         Self::Motion,
         Self::Person,
         Self::Vehicle,
@@ -35,6 +37,7 @@ impl EventType {
         Self::Api,
         Self::CameraOffline,
         Self::CameraOnline,
+        Self::Security,
     ];
 }
 

@@ -17,6 +17,12 @@ pub fn detection(topic: &str) -> Option<EventType> {
     }
 }
 
+/// Topics that report someone signing in to the camera with a wrong
+/// password (e.g. `UserAlarm/IllegalAccess`).
+pub fn security(topic: &str) -> bool {
+    topic.to_ascii_lowercase().contains("illegalaccess")
+}
+
 /// Distinct detections in a stable order.
 pub fn detections(topics: &[String]) -> Vec<EventType> {
     let mut out: Vec<EventType> = Vec::new();
@@ -41,5 +47,12 @@ mod tests {
             .collect();
         assert_eq!(detections(&topics), [EventType::Motion, EventType::Person, EventType::Vehicle]);
         assert_eq!(detection("Device/Trigger/DigitalInput"), None);
+    }
+
+    #[test]
+    fn illegal_access_is_a_security_topic_not_a_detection() {
+        assert!(security("UserAlarm/IllegalAccess"));
+        assert!(!security("RuleEngine/CellMotionDetector/Motion"));
+        assert_eq!(detection("UserAlarm/IllegalAccess"), None);
     }
 }

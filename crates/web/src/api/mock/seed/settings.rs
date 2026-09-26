@@ -21,6 +21,7 @@ pub fn defaults(nvr_name: &str) -> Settings {
             vehicle_detected: false,
             storage_low: true,
             recording_failed: true,
+            camera_security: true,
             webhook_url: None,
         },
         advanced: AdvancedSettings {

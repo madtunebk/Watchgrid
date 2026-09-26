@@ -13,19 +13,20 @@ pub fn NotificationsSection(settings: Signal<Settings>) -> impl IntoView {
     let vehicle = RwSignal::new(n.vehicle_detected);
     let storage = RwSignal::new(n.storage_low);
     let failed = RwSignal::new(n.recording_failed);
+    let security = RwSignal::new(n.camera_security);
     let webhook = RwSignal::new(n.webhook_url.unwrap_or_default());
     let state = SaveState::new();
 
-    let draft = move || (offline.get(), person.get(), vehicle.get(), storage.get(), failed.get(), webhook.get().trim().to_string());
+    let draft = move || (offline.get(), person.get(), vehicle.get(), storage.get(), failed.get(), security.get(), webhook.get().trim().to_string());
     let dirty = Signal::derive(move || {
         let n = settings.get().notifications;
-        draft() != (n.camera_offline, n.person_detected, n.vehicle_detected, n.storage_low, n.recording_failed, n.webhook_url.unwrap_or_default())
+        draft() != (n.camera_offline, n.person_detected, n.vehicle_detected, n.storage_low, n.recording_failed, n.camera_security, n.webhook_url.unwrap_or_default())
     });
     let on_save = Callback::new(move |_| {
-        let (a, b, c, d, e, w) = draft();
+        let (a, b, c, d, e, f, w) = draft();
         save(state, &settings.get_untracked(), |s| {
             let n = &mut s.notifications;
-            (n.camera_offline, n.person_detected, n.vehicle_detected, n.storage_low, n.recording_failed) = (a, b, c, d, e);
+            (n.camera_offline, n.person_detected, n.vehicle_detected, n.storage_low, n.recording_failed, n.camera_security) = (a, b, c, d, e, f);
             n.webhook_url = (!w.is_empty()).then_some(w);
         });
     });
@@ -36,6 +37,7 @@ pub fn NotificationsSection(settings: Signal<Settings>) -> impl IntoView {
         vehicle.set(n.vehicle_detected);
         storage.set(n.storage_low);
         failed.set(n.recording_failed);
+        security.set(n.camera_security);
         webhook.set(n.webhook_url.unwrap_or_default());
     });
 
@@ -47,6 +49,8 @@ pub fn NotificationsSection(settings: Signal<Settings>) -> impl IntoView {
                 <Switch checked=vehicle label="A vehicle is detected" />
                 <Switch checked=storage label="Storage is running low" />
                 <Switch checked=failed label="A recording fails" description="Disk errors, stream drops during a clip." />
+                <Switch checked=security label="Someone fails to sign in to a camera"
+                    description="Reported by cameras with ONVIF events (wrong password on the camera itself)." />
             </FormSection>
             <FormSection title="Webhook" description="Send each notification as JSON to another system (Home Assistant, ntfy, Gotify…).">
                 <Field label="Webhook URL" optional=true>

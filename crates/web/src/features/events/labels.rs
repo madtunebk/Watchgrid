@@ -14,6 +14,7 @@ pub fn tag(kind: EventType) -> &'static str {
         EventType::Scheduled => "SCHEDULED",
         EventType::CameraOffline => "OFFLINE",
         EventType::CameraOnline => "ONLINE",
+        EventType::Security => "SIGN-IN",
     }
 }
 
@@ -30,6 +31,7 @@ pub fn title(kind: EventType) -> &'static str {
         EventType::Scheduled => "Scheduled recording",
         EventType::CameraOffline => "Camera offline",
         EventType::CameraOnline => "Camera back online",
+        EventType::Security => "Failed sign-in on the camera",
     }
 }
 
@@ -46,6 +48,7 @@ pub fn css(kind: EventType) -> &'static str {
         EventType::Scheduled => "scheduled",
         EventType::CameraOffline => "offline",
         EventType::CameraOnline => "online",
+        EventType::Security => "security",
     }
 }
 
@@ -66,6 +69,7 @@ pub fn icon(kind: EventType) -> I {
         EventType::Scheduled => I::Calendar,
         EventType::CameraOffline => I::WifiOff,
         EventType::CameraOnline => I::Wifi,
+        EventType::Security => I::Lock,
     }
 }
 

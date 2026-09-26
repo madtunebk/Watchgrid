@@ -98,6 +98,10 @@ pub fn EventDetailPage() -> impl IntoView {
                 (None, EventType::CameraOnline) => view! {
                     <EmptyState icon=I::Wifi title="The camera reconnected" text="Live view and recording are available again." />
                 }.into_any(),
+                (None, EventType::Security) => view! {
+                    <EmptyState icon=I::Lock title="Someone tried to sign in to the camera"
+                        text="The camera reported a sign-in with a wrong password. If it wasn't you or Watchgrid, change the camera's password." />
+                }.into_any(),
                 (None, EventType::Manual | EventType::Scheduled) => view! {
                     <EmptyState icon=I::VideoOff title="No video was saved for this recording" text="See the details for why it ended." />
                 }.into_any(),
