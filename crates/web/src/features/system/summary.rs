@@ -16,7 +16,7 @@ pub fn SystemSummary(status: SystemStatus) -> impl IntoView {
                 <Meter value=status.cpu_usage />
             </div>
             <div class="metric">
-                <span class="metric__label"><Icon icon=I::MemoryStick class="icon icon--sm" />"Memory"</span>
+                <span class="metric__label"><Icon icon=I::MemoryStick class="icon icon--sm" />"Host memory"</span>
                 <span class="metric__value">{format!("{} / {}", format::bytes(status.memory_used), format::bytes(status.memory_total))}</span>
                 <Meter value=mem_pct />
             </div>
