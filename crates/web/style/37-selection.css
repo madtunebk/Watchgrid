@@ -16,15 +16,6 @@
 }
 .bulk-bar__count { color: var(--fg-strong); margin-right: 0.2667rem; }
 .bulk-bar__spacer { flex: 1; }
-/* The result of the last action, where the bar was. */
-.bulk-note {
-  position: sticky; bottom: 1.0667rem; z-index: 5;
-  display: flex; align-items: center; justify-content: space-between; gap: 0.6667rem;
-  margin-top: 1.0667rem; padding: 0.6667rem 0.9333rem;
-  background: var(--surface-2); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: var(--radius);
-  box-shadow: var(--shadow-popover);
-  color: var(--fg);
-}
 .bulk-choice { display: grid; gap: 0.5333rem; margin-top: 1.0667rem; }
 .bulk-choice__option {
   display: grid; grid-template-columns: auto 1fr; gap: 0.6667rem; align-items: start;

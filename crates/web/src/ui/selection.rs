@@ -1,12 +1,9 @@
-//! Selecting rows for a bulk action: a checkbox cell for each row, the bar
-//! at the bottom with the count and the actions, and the result note that
-//! replaces it afterwards.
+//! Selecting rows for a bulk action: a checkbox cell for each row and the
+//! bar at the bottom with the count and the actions (results are toasts).
 
 use std::collections::BTreeSet;
 
 use leptos::prelude::*;
-
-use super::{I, Icon};
 
 /// Selected row ids.
 pub type Selection = RwSignal<BTreeSet<String>>;
@@ -52,26 +49,6 @@ pub fn SelectionBar(selected: Selection, #[prop(into)] shown: Signal<Vec<String>
                 {children()}
             </div>
         </Show>
-    }
-}
-
-/// What the last bulk action did; a new selection dismisses it.
-#[component]
-pub fn ResultNote(note: RwSignal<Option<String>>, selected: Selection) -> impl IntoView {
-    Effect::new(move || {
-        if selected.with(|s| !s.is_empty()) {
-            note.set(None);
-        }
-    });
-    move || {
-        note.get().map(|n| {
-            view! {
-                <div class="bulk-note" role="status">
-                    <span>{n}</span>
-                    <button class="icon-btn" aria-label="Dismiss" on:click=move |_| note.set(None)><Icon icon=I::X class="icon icon--sm" /></button>
-                </div>
-            }
-        })
     }
 }
 

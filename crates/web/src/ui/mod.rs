@@ -39,7 +39,7 @@ pub use panel::Panel;
 pub use popover::Popover;
 pub use toast::{ToastHost, provide_toaster, use_toaster};
 pub use save_bar::{SaveBar, SaveState};
-pub use selection::{ResultNote, SelectCell, Selection, SelectionBar, keep_only_shown};
+pub use selection::{SelectCell, Selection, SelectionBar, keep_only_shown};
 pub use sparkline::Sparkline;
 pub use stat::Stat;
 pub use status::{Dot, Tone};
