@@ -3,7 +3,6 @@ use leptos::task::spawn_local;
 use leptos_router::components::A;
 
 use crate::api::{self, Topic, invalidate, use_query};
-use crate::features::storage::RetentionForm;
 use crate::format;
 use crate::ui::form::{Field, FormSection, TextInput};
 use crate::ui::{EmptyState, ErrorBox, I, Skeleton};
@@ -31,7 +30,9 @@ pub fn StorageSection() -> impl IntoView {
                             </dl>
                             <p class="note">"Watchgrid can only use a folder it may already write to. To prepare a new one (e.g. another disk), run "<code>"sudo watchgrid storage set-path <folder>"</code>" on the server. Usage per camera is on the "<A href="/storage" attr:class="link">"Storage page"</A>"."</p>
                         </FormSection>
-                        <FormSection title="Retention"><RetentionForm status /></FormSection>
+                        <FormSection title="Retention" description="How long recordings are kept is set on the Storage page, next to what they use.">
+                            <A href="/storage" attr:class="btn btn--secondary btn--sm">"Open retention on the Storage page"</A>
+                        </FormSection>
                     }.into_any()
                 }
             }}

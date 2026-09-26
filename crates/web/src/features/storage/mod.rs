@@ -7,5 +7,4 @@ mod usage;
 mod volume;
 
 pub use page::StoragePage;
-pub use retention::RetentionForm;
 pub use summary::StorageSummary;
