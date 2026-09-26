@@ -10,6 +10,8 @@ use url::Url;
 use super::sigv4::{self, Credentials, UNSIGNED_PAYLOAD};
 use super::{TargetConfig, client, failure, file_body, net_error};
 
+const UNREACHABLE: &str = "cannot reach the S3 endpoint";
+
 pub struct S3 {
     endpoint: Url,
     bucket: String,
@@ -65,8 +67,9 @@ impl S3 {
     }
 
     /// Send; if the server names another region, switch to it and resend.
+    /// `what` labels a refusal; a network failure says the server wasn't reached.
     async fn send(&self, build: impl Fn() -> reqwest::RequestBuilder, what: &str) -> Result<reqwest::Response, String> {
-        let resp = build().send().await.map_err(|e| net_error(what, e))?;
+        let resp = build().send().await.map_err(|e| net_error(UNREACHABLE, e))?;
         if resp.status().is_success() {
             return Ok(resp);
         }
@@ -78,7 +81,7 @@ impl S3 {
             Some(region) => {
                 tracing::info!(from = %current, to = %region, "S3 region corrected by the server");
                 *self.region.write().expect("region lock") = region;
-                build().send().await.map_err(|e| net_error(what, e))
+                build().send().await.map_err(|e| net_error(UNREACHABLE, e))
             }
             // Rebuild an error response we already consumed.
             None => Err(super::describe_failure(what, status, &body)),
@@ -89,7 +92,7 @@ impl S3 {
         let key = self.key(".watchgrid-test");
         let body = b"watchgrid".to_vec();
         let hash = sigv4::sha256_hex(&body);
-        let put = self.send(|| self.request(reqwest::Method::PUT, &key, &hash).body(body.clone()), "cannot reach the S3 endpoint").await?;
+        let put = self.send(|| self.request(reqwest::Method::PUT, &key, &hash).body(body.clone()), "write test failed").await?;
         if !put.status().is_success() {
             return Err(failure("write test failed", put).await);
         }
@@ -106,7 +109,7 @@ impl S3 {
         // stream and can't be resent.
         let probe_key = self.key(".watchgrid-region");
         let empty = sigv4::sha256_hex(b"");
-        let _ = self.send(|| self.request(reqwest::Method::HEAD, &probe_key, &empty), "cannot reach the S3 endpoint").await;
+        let _ = self.send(|| self.request(reqwest::Method::HEAD, &probe_key, &empty), "region check failed").await;
         let (size, body) = file_body(file, progress).await?;
         let resp = self
             .request(reqwest::Method::PUT, &key, UNSIGNED_PAYLOAD)
