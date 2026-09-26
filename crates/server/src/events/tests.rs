@@ -179,7 +179,7 @@ async fn events_with_a_clip_point_at_their_moment_in_it(db: PgPool) {
 
     let events = all(&db).await;
     let motion = events.iter().find(|e| e.kind == EventType::Motion).unwrap();
-    assert_eq!(motion.thumbnail.as_deref(), Some("/api/v1/recordings/rec-1/media#t=6.5"));
+    assert_eq!(motion.thumbnail, Some(format!("/api/v1/events/{}/thumb", motion.id)));
     assert!(events.iter().find(|e| e.kind == EventType::CameraOnline).unwrap().thumbnail.is_none(), "no clip, no thumbnail");
 }
 

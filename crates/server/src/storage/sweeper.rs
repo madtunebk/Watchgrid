@@ -67,6 +67,11 @@ impl Sweeper {
             }
             Err(e) => tracing::warn!("event retention failed: {e}"),
         }
+        match crate::thumbs::prune(&self.db, &self.files).await {
+            Ok(0) => {}
+            Ok(n) => tracing::info!("retention pass: removed {n} unused thumbnail(s)"),
+            Err(e) => tracing::warn!("thumbnail cleanup failed: {e}"),
+        }
         let mut candidates = recordings::retention_candidates(&self.db).await.map_err(|e| e.to_string())?;
         if policy == retention::default_policy() && candidates.iter().all(|c| c.camera_max_days.is_none()) {
             return Ok(0);

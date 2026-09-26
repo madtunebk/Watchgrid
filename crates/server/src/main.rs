@@ -37,6 +37,7 @@ mod state;
 mod storage;
 mod supervisor;
 mod system;
+mod thumbs;
 mod timezone;
 mod ws;
 

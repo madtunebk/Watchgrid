@@ -12,6 +12,7 @@ mod hub;
 mod nal;
 mod preroll;
 pub mod mp4;
+pub mod mp4_read;
 mod timing;
 mod ws;
 

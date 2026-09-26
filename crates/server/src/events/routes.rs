@@ -21,6 +21,21 @@ pub fn router() -> Router<AppState> {
         .route("/bulk", post(bulk_apply))
         .route("/{id}", get(one).delete(remove))
         .route("/{id}/protected", put(protect))
+        .route("/{id}/thumb", get(thumb))
+}
+
+/// The event's thumbnail (JPEG), made on first request.
+async fn thumb(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult<axum::response::Response> {
+    use axum::http::header;
+    use axum::response::IntoResponse;
+    match crate::thumbs::for_event(&s.db, &s.recording_files, &id).await {
+        Ok(Some(jpeg)) => Ok(([(header::CONTENT_TYPE, "image/jpeg"), (header::CACHE_CONTROL, "private, max-age=86400")], jpeg).into_response()),
+        Ok(None) => Err(ApiError::not_found("Thumbnail")),
+        Err(e) => {
+            tracing::debug!(event = %id, "no thumbnail: {e}");
+            Err(ApiError::not_found("Thumbnail"))
+        }
+    }
 }
 
 fn check_bulk(req: &EventBulkRequest) -> ApiResult<()> {

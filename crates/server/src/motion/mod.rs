@@ -6,7 +6,7 @@
 mod analyzer;
 #[cfg(target_env = "musl")]
 mod cxxrt;
-mod decoder;
+pub(crate) mod decoder;
 mod watcher;
 
 pub use watcher::{Deps, Detectors, TOPIC};

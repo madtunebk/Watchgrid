@@ -48,3 +48,5 @@ opus-pure = "0.2"
 tar = "0.4"
 flate2 = "1"
 openh264 = { version = "0.9", default-features = false, features = ["source"] }
+# Event thumbnails: one decoded frame as a small JPEG (pure Rust).
+jpeg-encoder = "0.7"
