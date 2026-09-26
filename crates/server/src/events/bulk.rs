@@ -142,6 +142,7 @@ pub(super) async fn apply(s: &AppState, action: EventBulkAction, ids: &[String])
                     }
                     Ok(false) => {}
                     Err(DeleteError::Protected) => done.kept_recordings.push(skip(rid, BulkSkipReason::Protected)),
+                    Err(DeleteError::Exporting) => done.kept_recordings.push(skip(rid, BulkSkipReason::Exporting)),
                     Err(DeleteError::Failed(e)) => {
                         tracing::warn!(recording = %rid, "bulk delete: {e}");
                         done.kept_recordings.push(skip(rid, BulkSkipReason::Failed));

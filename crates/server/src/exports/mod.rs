@@ -3,7 +3,7 @@
 //! store and never leave the server.
 
 mod providers;
-mod repo;
+pub(crate) mod repo;
 mod routes;
 mod service;
 

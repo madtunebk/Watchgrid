@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use watchgrid_model::{CameraStorageUsage, Recording, RecordingReason};
 
+use super::delete::EXPORT_PENDING;
 use crate::storage::plan::Candidate;
 
 /// A finalized recording to store.
@@ -146,7 +147,7 @@ pub async fn retention_candidates(db: &PgPool) -> sqlx::Result<Vec<Candidate>> {
     let rows: Vec<(String, i64, DateTime<Utc>, Option<i32>, Option<String>)> = sqlx::query_as(&format!(
         "SELECT r.id, r.file_size, r.end_time, (c.recording->>'retentionDays')::int, r.root
          FROM recordings r LEFT JOIN cameras c ON c.id = r.camera_id
-         WHERE NOT {EFFECTIVELY_PROTECTED} ORDER BY r.start_time, r.id"
+         WHERE NOT {EFFECTIVELY_PROTECTED} AND NOT {EXPORT_PENDING} ORDER BY r.start_time, r.id"
     ))
     .fetch_all(db)
     .await?;

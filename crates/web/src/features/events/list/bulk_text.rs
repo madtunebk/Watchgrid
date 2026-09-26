@@ -21,7 +21,7 @@ fn event_reason(r: BulkSkipReason) -> &'static str {
         BulkSkipReason::Protected => "protected",
         BulkSkipReason::InProgress => "still going on",
         BulkSkipReason::NotFound => "already gone",
-        BulkSkipReason::Shared | BulkSkipReason::Recording | BulkSkipReason::Failed => "could not be changed",
+        BulkSkipReason::Shared | BulkSkipReason::Recording | BulkSkipReason::Failed | BulkSkipReason::Exporting => "could not be changed",
     }
 }
 
@@ -31,6 +31,7 @@ fn recording_reason(r: BulkSkipReason) -> &'static str {
         BulkSkipReason::Protected => "protected",
         BulkSkipReason::Recording => "still recording",
         BulkSkipReason::Failed => "the file could not be deleted (see the log)",
+        BulkSkipReason::Exporting => "an upload of it is still pending",
         BulkSkipReason::InProgress | BulkSkipReason::NotFound => "not deleted",
     }
 }

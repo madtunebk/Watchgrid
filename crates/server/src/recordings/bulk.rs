@@ -113,6 +113,7 @@ pub(super) async fn apply(s: &AppState, action: RecordingBulkAction, ids: &[Stri
                     }
                     Ok(false) => done.skipped.push(skip(id, BulkSkipReason::NotFound)),
                     Err(DeleteError::Protected) => done.skipped.push(skip(id, BulkSkipReason::Protected)),
+                    Err(DeleteError::Exporting) => done.skipped.push(skip(id, BulkSkipReason::Exporting)),
                     Err(DeleteError::Failed(e)) => {
                         tracing::warn!(recording = %id, "bulk delete: {e}");
                         done.skipped.push(skip(id, BulkSkipReason::Failed));

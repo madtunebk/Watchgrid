@@ -197,7 +197,7 @@ pub async fn existing_job(db: &PgPool, recording_id: &str, target_id: &str) -> s
 
 /// Queue a job; `None` if a live one for this clip and destination already
 /// exists (two enqueues at once can't make duplicates: unique index).
-pub async fn insert_job(db: &PgPool, event_id: Option<&str>, recording_id: &str, target_id: &str) -> sqlx::Result<Option<ExportJob>> {
+pub async fn insert_job(db: impl sqlx::PgExecutor<'_>, event_id: Option<&str>, recording_id: &str, target_id: &str) -> sqlx::Result<Option<ExportJob>> {
     let row: Option<JobRow> = sqlx::query_as(&format!(
         "INSERT INTO export_jobs (event_id, recording_id, target_id, state) VALUES ($1, $2, $3, 'queued')
          ON CONFLICT (recording_id, target_id) WHERE state <> 'failed' DO NOTHING RETURNING {JOB_COLUMNS}"

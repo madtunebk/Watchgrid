@@ -138,7 +138,16 @@ impl Exports {
             }
             return Ok(job);
         }
-        let Some(job) = repo::insert_job(&self.db, event_id, recording_id, target_id).await? else {
+        // Under the clip's lock: a delete either ran before (no clip, no job)
+        // or sees this job and waits for it.
+        let mut tx = self.db.begin().await?;
+        crate::recordings::lock_clip(&mut tx, recording_id).await?;
+        if !crate::recordings::clip_exists(&mut tx, recording_id).await? {
+            return Err(ApiError::conflict("The clip was deleted"));
+        }
+        let inserted = repo::insert_job(&mut *tx, event_id, recording_id, target_id).await?;
+        tx.commit().await?;
+        let Some(job) = inserted else {
             // Queued by someone else just now.
             return repo::existing_job(&self.db, recording_id, target_id).await?.ok_or_else(|| ApiError::conflict("The export could not be queued; try again"));
         };

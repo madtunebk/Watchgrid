@@ -150,6 +150,25 @@ mod protection_and_delete {
     }
 
     #[sqlx::test(migrations = "./migrations")]
+    async fn a_pending_upload_keeps_the_file_until_it_ends(db: PgPool) {
+        let (files, file) = folder("delete-exporting");
+        repo::insert(&db, &rec("r1", "cam-a", "2026-09-24T10:00:00Z", 60)).await.unwrap();
+        sqlx::query("INSERT INTO export_targets (id, name, kind, endpoint, location, username, auto_upload) VALUES ('t1', 'S3', 's3', 'http://x', 'b', 'k', 'off')")
+            .execute(&db)
+            .await
+            .unwrap();
+        let job = crate::exports::repo::insert_job(&db, None, "r1", "t1").await.unwrap().unwrap();
+
+        assert_eq!(delete_recording(&db, &files, "r1").await, Err(DeleteError::Exporting));
+        assert!(file.exists());
+        assert!(repo::retention_candidates(&db).await.unwrap().is_empty(), "retention waits too");
+
+        crate::exports::repo::job_finished(&db, &job.id, &Err("HTTP 403".into())).await.unwrap();
+        assert_eq!(delete_recording(&db, &files, "r1").await, Ok(true), "a finished upload releases it");
+        assert!(crate::exports::repo::job_by_id(&db, &job.id).await.unwrap().is_some(), "the upload history stays");
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
     async fn a_failed_file_removal_changes_nothing(db: PgPool) {
         let (files, file) = folder("delete-fails");
         repo::insert(&db, &rec("r1", "cam-a", "2026-09-24T10:00:00Z", 60)).await.unwrap();

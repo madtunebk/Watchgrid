@@ -1,7 +1,8 @@
 //! Removing a recording, for the API and for retention alike.
 //!
 //! One transaction, holding the clip's lock (see [`lock_clip`]): check the
-//! protection (by hand or by any linked event), unlink the events, delete
+//! protection (by hand or by any linked event) and pending uploads (an
+//! export still needs the file), unlink the events, delete
 //! the row, remove the file, commit. A failed file removal rolls everything
 //! back; a missing file counts as already deleted.
 
@@ -11,6 +12,14 @@ use sqlx::{PgConnection, PgPool};
 
 use super::RecordingFiles;
 use super::repo::EFFECTIVELY_PROTECTED;
+
+/// SQL: an upload of recording `r` still needs its file.
+pub const EXPORT_PENDING: &str = "EXISTS (SELECT 1 FROM export_jobs j WHERE j.recording_id = r.id AND j.state IN ('queued', 'uploading'))";
+
+/// Whether a saved clip exists (call under its lock).
+pub async fn clip_exists(tx: &mut PgConnection, recording_id: &str) -> sqlx::Result<bool> {
+    sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM recordings WHERE id = $1)").bind(recording_id).fetch_one(tx).await
+}
 
 /// Advisory-lock namespace for recordings (the two-key form never collides
 /// with the single-key server lock).
@@ -27,6 +36,8 @@ pub async fn lock_clip(tx: &mut PgConnection, recording_id: &str) -> sqlx::Resul
 pub enum DeleteError {
     /// Protected by hand or by at least one of its events.
     Protected,
+    /// An upload of it is queued, running or waiting for a retry.
+    Exporting,
     Failed(String),
 }
 
@@ -34,6 +45,7 @@ impl fmt::Display for DeleteError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Protected => f.write_str("the recording is protected"),
+            Self::Exporting => f.write_str("an upload of the recording is still pending"),
             Self::Failed(e) => f.write_str(e),
         }
     }
@@ -57,6 +69,11 @@ pub async fn delete_recording(db: &PgPool, files: &RecordingFiles, id: &str) -> 
     let Some((root, relative, protected)) = row else { return Ok(false) };
     if protected {
         return Err(DeleteError::Protected);
+    }
+    // Enqueuing takes the same lock, so no job can slip in after this.
+    let exporting: bool = sqlx::query_scalar(&format!("SELECT {EXPORT_PENDING} FROM (SELECT $1::text AS id) r")).bind(id).fetch_one(&mut *tx).await?;
+    if exporting {
+        return Err(DeleteError::Exporting);
     }
     let path = files.resolve(root.as_deref(), &relative).ok_or_else(|| DeleteError::Failed("unsafe recording path".into()))?;
     // Events stay in the history, without video.

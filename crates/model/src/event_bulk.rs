@@ -40,6 +40,8 @@ pub enum BulkSkipReason {
     Recording,
     /// Deleting failed (see the server log).
     Failed,
+    /// An upload of the recording is still pending; it needs the file.
+    Exporting,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

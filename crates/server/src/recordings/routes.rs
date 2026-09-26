@@ -104,6 +104,9 @@ async fn remove(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult<
         Err(super::DeleteError::Protected) => {
             return Err(ApiError::conflict("This recording is protected, by hand or by one of its events. Remove the protection first."));
         }
+        Err(super::DeleteError::Exporting) => {
+            return Err(ApiError::conflict("An upload of this recording is still queued or running. Delete it once the upload is done (a failing upload gives up within about 1.5 hours)."));
+        }
         Err(super::DeleteError::Failed(e)) => return Err(ApiError::internal(e)),
     }
     let removed = crate::events::delete_events(&s.db, &events).await?.len();
