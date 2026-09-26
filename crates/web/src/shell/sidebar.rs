@@ -26,9 +26,10 @@ pub fn Sidebar(
                 <Logo />
                 <div class="brand__text hide-collapsed">
                     <div class="brand__name truncate">"Watchgrid"</div>
-                    <div class="brand__server truncate">
-                        {move || server().map(|s| s.name).unwrap_or_else(|| "\u{a0}".into())}
-                    </div>
+                    // The server's own name, unless it is just "Watchgrid" again.
+                    {move || server().map(|s| s.name).filter(|n| !n.trim().eq_ignore_ascii_case("watchgrid")).map(|name| view! {
+                        <div class="brand__server truncate">{name}</div>
+                    })}
                 </div>
                 <button class="icon-btn icon-btn--sm only-mobile" aria-label="Close menu" on:click=move |_| on_close()>
                     <Icon icon=I::X />

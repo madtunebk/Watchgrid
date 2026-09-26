@@ -16,7 +16,10 @@ use crate::api::RetentionPolicy;
 const GB: u64 = 1_000_000_000;
 
 pub fn build(scenario: Scenario) -> Db {
-    let server = server::info();
+    let mut server = server::info();
+    if scenario == Scenario::Empty {
+        server.name = "Watchgrid".into(); // a fresh install keeps the default name
+    }
     let (settings, users, sessions) = (settings::defaults(&server.name), people::users(), people::sessions());
     let retention = RetentionPolicy { max_age_days: Some(14), max_usage: Some(500 * GB), min_free: Some(50 * GB) };
 

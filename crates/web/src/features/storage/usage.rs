@@ -3,10 +3,18 @@ use leptos_router::components::A;
 
 use crate::api::{Camera, StorageStatus};
 use crate::format;
+use crate::ui::{EmptyState, I};
 
 /// Space used per camera, largest first.
 #[component]
 pub fn UsageTable(status: StorageStatus, cameras: Vec<Camera>) -> impl IntoView {
+    if status.per_camera.is_empty() {
+        return view! {
+            <EmptyState icon=I::HardDrive title="No recordings yet" compact=true
+                text="Space per camera appears here once cameras record." />
+        }
+        .into_any();
+    }
     let largest = status.per_camera.iter().map(|u| u.bytes).max().unwrap_or(1).max(1);
     let name = move |id: &str| cameras.iter().find(|c| c.id == id).map(|c| c.name.clone()).unwrap_or_else(|| format!("{id} (removed)"));
     view! {
@@ -29,4 +37,5 @@ pub fn UsageTable(status: StorageStatus, cameras: Vec<Camera>) -> impl IntoView 
             </table>
         </div>
     }
+    .into_any()
 }
