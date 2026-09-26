@@ -69,21 +69,27 @@ Add `--viewer` to `create` for a read-only account.
 
 ## Backup
 
-Back up these three together:
+A backup is one `.wgbackup` file with the database **and** the master key
+(camera passwords can't be decrypted without it):
 
-1. the database: `sudo -u postgres pg_dump -Fc watchgrid > watchgrid.dump`
-2. `/etc/watchgrid/` (settings **and the master key**: camera passwords
-   in the database can't be decrypted without it)
-3. the recordings folders (optional — they can be large)
+- automatic: every day in `/var/lib/watchgrid/backups/` (the newest 7
+  `watchgrid-auto-*` files are kept);
+- by hand: `sudo watchgrid backup [--out FILE]`.
+
+Recordings are not included — back up their folders separately if you want
+them.
 
 ## Restore
 
 ```sh
 sudo sh deploy/install.sh                       # program, user, service
-sudo cp -a backup/etc-watchgrid/. /etc/watchgrid/
-sudo -u postgres pg_restore --clean -d watchgrid watchgrid.dump
-sudo systemctl restart watchgrid
+sudo systemctl stop watchgrid
+sudo watchgrid restore watchgrid-….wgbackup --replace
+sudo systemctl start watchgrid
 ```
+
+A backup from an older version restores fine; the database is upgraded
+afterwards.
 
 ## Upgrade
 
