@@ -36,6 +36,8 @@ pub fn crumbs(path: &str) -> Vec<(String, String)> {
         }
         ["cameras", id, ..] => vec![top("Cameras", "/cameras"), top("Camera", &format!("/cameras/{id}"))],
         ["events", _] => vec![top("Events", "/events"), top("Event", path)],
+        // Reached from the bell, not the sidebar.
+        ["notifications"] => vec![top("Notifications", path)],
         ["settings", sub, ..] => {
             let label = crate::features::settings::section_label(sub).map(String::from).unwrap_or_else(|| title_case(sub));
             vec![top("Settings", "/settings"), top(&label, path)]

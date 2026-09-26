@@ -7,6 +7,7 @@ pub mod clip_export;
 pub mod dashboard;
 pub mod events;
 pub mod live;
+pub mod notifications;
 pub mod playback;
 pub mod recordings;
 pub mod settings;

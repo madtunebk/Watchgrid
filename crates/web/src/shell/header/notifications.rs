@@ -2,19 +2,22 @@ use std::time::Duration;
 
 use leptos::prelude::*;
 use leptos::task::spawn_local;
+use leptos_router::components::A;
 use leptos_router::hooks::use_navigate;
 
-use crate::api::{self, NotificationLevel, Topic, invalidate, use_query};
-use crate::format;
-use crate::ui::{Dot, I, Icon, Popover, Tone};
+use crate::api::{self, Topic, invalidate, use_query};
+use crate::features::notifications::NotificationItem;
+use crate::ui::{I, Icon, Popover};
 
-/// Bell with unread count and a dropdown feed.
+/// Latest notifications in the dropdown; the rest are on the Notifications page.
+const LATEST: u32 = 15;
+
+/// Bell with the unread count and a dropdown of the latest notifications.
 #[component]
 pub fn Notifications() -> impl IntoView {
     let open = RwSignal::new(false);
-    let list = use_query(Topic::Notifications, Some(Duration::from_secs(30)), api::get_notifications);
-    let items = move || list.get().and_then(Result::ok).unwrap_or_default();
-    let unread = move || items().iter().filter(|n| !n.read).count();
+    let page = use_query(Topic::Notifications, Some(Duration::from_secs(30)), || api::get_notifications(false, LATEST, 0));
+    let unread = move || page.get().and_then(Result::ok).map_or(0, |p| p.unread);
     let navigate = use_navigate();
 
     let mark_read = move |ids: Option<Vec<String>>| {
@@ -39,7 +42,7 @@ pub fn Notifications() -> impl IntoView {
                 <Icon icon=I::Bell />
                 {move || match unread() {
                     0 => None,
-                    n => Some(view! { <span class="badge-count">{n}</span> }),
+                    n => Some(view! { <span class="badge-count">{if n > 99 { "99+".to_string() } else { n.to_string() }}</span> }),
                 }}
             </button>
             <Popover open class="notifications">
@@ -52,7 +55,11 @@ pub fn Notifications() -> impl IntoView {
                 {
                     let navigate = navigate.clone();
                     move || {
-                        let items = items();
+                        let items = match page.get() {
+                            None => return view! { <p class="notifications__empty">"Loading…"</p> }.into_any(),
+                            Some(Err(_)) => return view! { <p class="notifications__empty">"Couldn't load notifications."</p> }.into_any(),
+                            Some(Ok(p)) => p.items,
+                        };
                         if items.is_empty() {
                             return view! { <p class="notifications__empty">"You're all caught up."</p> }.into_any();
                         }
@@ -62,12 +69,6 @@ pub fn Notifications() -> impl IntoView {
                                 {items
                                     .into_iter()
                                     .map(|n| {
-                                        let tone = match n.level {
-                                            NotificationLevel::Info => Tone::Accent,
-                                            NotificationLevel::Success => Tone::Online,
-                                            NotificationLevel::Warning => Tone::Warning,
-                                            NotificationLevel::Error => Tone::Danger,
-                                        };
                                         let navigate = navigate.clone();
                                         let (id, read, link) = (n.id.clone(), n.read, n.link.clone());
                                         view! {
@@ -85,14 +86,7 @@ pub fn Notifications() -> impl IntoView {
                                                         }
                                                     }
                                                 >
-                                                    <Dot tone dim=read />
-                                                    <span class="notif__body">
-                                                        <span class="notif__top">
-                                                            <span class="notif__title truncate">{n.title}</span>
-                                                            <span class="notif__time">{format::relative(n.time)}</span>
-                                                        </span>
-                                                        <span class="notif__msg truncate">{n.message}</span>
-                                                    </span>
+                                                    <NotificationItem notification=n />
                                                 </button>
                                             </li>
                                         }
@@ -103,6 +97,9 @@ pub fn Notifications() -> impl IntoView {
                         .into_any()
                     }
                 }
+                <div class="popover__foot">
+                    <A href="/notifications" attr:class="link-btn" on:click=move |_| open.set(false)>"All notifications"</A>
+                </div>
             </Popover>
         </div>
     }

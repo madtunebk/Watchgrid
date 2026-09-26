@@ -103,3 +103,4 @@
 .user-menu__who { padding: 0.5333rem 0.8rem; border-bottom: 1px solid var(--line); }
 .user-menu__name { font-size: 0.9333rem; font-weight: 500; color: var(--fg-strong); }
 .user-menu__note { font-size: 0.8667rem; color: var(--faint); }
+.popover__foot { padding: 0.5333rem 0.9333rem; border-top: 1px solid var(--line); text-align: center; }

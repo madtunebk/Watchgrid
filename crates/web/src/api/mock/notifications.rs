@@ -4,13 +4,19 @@ use gloo_timers::future::TimeoutFuture;
 
 use super::db::with_db;
 use super::sim::latency;
-use crate::api::{ApiResult, Id, Notification};
+use crate::api::{ApiResult, Id, NotificationBulkAction, NotificationBulkRequest, NotificationBulkResult, NotificationPage};
 
-pub async fn list() -> ApiResult<Vec<Notification>> {
+pub async fn list(unread_only: bool, limit: u32, offset: u32) -> ApiResult<NotificationPage> {
     latency().await;
-    let mut list = with_db(|db| db.notifications.clone());
-    list.sort_by(|a, b| b.time.cmp(&a.time));
-    Ok(list)
+    Ok(with_db(|db| {
+        let mut all = db.notifications.clone();
+        all.sort_by_key(|n| std::cmp::Reverse(n.time));
+        let unread = all.iter().filter(|n| !n.read).count() as u32;
+        let matching: Vec<_> = all.into_iter().filter(|n| !unread_only || !n.read).collect();
+        let total = matching.len() as u32;
+        let items = matching.into_iter().skip(offset as usize).take(limit as usize).collect();
+        NotificationPage { items, total, unread }
+    }))
 }
 
 pub async fn mark_read(ids: Option<Vec<Id>>) -> ApiResult<()> {
@@ -23,4 +29,26 @@ pub async fn mark_read(ids: Option<Vec<Id>>) -> ApiResult<()> {
         }
     });
     Ok(())
+}
+
+pub async fn bulk(req: &NotificationBulkRequest) -> ApiResult<NotificationBulkResult> {
+    latency().await;
+    Ok(with_db(|db| {
+        let before = db.notifications.len();
+        let mut changed = 0;
+        match req.action {
+            NotificationBulkAction::Delete => {
+                db.notifications.retain(|n| !req.ids.contains(&n.id));
+                changed = before - db.notifications.len();
+            }
+            NotificationBulkAction::Read | NotificationBulkAction::Unread => {
+                let read = req.action == NotificationBulkAction::Read;
+                for n in db.notifications.iter_mut().filter(|n| req.ids.contains(&n.id) && n.read != read) {
+                    n.read = read;
+                    changed += 1;
+                }
+            }
+        }
+        NotificationBulkResult { changed: changed as u32 }
+    }))
 }

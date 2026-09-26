@@ -9,6 +9,7 @@ use crate::features::cameras::{CameraDetailsPage, CameraFormPage, CamerasPage};
 use crate::features::dashboard::DashboardPage;
 use crate::features::events::{EventDetailPage, EventsPage};
 use crate::features::live::LiveViewPage;
+use crate::features::notifications::NotificationsPage;
 use crate::features::recordings::RecordingsPage;
 use crate::features::settings::SettingsPage;
 use crate::features::storage::StoragePage;
@@ -35,6 +36,7 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("live") view=LiveViewPage />
 
                     <Route path=path!("events") view=EventsPage />
+                    <Route path=path!("notifications") view=NotificationsPage />
                     <Route path=path!("events/:id") view=EventDetailPage />
 
                     <Route path=path!("recordings") view=RecordingsPage />

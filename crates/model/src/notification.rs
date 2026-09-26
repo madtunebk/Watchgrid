@@ -25,3 +25,39 @@ pub struct Notification {
     /// In-app route to open when clicked.
     pub link: Option<String>,
 }
+
+/// One page of notifications, newest first.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationPage {
+    pub items: Vec<Notification>,
+    /// Notifications matching the filter (all pages).
+    pub total: u32,
+    /// Unread notifications overall, whatever the filter.
+    pub unread: u32,
+}
+
+/// Most notifications one bulk request may change.
+pub const NOTIFICATION_BULK_MAX: usize = 500;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NotificationBulkAction {
+    Read,
+    Unread,
+    Delete,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationBulkRequest {
+    pub ids: Vec<Id>,
+    pub action: NotificationBulkAction,
+}
+
+/// How many notifications a bulk action changed.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationBulkResult {
+    pub changed: u32,
+}

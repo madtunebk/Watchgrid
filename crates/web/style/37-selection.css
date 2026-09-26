@@ -38,3 +38,5 @@
 .bulk-preview { display: grid; gap: 0.2667rem; min-height: 2.6667rem; }
 .bulk-preview__main { color: var(--fg); }
 .bulk-preview__warn { color: var(--danger); }
+.select-row .notif { padding-left: 0; }
+.notif-list .notif:hover { background: var(--surface-2); }
