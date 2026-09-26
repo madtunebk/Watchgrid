@@ -11,6 +11,7 @@ pub mod form;
 pub mod fullscreen;
 pub mod snapshot;
 mod icons;
+mod leave_guard;
 mod meter;
 mod on_screen;
 mod page;
