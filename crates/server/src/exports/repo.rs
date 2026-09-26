@@ -216,7 +216,7 @@ pub async fn job_parts(db: &PgPool, id: &str) -> sqlx::Result<Option<(Option<Str
 }
 
 pub async fn job_started(db: &PgPool, id: &str, total: i64) -> sqlx::Result<()> {
-    sqlx::query("UPDATE export_jobs SET state = 'uploading', bytes_total = $2, bytes_done = 0, updated_at = now() WHERE id = $1")
+    sqlx::query("UPDATE export_jobs SET state = 'uploading', bytes_total = $2, bytes_done = 0, retry_at = NULL, message = NULL, updated_at = now() WHERE id = $1")
         .bind(id)
         .bind(total)
         .execute(db)
@@ -243,7 +243,36 @@ pub async fn job_finished(db: &PgPool, id: &str, result: &Result<String, String>
         .map(|_| ())
 }
 
-/// Jobs interrupted by a restart go back in the queue.
+/// Retries so far.
+pub async fn job_attempts(db: &PgPool, id: &str) -> sqlx::Result<i32> {
+    Ok(sqlx::query_scalar("SELECT attempts FROM export_jobs WHERE id = $1").bind(id).fetch_optional(db).await?.unwrap_or(0))
+}
+
+/// Back in the queue, due at `at`; the error stays visible meanwhile.
+pub async fn job_retry_later(db: &PgPool, id: &str, message: &str, at: DateTime<Utc>) -> sqlx::Result<()> {
+    sqlx::query("UPDATE export_jobs SET state = 'queued', bytes_done = 0, attempts = attempts + 1, message = $2, retry_at = $3, updated_at = now() WHERE id = $1")
+        .bind(id)
+        .bind(message)
+        .bind(at)
+        .execute(db)
+        .await
+        .map(|_| ())
+}
+
+/// A waiting retry made due now (someone asked for the upload again).
+pub async fn retry_now(db: &PgPool, id: &str) -> sqlx::Result<bool> {
+    Ok(sqlx::query("UPDATE export_jobs SET retry_at = NULL WHERE id = $1 AND state = 'queued' AND retry_at IS NOT NULL").bind(id).execute(db).await?.rows_affected() > 0)
+}
+
+/// Retries whose time has come, handed to the queue.
+pub async fn take_due_retries(db: &PgPool) -> sqlx::Result<Vec<String>> {
+    sqlx::query_scalar("UPDATE export_jobs SET retry_at = NULL WHERE state = 'queued' AND retry_at <= now() RETURNING id").fetch_all(db).await
+}
+
+/// Jobs interrupted by a restart go back in the queue (waiting retries
+/// keep their time).
 pub async fn requeue_unfinished(db: &PgPool) -> sqlx::Result<Vec<String>> {
-    sqlx::query_scalar("UPDATE export_jobs SET state = 'queued', bytes_done = 0 WHERE state IN ('queued', 'uploading') RETURNING id").fetch_all(db).await
+    sqlx::query_scalar("UPDATE export_jobs SET state = 'queued', bytes_done = 0 WHERE state = 'uploading' OR (state = 'queued' AND retry_at IS NULL) RETURNING id")
+        .fetch_all(db)
+        .await
 }

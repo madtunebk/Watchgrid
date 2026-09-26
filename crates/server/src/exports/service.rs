@@ -18,6 +18,27 @@ use crate::recordings::RecordingFiles;
 /// Uploads running at once (they compete for the uplink).
 const WORKERS: usize = 2;
 
+/// Waits before each retry of a failed upload; then it stays failed.
+const RETRY_AFTER: [Duration; 4] = [Duration::from_secs(60), Duration::from_secs(5 * 60), Duration::from_secs(15 * 60), Duration::from_secs(60 * 60)];
+
+/// Why an upload failed: `Final` when trying again can't help.
+enum Failure {
+    Final(String),
+    Transient(String),
+}
+
+impl Failure {
+    /// A provider's error: the server refused the request (4xx: credentials,
+    /// bucket, path) or something that may pass later (network, 5xx, stall).
+    fn of(message: String) -> Self {
+        let status = message.split("HTTP ").nth(1).and_then(|s| s.get(..3)).and_then(|s| s.parse::<u16>().ok());
+        match status {
+            Some(s) if (400..500).contains(&s) && s != 408 && s != 429 => Self::Final(message),
+            _ => Self::Transient(message),
+        }
+    }
+}
+
 pub struct Exports {
     db: PgPool,
     credentials: Arc<CredentialStore>,
@@ -50,6 +71,17 @@ impl Exports {
                 }
             });
         }
+        let me = self.clone();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(Duration::from_secs(30));
+            loop {
+                tick.tick().await;
+                match repo::take_due_retries(&me.db).await {
+                    Ok(ids) => ids.into_iter().for_each(|id| drop(me.queue.send(id))),
+                    Err(e) => tracing::warn!("cannot check export retries: {e}"),
+                }
+            }
+        });
         match repo::requeue_unfinished(&self.db).await {
             Ok(ids) => {
                 if !ids.is_empty() {
@@ -100,6 +132,10 @@ impl Exports {
 
     async fn queue_job(&self, event_id: Option<&str>, recording_id: &str, target_id: &str) -> ApiResult<ExportJob> {
         if let Some(job) = repo::existing_job(&self.db, recording_id, target_id).await? {
+            // Waiting for a retry: asked again, so try now.
+            if repo::retry_now(&self.db, &job.id).await? {
+                let _ = self.queue.send(job.id.clone());
+            }
             return Ok(job);
         }
         let Some(job) = repo::insert_job(&self.db, event_id, recording_id, target_id).await? else {
@@ -162,25 +198,52 @@ impl Exports {
     }
 
     async fn run_job(&self, id: &str) {
-        let result = self.upload(id).await;
-        if let Err(e) = &result {
-            tracing::warn!(job = %id, "export failed: {e}");
-        } else {
-            tracing::info!(job = %id, "export done");
-        }
+        let result = match self.upload(id).await {
+            Ok(link) => {
+                tracing::info!(job = %id, "export done");
+                Ok(link)
+            }
+            Err(Failure::Transient(e)) => {
+                let retries = repo::job_attempts(&self.db, id).await.unwrap_or(0) as usize;
+                match RETRY_AFTER.get(retries) {
+                    Some(wait) => {
+                        tracing::warn!(job = %id, "export failed, retrying in {} min: {e}", wait.as_secs() / 60);
+                        let at = chrono::Utc::now() + chrono::Duration::from_std(*wait).unwrap_or_default();
+                        if let Err(err) = repo::job_retry_later(&self.db, id, &e, at).await {
+                            tracing::warn!(job = %id, "cannot schedule the export retry: {err}");
+                        }
+                        return;
+                    }
+                    None => {
+                        tracing::warn!(job = %id, "export failed, giving up: {e}");
+                        Err(format!("{e} (gave up after {} tries)", retries + 1))
+                    }
+                }
+            }
+            Err(Failure::Final(e)) => {
+                tracing::warn!(job = %id, "export failed: {e}");
+                Err(e)
+            }
+        };
         if let Err(e) = repo::job_finished(&self.db, id, &result).await {
             tracing::warn!(job = %id, "cannot store export result: {e}");
         }
     }
 
-    async fn upload(&self, id: &str) -> Result<String, String> {
-        let (event_id, recording_id, target_id) = repo::job_parts(&self.db, id).await.map_err(|e| e.to_string())?.ok_or("job vanished")?;
-        let target = repo::target_by_id(&self.db, &target_id).await.map_err(|e| e.to_string())?.ok_or("the destination was deleted")?;
-        let provider = self.provider(&target)?;
-        let recording = crate::recordings::get(&self.db, &recording_id).await.map_err(|e| e.to_string())?.ok_or("the clip was deleted")?;
-        let file = crate::recordings::file_of(&self.db, &self.files, &recording_id).await.map_err(|e| e.to_string())?.ok_or("the clip file is missing")?;
-        let size = tokio::fs::metadata(&file).await.map_err(|e| format!("the clip file is missing: {e}"))?.len();
-        repo::job_started(&self.db, id, size as i64).await.map_err(|e| e.to_string())?;
+    async fn upload(&self, id: &str) -> Result<String, Failure> {
+        // A database hiccup may pass; a missing clip or destination won't.
+        let db = |e: sqlx::Error| Failure::Transient(e.to_string());
+        let gone = |what: &str| Failure::Final(what.to_string());
+        let (event_id, recording_id, target_id) = repo::job_parts(&self.db, id).await.map_err(db)?.ok_or_else(|| gone("job vanished"))?;
+        let target = repo::target_by_id(&self.db, &target_id).await.map_err(db)?.ok_or_else(|| gone("the destination was deleted"))?;
+        let provider = self.provider(&target).map_err(Failure::Final)?;
+        let recording = crate::recordings::get(&self.db, &recording_id).await.map_err(|e| Failure::Transient(e.to_string()))?.ok_or_else(|| gone("the clip was deleted"))?;
+        let file = crate::recordings::file_of(&self.db, &self.files, &recording_id)
+            .await
+            .map_err(|e| Failure::Transient(e.to_string()))?
+            .ok_or_else(|| gone("the clip file is missing"))?;
+        let size = tokio::fs::metadata(&file).await.map_err(|e| Failure::Final(format!("the clip file is missing: {e}")))?.len();
+        repo::job_started(&self.db, id, size as i64).await.map_err(db)?;
 
         // `<camera>/<day>/<camera>_<time>Z[_<event>].mp4` (UTC).
         let t = recording.start_time;
@@ -207,7 +270,7 @@ impl Exports {
         {
             let _ = repo::set_problem(&self.db, &target.id, Some(e)).await;
         }
-        result
+        result.map_err(Failure::of)
     }
 }
 
@@ -284,6 +347,17 @@ mod tests {
             detections: Vec::new(),
             source: String::new(),
         }
+    }
+
+    #[test]
+    fn refusals_are_final_and_outages_are_retried() {
+        let final_ = |m: &str| matches!(Failure::of(m.into()), Failure::Final(_));
+        assert!(final_("upload failed: HTTP 403 Forbidden: bad signature — check the credentials and permissions"));
+        assert!(final_("upload failed: HTTP 404 Not Found — check the bucket / folder"));
+        assert!(!final_("upload failed: HTTP 503 Service Unavailable"));
+        assert!(!final_("upload failed: HTTP 429 Too Many Requests"));
+        assert!(!final_("upload failed: error sending request: connection refused"));
+        assert!(!final_("the upload stalled (nothing sent for 120 s)"));
     }
 
     #[test]

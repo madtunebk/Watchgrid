@@ -72,3 +72,28 @@ async fn an_edit_keeps_the_id_and_clears_the_problem(db: PgPool) {
     assert!(repo::job_by_id(&db, &job.id).await.unwrap().is_some(), "jobs stay with the edited destination");
     assert!(!repo::update_target(&db, &target("exp-missing")).await.unwrap());
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn a_failed_upload_waits_for_its_retry(db: PgPool) {
+    let id = repo::new_target_id(&db).await.unwrap();
+    repo::insert_target(&db, &target(&id)).await.unwrap();
+    let job = repo::insert_job(&db, None, "rec-1", &id).await.unwrap().unwrap();
+    repo::job_started(&db, &job.id, 1000).await.unwrap();
+
+    let later = chrono::Utc::now() + chrono::Duration::minutes(5);
+    repo::job_retry_later(&db, &job.id, "HTTP 503", later).await.unwrap();
+    let waiting = repo::job_by_id(&db, &job.id).await.unwrap().unwrap();
+    assert_eq!(waiting.state, ExportState::Queued);
+    assert_eq!(waiting.message.as_deref(), Some("HTTP 503"), "the last error stays visible");
+    assert_eq!(repo::job_attempts(&db, &job.id).await.unwrap(), 1);
+    assert!(repo::insert_job(&db, None, "rec-1", &id).await.unwrap().is_none(), "still the one live job");
+    assert!(repo::take_due_retries(&db).await.unwrap().is_empty(), "not due yet");
+    assert!(repo::requeue_unfinished(&db).await.unwrap().is_empty(), "a restart keeps the wait");
+
+    assert!(repo::retry_now(&db, &job.id).await.unwrap(), "asked again: due now");
+    assert!(!repo::retry_now(&db, &job.id).await.unwrap());
+    repo::job_retry_later(&db, &job.id, "HTTP 503", chrono::Utc::now() - chrono::Duration::seconds(1)).await.unwrap();
+    assert_eq!(repo::take_due_retries(&db).await.unwrap(), vec![job.id.clone()]);
+    assert!(repo::take_due_retries(&db).await.unwrap().is_empty(), "handed out once");
+    assert_eq!(repo::job_attempts(&db, &job.id).await.unwrap(), 2);
+}

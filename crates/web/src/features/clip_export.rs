@@ -190,7 +190,11 @@ pub fn ExportMenu(subject: ExportSubject) -> impl IntoView {
 #[component]
 fn JobRow(job: ExportJob, name: String) -> impl IntoView {
     let (text, class) = match job.state {
-        ExportState::Queued => (format!("{name}: queued"), "job"),
+        // Queued again after a failure: say why it is waiting.
+        ExportState::Queued => match &job.message {
+            Some(m) => (format!("{name}: will retry ({m})"), "job"),
+            None => (format!("{name}: queued"), "job"),
+        },
         ExportState::Uploading => (format!("{name}: uploading {:.0}%", job.progress), "job"),
         ExportState::Done => (format!("{name}: uploaded"), "job job--done"),
         ExportState::Failed => (format!("{name}: {}", job.message.unwrap_or_else(|| "failed".into())), "job job--failed"),
