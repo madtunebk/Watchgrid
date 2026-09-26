@@ -4,6 +4,8 @@
 //! UI refetches those queries. The socket's state drives the connection
 //! indicator, and it reconnects with backoff.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::time::Duration;
 
 use leptos::prelude::*;
@@ -13,6 +15,7 @@ use web_sys::{MessageEvent, WebSocket};
 
 use super::connection::ConnectionState;
 use super::query::{Topic, invalidate};
+use super::throttle::{Action, Gate};
 
 const MAX_DELAY: Duration = Duration::from_secs(15);
 
@@ -27,6 +30,30 @@ fn topic(name: &str) -> Option<Topic> {
         "notifications" => Some(Topic::Notifications),
         "server" => Some(Topic::Server),
         _ => None,
+    }
+}
+
+thread_local! {
+    static GATES: RefCell<HashMap<usize, Gate>> = RefCell::new(HashMap::new());
+}
+
+fn now_ms() -> f64 {
+    js_sys::Date::now()
+}
+
+/// Refresh `t`, folding bursts (see `throttle`).
+fn refresh(t: Topic) {
+    let action = GATES.with(|g| g.borrow_mut().entry(t as usize).or_default().notice(now_ms()));
+    match action {
+        Action::Now => invalidate(t),
+        Action::Later(ms) => set_timeout(
+            move || {
+                GATES.with(|g| g.borrow_mut().entry(t as usize).or_default().fired(now_ms()));
+                invalidate(t);
+            },
+            Duration::from_millis(ms.max(0.0) as u64),
+        ),
+        Action::Folded => {}
     }
 }
 
@@ -65,7 +92,7 @@ fn connect(set_state: WriteSignal<ConnectionState>, attempt: u32) {
         let Some(text) = e.data().as_string() else { return };
         if let Ok(notice) = serde_json::from_str::<Notice>(&text) {
             for t in notice.topics.iter().filter_map(|n| topic(n)) {
-                invalidate(t);
+                refresh(t);
             }
         }
     });

@@ -23,6 +23,8 @@ mod ptz;
 mod push;
 pub mod query;
 mod recordings;
+#[cfg(any(feature = "live-api", test))]
+mod throttle;
 pub mod session;
 mod settings;
 mod storage;
