@@ -3,7 +3,9 @@
 
 use std::io::Write;
 use std::path::Path;
-use std::sync::OnceLock;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
 use watchgrid_model::Hardware;
@@ -52,16 +54,23 @@ fn network_link() -> Option<u64> {
         .map(|mbit| mbit as u64 * 1_000_000)
 }
 
-/// Sequential write speed of the recordings volume, measured once.
+/// Sequential write speed of the recordings volume, measured once per
+/// folder (a new recordings folder may be another disk).
 fn disk_write(recordings: &Path) -> u64 {
-    static MEASURED: OnceLock<u64> = OnceLock::new();
-    *MEASURED.get_or_init(|| match measure(recordings) {
+    static MEASURED: OnceLock<Mutex<HashMap<PathBuf, u64>>> = OnceLock::new();
+    let cache = MEASURED.get_or_init(Mutex::default);
+    if let Some(bps) = cache.lock().expect("disk speed cache").get(recordings) {
+        return *bps;
+    }
+    let bps = match measure(recordings) {
         Ok(bps) => bps,
         Err(e) => {
             tracing::warn!("cannot measure disk speed in {}: {e}", recordings.display());
             DEFAULT_DISK
         }
-    })
+    };
+    cache.lock().expect("disk speed cache").insert(recordings.to_path_buf(), bps);
+    bps
 }
 
 fn measure(dir: &Path) -> std::io::Result<u64> {

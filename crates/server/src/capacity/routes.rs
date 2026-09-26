@@ -25,14 +25,23 @@ pub async fn estimate(State(s): State<AppState>) -> ApiResult<Json<CapacityEstim
     let hw = tokio::task::spawn_blocking(move || hardware::detect(&root)).await.map_err(ApiError::internal)?;
     let host = s.metrics.latest();
 
-    // Recorded seconds per camera over the last 24 hours.
-    let recorded: Vec<(String, i64)> = sqlx::query_as(
-        "SELECT camera_id, COALESCE(SUM(duration_ms), 0)::bigint FROM recordings WHERE end_time > now() - interval '24 hours' GROUP BY camera_id",
+    // Recorded ms per camera over the last 24 hours: only the part of each
+    // clip inside the window, plus clips still being written.
+    let mut recorded: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT camera_id, COALESCE(SUM(EXTRACT(EPOCH FROM (LEAST(end_time, now()) - GREATEST(start_time, now() - interval '24 hours'))) * 1000), 0)::bigint
+         FROM recordings WHERE end_time > now() - interval '24 hours' GROUP BY camera_id",
     )
     .fetch_all(&s.db)
     .await?;
-
     let now = Utc::now();
+    for clip in s.recorder.live().all().iter().filter_map(|c| c.recording()) {
+        let ms = (now - clip.start_time.max(now - chrono::Duration::hours(24))).num_milliseconds().max(0);
+        match recorded.iter_mut().find(|(id, _)| *id == clip.camera_id) {
+            Some((_, total)) => *total += ms,
+            None => recorded.push((clip.camera_id, ms)),
+        }
+    }
+
     let cams: Vec<CameraLoad> = crate::cameras::list(&s)
         .await?
         .into_iter()
@@ -41,7 +50,13 @@ pub async fn estimate(State(s): State<AppState>) -> ApiResult<Json<CapacityEstim
             let window = (now - c.created_at).num_milliseconds().clamp(0, 86_400_000) as f32;
             let observed = recorded.iter().find(|(id, _)| *id == c.id).map_or(0, |r| r.1) as f32;
             let duty = if window >= 3_600_000.0 { (observed / window).clamp(0.0, 1.0) } else { assumed_duty(c.recording.mode) };
-            let has_source = c.motion.enabled && c.motion.source == MotionSource::Onvif && c.onvif.as_ref().is_some_and(|o| !o.url.is_empty());
+            // Same rule as the recorder: the camera's ONVIF events or Watchgrid's software detection.
+            let has_source = c.motion.enabled
+                && match c.motion.source {
+                    MotionSource::Onvif => c.onvif.as_ref().is_some_and(|o| !o.url.is_empty()),
+                    MotionSource::Software => true,
+                    MotionSource::Ai => false,
+                };
             CameraLoad {
                 online: c.status == CameraStatus::Online,
                 main_kbps: c.main_stream.bitrate,

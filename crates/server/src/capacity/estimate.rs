@@ -61,7 +61,7 @@ pub fn estimate(hw: Hardware, cams: &[CameraLoad], m: Measured) -> CapacityEstim
         ResourceLoad {
             resource: Resource::Cpu,
             percent: pct(m.process_cpu, cpu_budget),
-            detail: format!("{} · {} cores · Watchgrid uses {:.1}% of one core (no video decoding)", hw.cpu_model, hw.cpu_cores, m.process_cpu),
+            detail: format!("{} · {} cores · Watchgrid uses {:.1}% of one core (video is repackaged, never transcoded; software motion decodes substreams)", hw.cpu_model, hw.cpu_cores, m.process_cpu),
         },
         ResourceLoad {
             resource: Resource::Memory,
@@ -115,7 +115,7 @@ fn advice(cams: &[CameraLoad], bottleneck: Resource, memory_pct: f32) -> Vec<Str
     let mut out = Vec::new();
     let silent = names(&|c| c.events_without_source);
     if !silent.is_empty() {
-        out.push(format!("{} use Events mode but have no motion source, so they never record by themselves.", join_names(&silent)));
+        out.push(format!("{} use Events mode but have no motion source, so they never record by themselves (turn on ONVIF or software detection in Camera → Motion).", join_names(&silent)));
     }
     let continuous = names(&|c| c.continuous);
     if !continuous.is_empty() {
