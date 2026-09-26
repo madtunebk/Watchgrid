@@ -2,6 +2,7 @@
 //! vendor integrations), stored from bus transitions by the journal.
 
 mod bulk;
+mod days;
 mod journal;
 mod kinds;
 mod repo;

@@ -6,8 +6,7 @@ use leptos_router::components::A;
 use super::camera_overview::CameraOverview;
 use super::recent_events::RecentEvents;
 use super::stats::StatsRow;
-use crate::api::{self, EventQuery, Topic, use_query};
-use crate::clock::start_of_today;
+use crate::api::{self, EventQuery, NvrDays, Topic, use_query};
 use crate::features::cameras::NoCameras;
 use crate::features::storage::StorageSummary;
 use crate::features::system::{CapacitySummary, SystemSummary};
@@ -19,7 +18,7 @@ pub fn DashboardPage() -> impl IntoView {
     let cameras = use_query(Topic::Cameras, None, api::get_cameras);
     // Only the few shown; the page's total is the day's real count.
     let events = use_query(Topic::Events, Some(Duration::from_secs(30)), || {
-        api::get_events(EventQuery { from: Some(start_of_today()), limit: Some(super::recent_events::LIMIT as u32), ..Default::default() })
+        api::get_events(EventQuery { days: Some(NvrDays::Today), limit: Some(super::recent_events::LIMIT as u32), ..Default::default() })
     });
     let storage = use_query(Topic::Storage, Some(Duration::from_secs(60)), api::get_storage_status);
     let system = use_query(Topic::System, Some(Duration::from_secs(5)), api::get_system_status);

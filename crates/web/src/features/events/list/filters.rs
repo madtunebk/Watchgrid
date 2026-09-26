@@ -1,11 +1,10 @@
 //! Event filters: parsed from and written to the URL query string, so a
 //! filtered list can be bookmarked, shared, and returned to from details.
 
-use chrono::{Duration, Local, NaiveDate};
+use chrono::NaiveDate;
 use leptos_router::params::ParamsMap;
 
-use crate::api::{EventQuery, EventType};
-use crate::clock::start_of_today;
+use crate::api::{EventQuery, EventType, NvrDays};
 use crate::features::events::labels;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -104,22 +103,20 @@ impl Filters {
 
     /// The server query for one page of `per_page` events (`page` from 0).
     pub fn to_query(&self, page: u32, per_page: u32) -> EventQuery {
-        let today = start_of_today();
-        let (from, to) = match self.range {
-            Range::Today => (Some(today), None),
-            Range::Yesterday => (Some(today - Duration::days(1)), Some(today)),
-            Range::Week => (Some(today - Duration::days(6)), None),
-            Range::All => (None, None),
-            Range::Day(d) => {
-                let start = d.and_hms_opt(0, 0, 0).and_then(|t| t.and_local_timezone(Local).earliest()).map(|t| t.to_utc());
-                (start, start.map(|s| s + Duration::days(1)))
-            }
+        // Days are the NVR's (its time zone), worked out by the server.
+        let days = match self.range {
+            Range::Today => Some(NvrDays::Today),
+            Range::Yesterday => Some(NvrDays::Yesterday),
+            Range::Week => Some(NvrDays::Week),
+            Range::All => None,
+            Range::Day(d) => Some(NvrDays::Date(d)),
         };
         EventQuery {
             camera_id: self.camera.clone(),
             kinds: self.kinds.clone(),
-            from,
-            to,
+            days,
+            from: None,
+            to: None,
             hours: self.hours.and_then(|k| HOURS.iter().find(|(key, ..)| *key == k)).map(|(.., h)| *h),
             min_duration: self.min_duration,
             protected_only: self.protected_only,

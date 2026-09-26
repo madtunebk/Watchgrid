@@ -68,10 +68,45 @@ pub struct Event {
     pub source: String,
 }
 
+/// Whole days in the NVR's time zone; the server turns them into instants
+/// (midnight to midnight, DST included), so every browser sees the same day.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NvrDays {
+    Today,
+    Yesterday,
+    /// Today and the 6 days before.
+    Week,
+    Date(chrono::NaiveDate),
+}
+
+impl NvrDays {
+    /// As a query parameter: `today`, `yesterday`, `week` or `2026-09-27`.
+    pub fn param(self) -> String {
+        match self {
+            Self::Today => "today".into(),
+            Self::Yesterday => "yesterday".into(),
+            Self::Week => "week".into(),
+            Self::Date(d) => d.format("%Y-%m-%d").to_string(),
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "today" => Some(Self::Today),
+            "yesterday" => Some(Self::Yesterday),
+            "week" => Some(Self::Week),
+            d => chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d").ok().map(Self::Date),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EventQuery {
     pub camera_id: Option<Id>,
+    /// Days in the NVR's time zone; replaces `from` / `to` when set.
+    #[serde(default)]
+    pub days: Option<NvrDays>,
     /// Empty = all types.
     pub kinds: Vec<EventType>,
     /// Inclusive.

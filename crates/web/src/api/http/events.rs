@@ -13,6 +13,9 @@ pub async fn list(q: &EventQuery) -> ApiResult<EventPage> {
         let names: Vec<String> = q.kinds.iter().filter_map(|k| serde_json::to_value(k).ok()?.as_str().map(String::from)).collect();
         add("kinds", names.join(","));
     }
+    if let Some(days) = q.days {
+        add("days", days.param());
+    }
     if let Some(from) = q.from {
         add("from", from.to_rfc3339());
     }

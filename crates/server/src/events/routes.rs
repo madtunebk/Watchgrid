@@ -6,7 +6,7 @@ use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
-use watchgrid_model::{EVENT_BULK_MAX, EventBulkRequest, EventBulkSummary, EventDetail, EventPage, EventQuery};
+use watchgrid_model::{EVENT_BULK_MAX, EventBulkRequest, EventBulkSummary, EventDetail, EventPage, EventQuery, NvrDays};
 
 use super::{kinds, repo};
 use crate::bus::BusEvent;
@@ -69,6 +69,8 @@ struct ListQuery {
     kinds: Option<String>,
     from: Option<DateTime<Utc>>,
     to: Option<DateTime<Utc>>,
+    /// `today`, `yesterday`, `week` or a date, in the NVR's time zone.
+    days: Option<String>,
     /// `start-end` local hours, e.g. `22-6`.
     hours: Option<String>,
     min_duration: Option<u32>,
@@ -88,8 +90,13 @@ impl ListQuery {
             None => None,
             Some(h) => Some(parse_hours(h).ok_or_else(|| ApiError::invalid("hours must look like 22-6 (0–24)"))?),
         };
+        let days = match self.days.as_deref() {
+            None => None,
+            Some(d) => Some(NvrDays::parse(d).ok_or_else(|| ApiError::invalid("days must be today, yesterday, week or a date like 2026-09-27"))?),
+        };
         Ok(EventQuery {
             camera_id: self.camera.filter(|c| !c.is_empty()),
+            days,
             kinds,
             from: self.from,
             to: self.to,
@@ -110,7 +117,12 @@ fn parse_hours(s: &str) -> Option<(u8, u8)> {
 
 async fn list(State(s): State<AppState>, Query(q): Query<ListQuery>) -> ApiResult<Json<EventPage>> {
     let tz = crate::settings::load_app(&s.db, s.bind).await?.general.timezone;
-    let (events, total) = repo::list(&s.db, &q.into_query()?, &tz).await?;
+    let mut q = q.into_query()?;
+    if let Some(days) = q.days {
+        let (from, to) = super::days::bounds(&s.db, &tz, days).await?;
+        (q.from, q.to) = (Some(from), Some(to));
+    }
+    let (events, total) = repo::list(&s.db, &q, &tz).await?;
     Ok(Json(EventPage { events, total }))
 }
 

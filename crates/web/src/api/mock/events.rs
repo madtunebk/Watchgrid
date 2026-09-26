@@ -1,12 +1,12 @@
 //! Mock event queries and event actions.
 
-use chrono::{Local, Timelike};
+use chrono::{DateTime, Local, Timelike, Utc};
 
 use super::db::with_db;
 use super::sim::latency;
 use std::collections::HashSet;
 
-use crate::api::{ApiError, ApiResult, BulkSkip, BulkSkipReason, Event, EventBulkAction, EventBulkRequest, EventBulkSummary, EventDetail, EventPage, EventQuery};
+use crate::api::{ApiError, ApiResult, BulkSkip, BulkSkipReason, Event, EventBulkAction, EventBulkRequest, EventBulkSummary, EventDetail, EventPage, EventQuery, NvrDays};
 
 fn in_hours(e: &Event, (start, end): (u8, u8)) -> bool {
     // The browser's zone stands in for the server's configured zone.
@@ -14,11 +14,29 @@ fn in_hours(e: &Event, (start, end): (u8, u8)) -> bool {
     if start <= end { h >= start && h < end } else { h >= start || h < end }
 }
 
+/// The demo has no NVR zone: the browser's days stand in for it.
+fn local_days(days: NvrDays) -> (DateTime<Utc>, DateTime<Utc>) {
+    let today = crate::clock::start_of_today();
+    match days {
+        NvrDays::Today => (today, today + chrono::Duration::days(1)),
+        NvrDays::Yesterday => (today - chrono::Duration::days(1), today),
+        NvrDays::Week => (today - chrono::Duration::days(6), today + chrono::Duration::days(1)),
+        NvrDays::Date(d) => {
+            let start = d.and_hms_opt(0, 0, 0).and_then(|t| t.and_local_timezone(Local).earliest()).map_or(today, |t| t.to_utc());
+            (start, start + chrono::Duration::days(1))
+        }
+    }
+}
+
 fn matches(e: &Event, q: &EventQuery) -> bool {
+    let (from, to) = match q.days.map(local_days) {
+        Some((f, t)) => (Some(f), Some(t)),
+        None => (q.from, q.to),
+    };
     q.camera_id.as_ref().is_none_or(|c| &e.camera_id == c)
         && (q.kinds.is_empty() || q.kinds.contains(&e.kind))
-        && q.from.is_none_or(|t| e.start_time >= t)
-        && q.to.is_none_or(|t| e.start_time < t)
+        && from.is_none_or(|t| e.start_time >= t)
+        && to.is_none_or(|t| e.start_time < t)
         && q.hours.is_none_or(|h| in_hours(e, h))
         && q.min_duration.is_none_or(|d| e.duration >= d)
         && (!q.protected_only || e.protected)
