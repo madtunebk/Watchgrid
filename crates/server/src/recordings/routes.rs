@@ -116,6 +116,9 @@ async fn protect(State(s): State<AppState>, Path(id): Path<String>, Json(body): 
     repo::get(&s.db, &id).await?.ok_or_else(|| ApiError::not_found("Recording"))?;
     repo::set_protected(&s.db, &id, body.protected).await?;
     s.bus.publish(BusEvent::RecordingsChanged);
+    if body.protected {
+        s.exports.on_recording_protected(&id, None).await;
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 

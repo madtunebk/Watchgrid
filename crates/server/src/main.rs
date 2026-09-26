@@ -331,11 +331,8 @@ fn exports_auto_upload(state: &AppState) {
             match events.recv().await {
                 Ok(bus::BusEvent::RecordingStopped { recording_id: Some(id), .. }) => {
                     let exports = exports.clone();
-                    tokio::spawn(async move {
-                        // Let the event journal link the clip's events first.
-                        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-                        exports.on_clip_saved(&id).await;
-                    });
+                    // `on_clip_saved` links the clip's events itself first.
+                    tokio::spawn(async move { exports.on_clip_saved(&id).await });
                 }
                 Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
                 Err(_) => return,

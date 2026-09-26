@@ -80,8 +80,9 @@ impl Exports {
         }
         let event = crate::events::get_event(&self.db, event_id).await?.ok_or_else(|| ApiError::not_found("Event"))?;
         let recording_id = event.recording_id.ok_or_else(|| ApiError::conflict("This event has no video clip"))?;
-        if event.end_time.is_none() {
-            return Err(ApiError::conflict("The clip is still being recorded; try again when it has finished"));
+        // What matters is the clip being saved, not the event having ended.
+        if crate::recordings::get(&self.db, &recording_id).await?.is_none() {
+            return Err(ApiError::conflict("The clip is still being recorded; it is uploaded once saved if a rule asks for it"));
         }
         self.queue_job(Some(event_id), &recording_id, target_id).await
     }
@@ -101,35 +102,61 @@ impl Exports {
         if let Some(job) = repo::existing_job(&self.db, recording_id, target_id).await? {
             return Ok(job);
         }
-        let job = repo::insert_job(&self.db, event_id, recording_id, target_id).await?;
+        let Some(job) = repo::insert_job(&self.db, event_id, recording_id, target_id).await? else {
+            // Queued by someone else just now.
+            return repo::existing_job(&self.db, recording_id, target_id).await?.ok_or_else(|| ApiError::conflict("The export could not be queued; try again"));
+        };
         let _ = self.queue.send(job.id.clone());
         tracing::info!(job = %job.id, recording = %recording_id, target = %target_id, "export queued");
         Ok(job)
     }
 
-    /// Auto-upload after a clip was saved, per destination rule.
+    /// Auto-upload after a clip was saved, per destination rule —
+    /// including "Protected" for a clip protected while it was recording.
     pub async fn on_clip_saved(&self, recording_id: &str) {
         let Ok(targets) = repo::targets(&self.db).await else { return };
-        let wanted: Vec<_> = targets.into_iter().filter(|t| matches!(t.auto_upload, AutoUpload::AllEvents | AutoUpload::Person | AutoUpload::Motion) && t.problem.is_none()).collect();
+        let wanted: Vec<_> = targets.into_iter().filter(|t| t.auto_upload != AutoUpload::Off && t.problem.is_none()).collect();
         if wanted.is_empty() {
             return;
         }
+        // The journal links the clip's detections when it is saved; do it
+        // here too (idempotent) so the rules never see a clip before that.
+        let _ = crate::events::link_detections_within(&self.db, recording_id).await;
         let events = crate::events::events_of_recording(&self.db, recording_id).await.unwrap_or_default();
+        let protected = crate::recordings::get(&self.db, recording_id).await.ok().flatten().is_some_and(|r| r.is_protected());
         for t in wanted {
-            if let Some(e) = pick(t.auto_upload, &events)
-                && let Err(err) = self.enqueue(&e.id, &t.id).await
-            {
-                tracing::warn!(target = %t.id, event = %e.id, "auto-upload skipped: {}", err.message());
+            let result = match t.auto_upload {
+                AutoUpload::Protected if protected => {
+                    let event = events.iter().find(|e| e.protected).map(|e| e.id.as_str());
+                    self.queue_job(event, recording_id, &t.id).await.map(|_| ())
+                }
+                rule => match pick(rule, &events) {
+                    Some(e) => self.enqueue(&e.id, &t.id).await.map(|_| ()),
+                    None => Ok(()),
+                },
+            };
+            if let Err(err) = result {
+                tracing::warn!(target = %t.id, recording = %recording_id, "auto-upload skipped: {}", err.message());
             }
         }
     }
 
-    /// Auto-upload when an event is protected, per destination rule.
+    /// Auto-upload when an event is protected, per destination rule. A clip
+    /// still recording is handled when it is saved (`on_clip_saved`).
     pub async fn on_protected(&self, event_id: &str) {
+        let Ok(Some(event)) = crate::events::get_event(&self.db, event_id).await else { return };
+        let Some(recording_id) = event.recording_id else { return };
+        if matches!(crate::recordings::get(&self.db, &recording_id).await, Ok(Some(_))) {
+            self.on_recording_protected(&recording_id, Some(event_id)).await;
+        }
+    }
+
+    /// Auto-upload when a saved clip becomes protected (by hand or by an event).
+    pub async fn on_recording_protected(&self, recording_id: &str, event_id: Option<&str>) {
         let Ok(targets) = repo::targets(&self.db).await else { return };
         for t in targets.into_iter().filter(|t| t.auto_upload == AutoUpload::Protected && t.problem.is_none()) {
-            if let Err(err) = self.enqueue(event_id, &t.id).await {
-                tracing::warn!(target = %t.id, event = %event_id, "auto-upload skipped: {}", err.message());
+            if let Err(err) = self.queue_job(event_id, recording_id, &t.id).await {
+                tracing::warn!(target = %t.id, recording = %recording_id, "auto-upload skipped: {}", err.message());
             }
         }
     }
@@ -171,7 +198,8 @@ impl Exports {
             })
         };
         let counter = sent.clone();
-        let result = provider.upload(&file, &name, move |n| counter.store(n, Ordering::Relaxed)).await;
+        let upload = provider.upload(&file, &name, move |n| counter.store(n, Ordering::Relaxed));
+        let result = watch_progress(upload, &sent).await;
         reporter.abort();
         // Credentials rejected: mark the destination so the UI says so.
         if let Err(e) = &result
@@ -180,6 +208,30 @@ impl Exports {
             let _ = repo::set_problem(&self.db, &target.id, Some(e)).await;
         }
         result
+    }
+}
+
+/// An upload that sends nothing for this long is given up (large healthy
+/// uploads keep moving, so they are never cut short).
+const STALL: Duration = Duration::from_secs(120);
+
+/// Run `upload`, failing it when `sent` stops growing for `STALL`.
+async fn watch_progress(upload: impl std::future::Future<Output = Result<String, String>>, sent: &AtomicU64) -> Result<String, String> {
+    tokio::pin!(upload);
+    let mut last = (sent.load(Ordering::Relaxed), tokio::time::Instant::now());
+    let mut tick = tokio::time::interval(Duration::from_secs(5));
+    loop {
+        tokio::select! {
+            result = &mut upload => return result,
+            _ = tick.tick() => {
+                let now = sent.load(Ordering::Relaxed);
+                if now != last.0 {
+                    last = (now, tokio::time::Instant::now());
+                } else if last.1.elapsed() >= STALL {
+                    return Err(format!("the upload stalled (nothing sent for {} s)", STALL.as_secs()));
+                }
+            }
+        }
     }
 }
 
@@ -196,6 +248,26 @@ fn pick(rule: AutoUpload, events: &[Event]) -> Option<&Event> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test(start_paused = true)]
+    async fn a_stalled_upload_is_given_up_and_a_moving_one_is_not() {
+        let sent = AtomicU64::new(0);
+        let stuck = std::future::pending::<Result<String, String>>();
+        let err = watch_progress(stuck, &sent).await.unwrap_err();
+        assert!(err.contains("stalled"), "{err}");
+
+        // Progress every 10 s for 5 minutes: slow but alive.
+        let sent = Arc::new(AtomicU64::new(0));
+        let feeder = sent.clone();
+        let slow = async move {
+            for i in 1..=30 {
+                tokio::time::sleep(Duration::from_secs(10)).await;
+                feeder.store(i, Ordering::Relaxed);
+            }
+            Ok("done".to_string())
+        };
+        assert_eq!(watch_progress(slow, &sent).await.unwrap(), "done");
+    }
 
     fn event(id: &str, kind: EventType) -> Event {
         let at = chrono::Utc::now();

@@ -9,7 +9,7 @@ mod routes;
 
 pub use bulk::ClipRow;
 pub use journal::start as start_journal;
-pub use repo::{delete_many as delete_events, get as get_event, last_per_camera as last_events, of_recording as events_of_recording, purge_older_than as purge_events_older_than, count_older_than as count_events_older_than};
+pub use repo::{delete_many as delete_events, get as get_event, link_detections_within, last_per_camera as last_events, of_recording as events_of_recording, purge_older_than as purge_events_older_than, count_older_than as count_events_older_than};
 pub use routes::router;
 
 #[cfg(test)]

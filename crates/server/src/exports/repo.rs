@@ -165,16 +165,19 @@ pub async fn existing_job(db: &PgPool, recording_id: &str, target_id: &str) -> s
     Ok(row.map(job))
 }
 
-pub async fn insert_job(db: &PgPool, event_id: Option<&str>, recording_id: &str, target_id: &str) -> sqlx::Result<ExportJob> {
-    let row: JobRow = sqlx::query_as(&format!(
-        "INSERT INTO export_jobs (event_id, recording_id, target_id, state) VALUES ($1, $2, $3, 'queued') RETURNING {JOB_COLUMNS}"
+/// Queue a job; `None` if a live one for this clip and destination already
+/// exists (two enqueues at once can't make duplicates: unique index).
+pub async fn insert_job(db: &PgPool, event_id: Option<&str>, recording_id: &str, target_id: &str) -> sqlx::Result<Option<ExportJob>> {
+    let row: Option<JobRow> = sqlx::query_as(&format!(
+        "INSERT INTO export_jobs (event_id, recording_id, target_id, state) VALUES ($1, $2, $3, 'queued')
+         ON CONFLICT (recording_id, target_id) WHERE state <> 'failed' DO NOTHING RETURNING {JOB_COLUMNS}"
     ))
     .bind(event_id)
     .bind(recording_id)
     .bind(target_id)
-    .fetch_one(db)
+    .fetch_optional(db)
     .await?;
-    Ok(job(row))
+    Ok(row.map(job))
 }
 
 /// (event, recording, target) of a job.

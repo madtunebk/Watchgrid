@@ -50,3 +50,7 @@ flate2 = "1"
 openh264 = { version = "0.9", default-features = false, features = ["source"] }
 # Event thumbnails: one decoded frame as a small JPEG (pure Rust).
 jpeg-encoder = "0.7"
+
+[dev-dependencies]
+# Paused clock for timing tests (`#[tokio::test(start_paused = true)]`).
+tokio = { version = "1", features = ["test-util"] }

@@ -97,6 +97,9 @@ pub(super) async fn apply(s: &AppState, action: RecordingBulkAction, ids: &[Stri
             for (id, _, _) in &plan.recordings {
                 repo::set_protected(&s.db, id, protect).await?;
                 done.recordings += 1;
+                if protect {
+                    s.exports.on_recording_protected(id, None).await;
+                }
             }
         }
         RecordingBulkAction::Delete | RecordingBulkAction::DeleteWithEvents => {
