@@ -12,6 +12,12 @@ use watchgrid_model::{AdvancedSettings, LogLevel, RtspTransport};
 static UDP: AtomicBool = AtomicBool::new(false);
 static RECONNECT_SECS: AtomicU32 = AtomicU32::new(2);
 static LOG_FILTER: OnceLock<reload::Handle<EnvFilter, Registry>> = OnceLock::new();
+static LOG_FROM_ENV: AtomicBool = AtomicBool::new(false);
+
+/// `RUST_LOG` decides the log level (Settings can't change it).
+pub fn log_level_from_env() -> bool {
+    LOG_FROM_ENV.load(Ordering::Relaxed)
+}
 
 /// Open camera streams over UDP instead of TCP.
 pub fn rtsp_udp() -> bool {
@@ -27,7 +33,10 @@ pub fn reconnect_base() -> Duration {
 /// (`RUST_LOG` set by the admin wins over the Settings page).
 pub fn initial_log_filter() -> (EnvFilter, bool) {
     match EnvFilter::try_from_default_env() {
-        Ok(filter) => (filter, false),
+        Ok(filter) => {
+            LOG_FROM_ENV.store(true, Ordering::Relaxed);
+            (filter, false)
+        }
         Err(_) => (log_filter(LogLevel::Info), true),
     }
 }

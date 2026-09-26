@@ -3,7 +3,7 @@ use leptos::prelude::*;
 use crate::api::{DateFormat, Settings};
 use crate::features::settings::save::save;
 use crate::ui::form::{Choice, Field, FormSection, RadioCards, Switch, TextInput};
-use crate::ui::{SaveBar, SaveState};
+use crate::ui::{follow_server, SaveBar, SaveState};
 
 const ZONES: &[&str] = &[
     "UTC", "Europe/Bucharest", "Europe/London", "Europe/Berlin", "Europe/Paris", "Europe/Madrid", "Europe/Rome",
@@ -26,7 +26,7 @@ pub fn GeneralSection(settings: Signal<Settings>) -> impl IntoView {
     });
     let on_save = Callback::new(move |_| {
         let (n, z, d, c) = draft();
-        save(state, &settings.get_untracked(), |s| {
+        save(state, &settings.get_untracked(), move |s| {
             s.general.nvr_name = n.trim().into();
             s.general.timezone = z;
             s.general.date_format = d;
@@ -40,6 +40,7 @@ pub fn GeneralSection(settings: Signal<Settings>) -> impl IntoView {
         date_format.set(g.date_format);
         clock_24h.set(g.clock_24h);
     });
+    follow_server(draft, move || { let g = settings.get().general; (g.nvr_name, g.timezone, g.date_format, g.clock_24h) }, on_revert);
     let preview = move || {
         let now = chrono::Local::now();
         let date = match date_format.get() {

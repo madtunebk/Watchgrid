@@ -3,11 +3,13 @@ use leptos::prelude::*;
 use crate::api::{LogLevel, RtspTransport, Settings};
 use crate::features::settings::save::save;
 use crate::ui::form::{Choice, Field, FormSection, NumberInput, RadioCards};
-use crate::ui::{SaveBar, SaveState};
+use crate::ui::{follow_server, SaveBar, SaveState};
 
 #[component]
 pub fn AdvancedSection(settings: Signal<Settings>) -> impl IntoView {
     let a = settings.get_untracked().advanced;
+    let server = crate::api::use_query(crate::api::Topic::Server, None, crate::api::get_server_info);
+    let from_env = Signal::derive(move || server.get().and_then(Result::ok).is_some_and(|s| s.log_level_from_env));
     let level = RwSignal::new(a.log_level);
     let transport = RwSignal::new(a.rtsp_transport);
     let reconnect = RwSignal::new(a.reconnect_seconds);
@@ -19,7 +21,7 @@ pub fn AdvancedSection(settings: Signal<Settings>) -> impl IntoView {
     });
     let on_save = Callback::new(move |_| {
         let (l, t, r) = (level.get_untracked(), transport.get_untracked(), reconnect.get_untracked());
-        save(state, &settings.get_untracked(), |s| {
+        save(state, &settings.get_untracked(), move |s| {
             s.advanced.log_level = l;
             s.advanced.rtsp_transport = t;
             s.advanced.reconnect_seconds = r;
@@ -31,6 +33,7 @@ pub fn AdvancedSection(settings: Signal<Settings>) -> impl IntoView {
         transport.set(a.rtsp_transport);
         reconnect.set(a.reconnect_seconds);
     });
+    follow_server(move || (level.get(), transport.get(), reconnect.get()), move || { let a = settings.get().advanced; (a.log_level, a.rtsp_transport, a.reconnect_seconds) }, on_revert);
     let transports = vec![
         Choice::new(RtspTransport::Tcp, "TCP").tag("Recommended").describe("Reliable over Wi-Fi and VPNs; no lost packets."),
         Choice::new(RtspTransport::Udp, "UDP").describe("Slightly lower latency on clean wired networks. Cameras reconnect when this changes."),
@@ -52,6 +55,9 @@ pub fn AdvancedSection(settings: Signal<Settings>) -> impl IntoView {
                             .into_iter().map(|(l, v, label)| view! { <option value=v selected=move || level.get() == l>{label}</option> }).collect_view()}
                     </select>
                 </Field>
+                {move || from_env.get().then(|| view! {
+                    <p class="note note--warning">"RUST_LOG is set on the server, so it decides the log level and this setting has no effect. Remove RUST_LOG from watchgrid.env to use it."</p>
+                })}
             </FormSection>
             <SaveBar state dirty on_save on_revert />
         </div>

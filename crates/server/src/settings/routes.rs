@@ -19,11 +19,14 @@ async fn read(State(s): State<AppState>) -> ApiResult<Json<Settings>> {
 }
 
 async fn update(State(s): State<AppState>, Json(input): Json<Settings>) -> ApiResult<Json<Settings>> {
+    // Read what the runtime step needs first: a failure here changes nothing,
+    // instead of leaving a new transport half applied.
+    let cameras = crate::cameras::all_ids(&s).await?;
     let saved = app::save(&s.db, input).await?;
     if applied::apply(&saved.advanced) {
         // New RTSP transport: reopen every camera stream with it.
         tracing::info!(transport = ?saved.advanced.rtsp_transport, "RTSP transport changed; reconnecting cameras");
-        for (id, _) in crate::cameras::all_ids(&s).await? {
+        for (id, _) in cameras {
             s.media.reload(&id);
         }
     }

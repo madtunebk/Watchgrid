@@ -4,6 +4,7 @@
 mod async_view;
 mod badge;
 mod dialog;
+mod draft;
 mod empty;
 pub mod clipboard;
 pub mod form;
@@ -26,6 +27,7 @@ mod tabs;
 pub use async_view::{ErrorBox, Skeleton, async_view};
 pub use badge::Badge;
 pub use dialog::ConfirmDialog;
+pub use draft::follow_server;
 pub use empty::EmptyState;
 pub use icons::{I, Icon};
 pub use meter::Meter;

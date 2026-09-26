@@ -20,7 +20,10 @@ pub fn router() -> Router<AppState> {
 
 async fn info(State(s): State<AppState>) -> ApiResult<Json<ServerInfo>> {
     let name = crate::settings::load_app(&s.db, s.bind).await?.general.nvr_name;
-    Ok(Json(ServerInfo { name, version: env!("CARGO_PKG_VERSION").into(), health: ServerHealth::Running, started_at: s.started_at }))
+    Ok(Json(ServerInfo { name, version: env!("CARGO_PKG_VERSION").into(), health: ServerHealth::Running,
+        started_at: s.started_at,
+        log_level_from_env: crate::settings::applied::log_level_from_env(),
+    }))
 }
 
 async fn status(State(s): State<AppState>) -> ApiResult<Json<SystemStatus>> {

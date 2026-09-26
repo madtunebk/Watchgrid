@@ -4,7 +4,7 @@ use leptos::task::spawn_local;
 use crate::api::{self, Settings, Topic};
 use crate::features::settings::save::save;
 use crate::ui::form::{Field, FormSection, Switch, TextInput};
-use crate::ui::{SaveBar, SaveState};
+use crate::ui::{follow_server, SaveBar, SaveState};
 
 #[component]
 pub fn NotificationsSection(settings: Signal<Settings>) -> impl IntoView {
@@ -25,7 +25,7 @@ pub fn NotificationsSection(settings: Signal<Settings>) -> impl IntoView {
     });
     let on_save = Callback::new(move |_| {
         let (a, b, c, d, e, f, w) = draft();
-        save(state, &settings.get_untracked(), |s| {
+        save(state, &settings.get_untracked(), move |s| {
             let n = &mut s.notifications;
             (n.camera_offline, n.person_detected, n.vehicle_detected, n.storage_low, n.recording_failed, n.camera_security) = (a, b, c, d, e, f);
             n.webhook_url = (!w.is_empty()).then_some(w);
@@ -41,6 +41,10 @@ pub fn NotificationsSection(settings: Signal<Settings>) -> impl IntoView {
         security.set(n.camera_security);
         webhook.set(n.webhook_url.unwrap_or_default());
     });
+    follow_server(draft, move || {
+        let n = settings.get().notifications;
+        (n.camera_offline, n.person_detected, n.vehicle_detected, n.storage_low, n.recording_failed, n.camera_security, n.webhook_url.unwrap_or_default())
+    }, on_revert);
 
     view! {
         <div class="settings-tab">

@@ -5,7 +5,7 @@ use crate::api::{self, Role, Settings, Topic, invalidate, use_query};
 use crate::features::settings::save::save;
 use crate::format;
 use crate::ui::form::{Field, FormSection, NumberInput};
-use crate::ui::{Badge, SaveBar, SaveState, Skeleton, Tone, async_view};
+use crate::ui::{follow_server, Badge, SaveBar, SaveState, Skeleton, Tone, async_view};
 
 #[component]
 pub fn AuthSection(settings: Signal<Settings>) -> impl IntoView {
@@ -14,9 +14,10 @@ pub fn AuthSection(settings: Signal<Settings>) -> impl IntoView {
     let dirty = Signal::derive(move || timeout.get() != settings.get().auth.session_timeout_minutes);
     let on_save = Callback::new(move |_| {
         let t = timeout.get_untracked();
-        save(state, &settings.get_untracked(), |s| s.auth.session_timeout_minutes = t);
+        save(state, &settings.get_untracked(), move |s| s.auth.session_timeout_minutes = t);
     });
     let on_revert = Callback::new(move |_| timeout.set(settings.get_untracked().auth.session_timeout_minutes));
+    follow_server(move || timeout.get(), move || settings.get().auth.session_timeout_minutes, on_revert);
 
     let users = use_query(Topic::Settings, None, api::get_users);
     let sessions = use_query(Topic::Settings, None, api::get_sessions);

@@ -19,6 +19,10 @@ pub struct ServerInfo {
     pub version: String,
     pub health: ServerHealth,
     pub started_at: Timestamp,
+    /// `RUST_LOG` is set on the server, so Settings → Advanced → Log level
+    /// has no effect.
+    #[serde(default)]
+    pub log_level_from_env: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

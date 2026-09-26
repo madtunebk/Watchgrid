@@ -3,7 +3,7 @@ use leptos::prelude::*;
 use crate::api::{RecordingMode, Settings};
 use crate::features::settings::save::save;
 use crate::ui::form::{Choice, Field, FormSection, NumberInput, RadioCards};
-use crate::ui::{SaveBar, SaveState};
+use crate::ui::{follow_server, SaveBar, SaveState};
 
 /// Defaults for newly added cameras.
 #[component]
@@ -20,7 +20,7 @@ pub fn RecordingSection(settings: Signal<Settings>) -> impl IntoView {
     });
     let on_save = Callback::new(move |_| {
         let (m, a, b) = (mode.get_untracked(), pre.get_untracked(), post.get_untracked());
-        save(state, &settings.get_untracked(), |s| {
+        save(state, &settings.get_untracked(), move |s| {
             s.recording.mode = m;
             s.recording.pre_record_seconds = a;
             s.recording.post_record_seconds = b;
@@ -32,6 +32,7 @@ pub fn RecordingSection(settings: Signal<Settings>) -> impl IntoView {
         pre.set(r.pre_record_seconds);
         post.set(r.post_record_seconds);
     });
+    follow_server(move || (mode.get(), pre.get(), post.get()), move || { let r = settings.get().recording; (r.mode, r.pre_record_seconds, r.post_record_seconds) }, on_revert);
     let modes = vec![
         Choice::new(RecordingMode::Events, "Events / Motion").tag("Recommended").describe("Record when something happens."),
         Choice::new(RecordingMode::Manual, "Manual only").describe("Record only when started by hand or API."),
