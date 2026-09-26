@@ -68,6 +68,37 @@ pub async fn open_from(db: &PgPool, camera_id: &str, kind: EventType, at: DateTi
     Ok(r.rows_affected() > 0)
 }
 
+/// A detection starting this soon after the previous one (same camera and
+/// kind) ended continues that event instead of making a new one.
+pub const DETECTION_MERGE_SECS: u32 = 10;
+
+/// Start a detection, continuing the camera's last one of this kind when
+/// that ended at most [`DETECTION_MERGE_SECS`] before `at`: cheap cameras
+/// report one long movement as on/off pulses a few seconds apart. Returns
+/// whether anything changed.
+pub async fn open_detection(db: &PgPool, camera_id: &str, kind: EventType, at: DateTime<Utc>, source: &str, recording_id: Option<&str>, origin: &str) -> sqlx::Result<bool> {
+    let reopened = sqlx::query(
+        "UPDATE events SET end_time = NULL, recording_id = COALESCE(recording_id, $4)
+         WHERE id = (
+             SELECT id FROM events
+             WHERE camera_id = $1 AND kind = $2 AND end_time IS NOT NULL
+               AND end_time >= $3 - make_interval(secs => $5) AND start_time <= $3
+             ORDER BY end_time DESC LIMIT 1)
+           AND NOT EXISTS (SELECT 1 FROM events WHERE camera_id = $1 AND kind = $2 AND end_time IS NULL)",
+    )
+    .bind(camera_id)
+    .bind(kinds::name(kind))
+    .bind(at)
+    .bind(recording_id)
+    .bind(f64::from(DETECTION_MERGE_SECS))
+    .execute(db)
+    .await?;
+    if reopened.rows_affected() > 0 {
+        return Ok(true);
+    }
+    open_from(db, camera_id, kind, at, source, recording_id, origin).await
+}
+
 /// Record something that happened at one instant.
 pub async fn instant(db: &PgPool, camera_id: &str, kind: EventType, at: DateTime<Utc>, source: &str) -> sqlx::Result<()> {
     sqlx::query("INSERT INTO events (camera_id, kind, start_time, end_time, source) VALUES ($1, $2, $3, $3, $4)")

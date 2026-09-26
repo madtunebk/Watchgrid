@@ -234,3 +234,19 @@ async fn security_alerts_are_instant_events(db: PgPool) {
     let e = &all(&db).await[0];
     assert_eq!((e.kind, e.start_time, e.end_time, e.source.as_str()), (EventType::Security, at, Some(at), "ONVIF: UserAlarm/IllegalAccess"));
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn motion_pulses_a_few_seconds_apart_are_one_event(db: PgPool) {
+    // The EZVIZ pattern of 2026-09-26: one movement reported as on/off
+    // pulses 2–6 s apart, then a real pause.
+    let at = t("2026-09-26T16:09:26Z");
+    let mut links = journal::Links::default();
+    let s = |secs: i64| at + Duration::seconds(secs);
+    for (on, off) in [(0, 17), (19, 26), (30, 37), (43, 50), (80, 85)] {
+        journal::handle(&db, &mut links, &BusEvent::DetectionStarted { camera_id: "cam-a".into(), kind: EventType::Motion, topic: "m".into(), at: s(on) }).await.unwrap();
+        journal::handle(&db, &mut links, &BusEvent::DetectionEnded { camera_id: "cam-a".into(), kind: EventType::Motion, at: s(off) }).await.unwrap();
+    }
+    let events = all(&db).await;
+    let spans: Vec<(DateTime<Utc>, Option<DateTime<Utc>>)> = events.iter().map(|e| (e.start_time, e.end_time)).collect();
+    assert_eq!(spans, [(s(80), Some(s(85))), (s(0), Some(s(50)))], "four pulses → one event; after a 30 s pause, a new one");
+}
