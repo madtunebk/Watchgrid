@@ -8,8 +8,9 @@
 
 mod auto;
 mod job;
+pub mod live;
 mod timed;
-mod writer;
+pub(crate) mod writer;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -45,6 +46,8 @@ pub struct Deps {
     pub hub: Arc<MediaHub>,
     pub files: Arc<RecordingFiles>,
     pub bus: Bus,
+    /// Recordings in progress (playable before they finish).
+    pub live: Arc<live::LiveClips>,
 }
 
 /// What to record and why.
@@ -82,6 +85,11 @@ pub struct Recorder {
 impl Recorder {
     pub fn new(deps: Deps) -> Self {
         Self { deps, jobs: Mutex::new(HashMap::new()) }
+    }
+
+    /// Recordings being written right now.
+    pub fn live(&self) -> &live::LiveClips {
+        &self.deps.live
     }
 
     /// Start a manual recording. Does nothing if one is already running.

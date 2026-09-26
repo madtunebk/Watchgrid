@@ -1,6 +1,6 @@
 //! One manual recording, from STARTING to back to IDLE.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use chrono::Utc;
@@ -9,6 +9,7 @@ use tokio::sync::watch;
 use tokio::time::Instant;
 use watchgrid_model::RecordingReason;
 
+use super::live::LiveClip;
 use super::writer::{Finished, Mp4Writer};
 use super::{Deps, Phase, Spec};
 use crate::bus::BusEvent;
@@ -19,6 +20,8 @@ use crate::recordings::{self, NewRecording, RecordingFiles};
 const START_TIMEOUT: Duration = Duration::from_secs(20);
 /// No frames for this long counts as a disconnect.
 const STALL_TIMEOUT: Duration = Duration::from_secs(10);
+/// How often a recording in progress is written through to disk.
+const LIVE_FLUSH: Duration = Duration::from_secs(1);
 /// Hard cap per file (MP4 v0 durations overflow after ~13 h at 90 kHz).
 const MAX_LENGTH: Duration = Duration::from_secs(12 * 3600);
 
@@ -58,16 +61,51 @@ async fn record(deps: &Deps, camera_id: &str, id: &str, spec: Spec, stop: &mut w
     // Sound only comes with the main stream, and only if the camera wants it.
     let record_audio = crate::cameras::repo_get(&deps.db, camera_id).await.ok().flatten().is_none_or(|c| c.recording.record_audio);
     let audio = track.audio.filter(|_| record_audio);
-    let mut writer = Mp4Writer::create(partial.clone(), audio).await.map_err(|e| format!("cannot create {}: {e}", partial.display()))?;
+    let writer = Mp4Writer::create(partial.clone(), audio).await.map_err(|e| format!("cannot create {}: {e}", partial.display()))?;
+    // Playable while it records (listed and served from the partial file).
+    let live = Arc::new(LiveClip {
+        recording_id: id.to_string(),
+        camera_id: camera_id.to_string(),
+        reason: spec.reason,
+        path: partial.clone(),
+        mdat_size_at: writer.layout().mdat_size_at,
+        data_start: writer.layout().data_start,
+        video: track.track.clone(),
+        index: writer.index(),
+        started_at: Mutex::new(None),
+    });
+    deps.live.insert(live.clone());
+    let result = finish_recording(deps, camera_id, id, spec, &track, root, partial, writer, &live, &mut sub, stop, phase).await;
+    drop(sub); // let the live feed close if nobody else watches
+    deps.live.remove(id);
+    result
+}
+
+/// Capture into `writer`, then finalize and publish the file.
+#[allow(clippy::too_many_arguments)]
+async fn finish_recording(
+    deps: &Deps,
+    camera_id: &str,
+    id: &str,
+    spec: Spec,
+    track: &TrackInfo,
+    root: std::path::PathBuf,
+    partial: std::path::PathBuf,
+    mut writer: Mp4Writer,
+    live: &LiveClip,
+    sub: &mut Subscription,
+    stop: &mut watch::Receiver<bool>,
+    phase: &watch::Sender<Phase>,
+) -> Result<Option<String>, String> {
+    let audio = writer.index().lock().expect("recording index lock").audio.is_some();
 
     // Subscribed first, then snapshot: no gap; overlaps are skipped by pts.
     let preroll = if spec.preroll_secs > 0 { deps.hub.preroll(camera_id, spec.stream, spec.preroll_secs) } else { Vec::new() };
     let preroll_audio = match preroll.first() {
-        Some(first) if audio.is_some() => deps.hub.preroll_audio(camera_id, spec.stream, first.pts),
+        Some(first) if audio => deps.hub.preroll_audio(camera_id, spec.stream, first.pts),
         _ => Vec::new(),
     };
-    let (end, first_frame_at) = capture(deps, camera_id, id, spec.reason, (preroll, preroll_audio), &track, &mut sub, &mut writer, stop, phase).await;
-    drop(sub); // let the live feed close if nobody else watches
+    let (end, first_frame_at) = capture(deps, camera_id, id, spec.reason, (preroll, preroll_audio), track, sub, &mut writer, live, stop, phase).await;
     phase.send_replace(Phase::Finalizing);
 
     let Some(start_time) = first_frame_at.filter(|_| writer.samples() > 0) else {
@@ -84,7 +122,7 @@ async fn record(deps: &Deps, camera_id: &str, id: &str, spec: Spec, stop: &mut w
             return Err(format!("cannot finalize the recording: {e}"));
         }
     };
-    let published = publish(deps, &root, camera_id, id, spec.reason, &track, start_time, finished).await?;
+    let published = publish(deps, &root, camera_id, id, spec.reason, track, start_time, finished).await?;
     if let End::Failed(e) = end {
         // The footage up to the failure is saved; still report why it stopped.
         tracing::warn!(camera = %camera_id, recording = %id, "recording ended early: {e}");
@@ -129,9 +167,12 @@ async fn capture(
     track: &TrackInfo,
     sub: &mut Subscription,
     writer: &mut Mp4Writer,
+    live: &LiveClip,
     stop: &mut watch::Receiver<bool>,
     phase: &watch::Sender<Phase>,
 ) -> (End, Option<chrono::DateTime<Utc>>) {
+    // Clips in progress are played from disk: write through every second.
+    let mut flush = tokio::time::interval(LIVE_FLUSH);
     let mut first_frame_at = None;
     let start_deadline = Instant::now() + START_TIMEOUT;
     let mut last_frame = Instant::now();
@@ -145,6 +186,7 @@ async fn capture(
                 Ok(true) if recording_since.is_none() => {
                     recording_since = Some(Instant::now());
                     first_frame_at = Some(started);
+                    set_started(live, started);
                     phase.send_replace(Phase::Recording);
                     deps.bus.publish(BusEvent::RecordingStarted { camera_id: camera_id.to_string(), recording_id: recording_id.to_string(), reason, at: started });
                     tracing::info!(camera = %camera_id, ?reason, pre_ms = back_ms, "recording started");
@@ -181,6 +223,7 @@ async fn capture(
                             recording_since = Some(last_frame);
                             let now = Utc::now();
                             first_frame_at = Some(now);
+                            set_started(live, now);
                             phase.send_replace(Phase::Recording);
                             tracing::info!(camera = %camera_id, ?reason, "recording started");
                             deps.bus.publish(BusEvent::RecordingStarted {
@@ -207,6 +250,7 @@ async fn capture(
                 Err(RecvError::Lagged(_)) => None,
                 Err(RecvError::Closed) => Some(End::Failed("live feed ended".into())),
             },
+            _ = flush.tick() => writer.flush().await.err().map(|e| End::Failed(write_error(e))),
             _ = tokio::time::sleep_until(stall_at) => Some(End::Failed(
                 if recording_since.is_some() { "no video from the camera".into() } else { "no keyframe from the camera".into() }
             )),
@@ -216,6 +260,10 @@ async fn capture(
             return (end, first_frame_at);
         }
     }
+}
+
+fn set_started(live: &LiveClip, at: chrono::DateTime<Utc>) {
+    *live.started_at.lock().expect("live clip lock") = Some(at);
 }
 
 fn write_error(e: std::io::Error) -> String {

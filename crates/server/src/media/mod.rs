@@ -3,7 +3,7 @@
 //! a WebSocket into Media Source Extensions.
 
 pub mod audio;
-mod boxes;
+pub(crate) mod boxes;
 pub mod dump;
 mod feed;
 mod fmp4;

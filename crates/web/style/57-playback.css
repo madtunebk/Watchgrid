@@ -55,3 +55,12 @@
 .legend::before { content: ""; width: 0.6667rem; height: 0.6667rem; border-radius: 2px; }
 .legend--pre::before, .legend--post::before { background: rgb(56 189 248 / 0.5); }
 .legend--event::before { background: var(--motion); }
+
+/* A clip still recording: it keeps growing while it plays. */
+.player__growing {
+  position: absolute; top: 0.6667rem; right: 0.6667rem;
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  padding: 0.1333rem 0.5333rem; border-radius: var(--radius-sm);
+  background: var(--recording); color: #fff;
+  font-size: 0.7333rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+}

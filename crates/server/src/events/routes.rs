@@ -74,7 +74,11 @@ async fn list(State(s): State<AppState>, Query(q): Query<ListQuery>) -> ApiResul
 async fn one(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult<Json<EventDetail>> {
     let event = repo::get(&s.db, &id).await?.ok_or_else(|| ApiError::not_found("Event"))?;
     let recording = match &event.recording_id {
-        Some(r) => recordings::get(&s.db, r).await?,
+        // Saved, or still being written.
+        Some(r) => match recordings::get(&s.db, r).await? {
+            Some(saved) => Some(saved),
+            None => recordings::live_recording(&s, r).await,
+        },
         None => None,
     };
     let (previous, next) = repo::neighbours(&s.db, &event).await?;

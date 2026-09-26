@@ -26,11 +26,14 @@ pub fn Player(
     #[prop(optional)]
     theater: Option<RwSignal<bool>>,
 ) -> impl IntoView {
-    let (clip_start, total) = (clip.start, clip.duration);
+    let clip_start = clip.start;
+    // A clip still recording grows: its length comes from each fresh copy.
+    let total = RwSignal::new(clip.duration);
+    let growing = clip.growing;
     // Without a highlight the whole clip is "the event" for the timeline colours.
     let (pre, ev_len) = clip.highlight.unwrap_or((0.0, 0.0));
-    let post = (total - pre - ev_len).max(0.0);
-    let pct = move |v: f32| format!("{:.2}%", v / total * 100.0);
+    let post = move || (total.get() - pre - ev_len).max(0.0);
+    let pct = move |v: f32| format!("{:.2}%", v / total.get().max(0.001) * 100.0);
 
     let position = RwSignal::new(pre); // start at the moment of the event (or 0)
     let playing = RwSignal::new(false);
@@ -44,8 +47,8 @@ pub fn Player(
     use_interval(Duration::from_millis((TICK * 1000.0) as u64), move || {
         if !real && playing.get_untracked() {
             let next = position.get_untracked() + TICK * speed.get_untracked();
-            if next >= total {
-                position.set(total);
+            if next >= total.get_untracked() {
+                position.set(total.get_untracked());
                 playing.set(false);
             } else {
                 position.set(next);
@@ -53,7 +56,7 @@ pub fn Player(
         }
     });
     let seek = move |t: f32| {
-        let t = t.clamp(0.0, total);
+        let t = t.clamp(0.0, total.get_untracked());
         position.set(t);
         if let Some(v) = video.get_untracked() {
             v.set_current_time(f64::from(t));
@@ -86,9 +89,35 @@ pub fn Player(
             position.set(v.current_time() as f32);
         }
     };
+    // Where to continue after fetching a longer copy of a growing clip.
+    let resume_at = RwSignal::new(None::<f64>);
     let on_loaded = move |_| {
-        if let Some(v) = video.get_untracked() && pre > 0.0 {
-            v.set_current_time(f64::from(pre));
+        let Some(v) = video.get_untracked() else { return };
+        if growing && v.duration().is_finite() {
+            total.set(v.duration() as f32);
+        }
+        match resume_at.get_untracked() {
+            Some(t) => {
+                resume_at.set(None);
+                v.set_current_time(t);
+                playing.set(true);
+                let _ = v.play();
+            }
+            None if pre > 0.0 => v.set_current_time(f64::from(pre)),
+            None => {}
+        }
+    };
+    // At the end of a clip that is still recording: load what was added.
+    let on_ended = {
+        let src = src.clone();
+        move |_| {
+            let (Some(v), Some(src)) = (video.get_untracked(), src.as_ref()) else { return };
+            if !growing {
+                playing.set(false);
+                return;
+            }
+            resume_at.set(Some(v.current_time()));
+            v.set_src(&format!("{src}?at={}", js_sys::Date::now() as u64));
         }
     };
     let stage = NodeRef::<Div>::new();
@@ -97,7 +126,7 @@ pub fn Player(
         if let Some(el) = ev.current_target().and_then(|t| t.dyn_into::<web_sys::Element>().ok()) {
             let rect = el.get_bounding_client_rect();
             let frac = ((ev.client_x() as f64 - rect.left()) / rect.width()).clamp(0.0, 1.0) as f32;
-            seek(frac * total);
+            seek(frac * total.get_untracked());
         }
     };
     let clock = move || crate::format::date_time((clip_start + chrono::Duration::milliseconds((position.get() * 1000.0) as i64)).with_timezone(&chrono::Local));
@@ -111,7 +140,7 @@ pub fn Player(
                 {match src {
                     Some(src) => view! {
                         <video class="player__video" node_ref=video src=src preload="metadata" playsinline=true prop:muted=muted
-                            on:timeupdate=on_time on:loadedmetadata=on_loaded on:ended=move |_| playing.set(false)></video>
+                            on:timeupdate=on_time on:loadedmetadata=on_loaded on:ended=on_ended></video>
                     }.into_any(),
                     None => view! {
                         <div class="player__surface" class:player__surface--playing=playing>
@@ -122,6 +151,7 @@ pub fn Player(
                 {clip.kind.map(|kind| view! { <div class="player__tags"><EventChip kind /></div> })}
                 {has_box.then(|| view! { <div class="player__box" class:player__box--visible=in_event></div> })}
                 <div class="player__osd"><span>{camera_name}</span><span>{clock}</span></div>
+                {growing.then(|| view! { <span class="player__growing" title="The clip grows while it records"><span class="ptag__dot pulse"></span>"Recording"</span> })}
                 <Show when=move || !playing.get()>
                     <span class="player__big-play" aria-hidden="true"><Icon icon=I::Play class="icon icon--xl" /></span>
                 </Show>
@@ -130,9 +160,9 @@ pub fn Player(
             <div class="player__timeline" on:click=on_bar_click title="Click to seek">
                 {if clip.highlight.is_some() {
                     view! {
-                        <div class="player__seg player__seg--pre" style:width=pct(pre)></div>
-                        <div class="player__seg player__seg--event" style:width=pct(ev_len)></div>
-                        <div class="player__seg player__seg--post" style:width=pct(post)></div>
+                        <div class="player__seg player__seg--pre" style:width=move || pct(pre)></div>
+                        <div class="player__seg player__seg--event" style:width=move || pct(ev_len)></div>
+                        <div class="player__seg player__seg--post" style:width=move || pct(post())></div>
                     }.into_any()
                 } else {
                     view! { <div class="player__seg player__seg--plain" style:width="100%"></div> }.into_any()
@@ -155,7 +185,7 @@ pub fn Player(
                     <button class="btn btn--ghost btn--sm" title="Jump to the start of the event" on:click=move |_| seek(pre)>"Jump to event"</button>
                 })}
                 <span class="player__time">
-                    {move || format!("{} / {}", format::duration(position.get() as u32), format::duration(total as u32))}
+                    {move || format!("{} / {}", format::duration(position.get() as u32), format::duration(total.get() as u32))}
                 </span>
                 <span class="player__spacer"></span>
                 <button class="icon-btn" aria-label=move || if muted.get() { "Unmute" } else { "Mute" }

@@ -67,6 +67,20 @@ impl SampleTable {
         self.sizes.len()
     }
 
+    /// The samples lying completely before byte `end` (what is on disk of
+    /// a file still being written).
+    pub fn within(&self, end: u64) -> Self {
+        let n = self.offsets.iter().zip(&self.sizes).take_while(|(o, s)| **o + u64::from(**s) <= end).count();
+        Self {
+            offsets: self.offsets[..n].to_vec(),
+            sizes: self.sizes[..n].to_vec(),
+            durations: self.durations[..n].to_vec(),
+            sync: self.sync.iter().copied().filter(|k| *k as usize <= n).collect(),
+            total: self.durations[..n].iter().map(|d| u64::from(*d)).sum(),
+            all_sync: self.all_sync,
+        }
+    }
+
     /// Total duration in the track's timescale.
     pub fn duration(&self) -> u64 {
         self.total

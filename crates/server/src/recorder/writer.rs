@@ -1,8 +1,10 @@
 //! Writes frames (and audio packets) into an incomplete MP4 file and
-//! finalizes it.
+//! finalizes it. The sample index is shared ([`Index`]) so a clip can be
+//! played while it is still being recorded.
 
 use std::io::{self, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use tokio::fs::File;
 use tokio::io::{AsyncSeekExt, AsyncWriteExt, BufWriter};
@@ -20,13 +22,22 @@ const SILENCE: [u8; 1] = [0x08];
 /// Longer gaps (camera audio stopped) restart the audio timeline instead.
 const MAX_FILL: i64 = 250;
 
+/// Where every written sample is, and how much of the file is on disk.
+#[derive(Debug, Default)]
+pub struct Index {
+    pub video: SampleTable,
+    pub audio: Option<(AudioTrack, SampleTable)>,
+    /// Bytes of the file flushed to disk (readable by others).
+    pub flushed: u64,
+}
+
 pub struct Mp4Writer {
     path: PathBuf,
     file: BufWriter<File>,
     start: FileStart,
     /// Current end of file.
     position: u64,
-    table: SampleTable,
+    index: Arc<Mutex<Index>>,
     clock: SampleClock,
     /// Written once the next frame gives its duration.
     pending: Option<Frame>,
@@ -37,14 +48,8 @@ pub struct Mp4Writer {
     last_pts: Option<i64>,
     /// Camera time of the first video frame: audio starts there.
     video_start: Option<i64>,
-    audio: Option<AudioPart>,
-}
-
-struct AudioPart {
-    track: AudioTrack,
-    table: SampleTable,
-    /// Camera time the next packet belongs at.
-    next_pts: Option<i64>,
+    /// Camera time the next audio packet belongs at.
+    audio_next: Option<i64>,
 }
 
 pub struct Finished {
@@ -65,19 +70,41 @@ impl Mp4Writer {
         let start = mp4::file_start();
         file.write_all(&start.bytes).await?;
         let position = start.bytes.len() as u64;
+        let index = Index { audio: audio.map(|track| (track, SampleTable::audio())), flushed: position, ..Index::default() };
         Ok(Self {
             path,
             file,
             start,
             position,
-            table: SampleTable::default(),
+            index: Arc::new(Mutex::new(index)),
             clock: SampleClock::default(),
             pending: None,
             need_keyframe: true,
             last_pts: None,
             video_start: None,
-            audio: audio.map(|track| AudioPart { track, table: SampleTable::audio(), next_pts: None }),
+            audio_next: None,
         })
+    }
+
+    /// The shared sample index (for playing the clip while it records).
+    pub fn index(&self) -> Arc<Mutex<Index>> {
+        self.index.clone()
+    }
+
+    /// Where the file layout starts (`mdat` header and first sample).
+    pub fn layout(&self) -> &FileStart {
+        &self.start
+    }
+
+    /// Push buffered bytes to disk so a live viewer can read them.
+    pub async fn flush(&mut self) -> io::Result<()> {
+        self.file.flush().await?;
+        self.lock().flushed = self.position;
+        Ok(())
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, Index> {
+        self.index.lock().expect("recording index lock")
     }
 
     /// Accept a frame. Returns whether it was taken (false while waiting for a keyframe).
@@ -104,21 +131,31 @@ impl Mp4Writer {
     /// Accept an audio packet (ignored without an audio track, before the
     /// first video frame, or when already written).
     pub async fn push_audio(&mut self, packet: &AudioFrame) -> io::Result<()> {
-        let (Some(start), Some(audio)) = (self.video_start, self.audio.as_mut()) else { return Ok(()) };
+        let Some(start) = self.video_start.filter(|_| self.lock().audio.is_some()) else { return Ok(()) };
         if packet.pts < start {
             return Ok(());
         }
-        let expected = audio.next_pts.unwrap_or(start);
+        let expected = self.audio_next.unwrap_or(start);
         if packet.pts + PACKET_TICKS / 2 < expected {
             return Ok(()); // pre-record and live overlap
         }
         let missing = (packet.pts - expected + PACKET_TICKS / 2) / PACKET_TICKS;
         let fill = if missing > MAX_FILL { 0 } else { missing.max(0) };
         for _ in 0..fill {
-            write_sample(&mut self.file, &mut self.position, &mut audio.table, &SILENCE, u32::from(PACKET_DURATION)).await?;
+            self.write_audio(&SILENCE).await?;
         }
-        write_sample(&mut self.file, &mut self.position, &mut audio.table, &packet.data, u32::from(PACKET_DURATION)).await?;
-        audio.next_pts = Some(if missing > MAX_FILL { packet.pts } else { expected + fill * PACKET_TICKS } + PACKET_TICKS);
+        self.write_audio(&packet.data).await?;
+        self.audio_next = Some(if missing > MAX_FILL { packet.pts } else { expected + fill * PACKET_TICKS } + PACKET_TICKS);
+        Ok(())
+    }
+
+    async fn write_audio(&mut self, data: &[u8]) -> io::Result<()> {
+        self.file.write_all(data).await?;
+        let offset = self.position;
+        if let Some((_, table)) = self.lock().audio.as_mut() {
+            table.push(offset, data.len() as u32, u32::from(PACKET_DURATION), true);
+        }
+        self.position += data.len() as u64;
         Ok(())
     }
 
@@ -132,12 +169,13 @@ impl Mp4Writer {
     }
 
     pub fn samples(&self) -> usize {
-        self.table.len() + usize::from(self.pending.is_some())
+        self.lock().video.len() + usize::from(self.pending.is_some())
     }
 
     async fn write(&mut self, frame: Frame, duration: u32) -> io::Result<()> {
         self.file.write_all(&frame.data).await?;
-        self.table.push(self.position, frame.data.len() as u32, duration, frame.keyframe);
+        let offset = self.position;
+        self.lock().video.push(offset, frame.data.len() as u32, duration, frame.keyframe);
         self.position += frame.data.len() as u64;
         Ok(())
     }
@@ -153,29 +191,19 @@ impl Mp4Writer {
         file.seek(SeekFrom::Start(self.start.mdat_size_at)).await?;
         file.write_all(&mp4::mdat_size(data_len).to_be_bytes()).await?;
         file.seek(SeekFrom::End(0)).await?;
-        let audio = self.audio.as_ref().map(|a| (&a.track, &a.table));
-        let moov = mp4::moov(track, &self.table, audio);
+        let (moov, duration, samples, audio_samples) = {
+            let index = self.index.lock().expect("recording index lock");
+            let audio = index.audio.as_ref().map(|(t, table)| (t, table));
+            (mp4::moov(track, &index.video, audio), index.video.duration(), index.video.len(), index.audio.as_ref().map_or(0, |(_, t)| t.len()))
+        };
         file.write_all(&moov).await?;
         file.sync_all().await?;
-        Ok(Finished {
-            path: self.path,
-            size: self.position + moov.len() as u64,
-            duration: self.table.duration(),
-            samples: self.table.len(),
-            audio_samples: self.audio.as_ref().map_or(0, |a| a.table.len()),
-        })
+        Ok(Finished { path: self.path, size: self.position + moov.len() as u64, duration, samples, audio_samples })
     }
 
     pub fn path(&self) -> &Path {
         &self.path
     }
-}
-
-async fn write_sample(file: &mut BufWriter<File>, position: &mut u64, table: &mut SampleTable, data: &[u8], duration: u32) -> io::Result<()> {
-    file.write_all(data).await?;
-    table.push(*position, data.len() as u32, duration, true);
-    *position += data.len() as u64;
-    Ok(())
 }
 
 #[cfg(test)]

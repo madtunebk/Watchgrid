@@ -19,6 +19,8 @@ pub struct Clip {
     pub detection_box: bool,
     /// Real video to play; `None` shows the simulated preview player.
     pub src: Option<String>,
+    /// The recording is still being written: the file grows.
+    pub growing: bool,
 }
 
 impl Clip {
@@ -38,6 +40,7 @@ impl Clip {
             kind: Some(event.kind),
             detection_box: !event.detections.is_empty(),
             src: recording.and_then(|r| api::recording_media_url(&r.id)),
+            growing: recording.is_some_and(|r| r.end_time.is_none()),
         }
     }
 
@@ -54,6 +57,7 @@ impl Clip {
                 kind: None,
                 detection_box: false,
                 src,
+                growing: recording.end_time.is_none(),
             },
         }
     }

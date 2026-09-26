@@ -3,6 +3,7 @@
 
 mod delete;
 mod files;
+mod live_media;
 mod repo;
 mod routes;
 
@@ -14,7 +15,7 @@ pub async fn file_of(db: &sqlx::PgPool, files: &RecordingFiles, id: &str) -> sql
 }
 pub use delete::delete_recording;
 pub use repo::{NewRecording, get, insert, protected_bytes, retention_candidates, set_protected, usage_by_camera};
-pub use routes::router;
+pub use routes::{live as live_recording, router};
 
 #[cfg(test)]
 mod tests;
