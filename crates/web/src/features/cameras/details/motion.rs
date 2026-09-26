@@ -14,20 +14,22 @@ pub fn MotionTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
     let source = RwSignal::new(initial.source);
     let sensitivity = RwSignal::new(initial.sensitivity);
     let zones = RwSignal::new(initial.zones);
+    let notify = RwSignal::new(initial.notify);
     let state = SaveState::new();
 
     let saved = move || {
         let m = camera.get().motion;
-        (m.enabled, m.source, m.sensitivity, m.zones)
+        (m.enabled, m.source, m.sensitivity, m.zones, m.notify)
     };
-    let dirty = Signal::derive(move || (enabled.get(), source.get(), sensitivity.get(), zones.get()) != saved());
+    let dirty = Signal::derive(move || (enabled.get(), source.get(), sensitivity.get(), zones.get(), notify.get()) != saved());
     let on_save = Callback::new(move |_| {
-        let (e, s, v, z) = (enabled.get_untracked(), source.get_untracked(), sensitivity.get_untracked(), zones.get_untracked());
+        let (e, s, v, z, n) = (enabled.get_untracked(), source.get_untracked(), sensitivity.get_untracked(), zones.get_untracked(), notify.get_untracked());
         save::camera(state, &camera.get_untracked(), |i| {
             i.motion.enabled = e;
             i.motion.source = s;
             i.motion.sensitivity = v;
             i.motion.zones = z;
+            i.motion.notify = n;
         });
     });
     let on_revert = Callback::new(move |_| {
@@ -36,6 +38,7 @@ pub fn MotionTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
         source.set(m.source);
         sensitivity.set(m.sensitivity);
         zones.set(m.zones);
+        notify.set(m.notify);
     });
 
     let onvif = Choice::new(MotionSource::Onvif, "Camera / ONVIF").tag("Recommended")
@@ -54,6 +57,10 @@ pub fn MotionTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
             <FormSection title="Motion detection">
                 <Switch checked=enabled label="Detect motion on this camera"
                     description="Detected motion creates events and, in Events mode, starts a recording." />
+                <fieldset class="plain-fieldset" disabled=off>
+                    <Switch checked=notify label="Notify me on motion"
+                        description="A notification in the bell (and the webhook) when this camera sees motion, at most one every 5 minutes. People and vehicles follow Settings → Notifications." />
+                </fieldset>
             </FormSection>
 
             <FormSection title="Detection source">

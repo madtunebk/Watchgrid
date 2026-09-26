@@ -23,6 +23,7 @@ impl Draft {
         let mins = match self.kind {
             "camera_offline" => 10,
             "person" | "vehicle" => 2,
+            "motion" => 5,
             "security" => 10,
             "storage_low" => 6 * 60,
             _ => 1,
@@ -35,10 +36,19 @@ fn camera_draft(kind: &'static str, id: &str, level: NotificationLevel, title: S
     Draft { kind, camera_id: Some(id.to_string()), level, title, message, link: Some(format!("/cameras/{id}")) }
 }
 
+/// The camera an event is about, as the rules need it.
+pub struct CameraFacts<'a> {
+    /// Display name.
+    pub name: &'a str,
+    /// Whether an offline notification went out for it (so "back online" pairs with it).
+    pub was_offline: bool,
+    /// Camera → Motion → "Notify on motion".
+    pub notify_motion: bool,
+}
+
 /// The notification for a bus event, if the settings ask for one.
-/// `name` is the camera's display name; `was_offline` whether an offline
-/// notification went out for it (so "back online" pairs with it).
-pub fn draft(event: &BusEvent, s: &NotificationSettings, name: &str, was_offline: bool) -> Option<Draft> {
+pub fn draft(event: &BusEvent, s: &NotificationSettings, camera: &CameraFacts) -> Option<Draft> {
+    let (name, was_offline) = (camera.name, camera.was_offline);
     match event {
         BusEvent::CameraOffline { camera_id, reason, .. } if s.camera_offline => {
             Some(camera_draft("camera_offline", camera_id, NotificationLevel::Error, format!("{name} is offline"), reason.clone()))
@@ -58,6 +68,7 @@ pub fn draft(event: &BusEvent, s: &NotificationSettings, name: &str, was_offline
             let (key, what) = match kind {
                 EventType::Person if s.person_detected => ("person", "Person"),
                 EventType::Vehicle if s.vehicle_detected => ("vehicle", "Vehicle"),
+                EventType::Motion if camera.notify_motion => ("motion", "Motion"),
                 _ => return None,
             };
             Some(Draft {
@@ -95,6 +106,10 @@ pub fn storage_low(s: &NotificationSettings, free: u64, threshold: u64) -> Optio
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn cam(name: &str, was_offline: bool) -> CameraFacts<'_> {
+        CameraFacts { name, was_offline, notify_motion: false }
+    }
     use chrono::Utc;
 
     fn all_on() -> NotificationSettings {
@@ -112,24 +127,27 @@ mod tests {
     #[test]
     fn follows_the_settings() {
         let offline = BusEvent::CameraOffline { camera_id: "c".into(), reason: "timeout".into(), at: Utc::now() };
-        let d = draft(&offline, &all_on(), "Hallway", false).unwrap();
+        let d = draft(&offline, &all_on(), &cam("Hallway", false)).unwrap();
         assert_eq!((d.kind, d.title.as_str(), d.level), ("camera_offline", "Hallway is offline", NotificationLevel::Error));
         let off = NotificationSettings { camera_offline: false, ..all_on() };
-        assert!(draft(&offline, &off, "Hallway", false).is_none());
+        assert!(draft(&offline, &off, &cam("Hallway", false)).is_none());
 
         let online = BusEvent::CameraOnline { camera_id: "c".into(), at: Utc::now() };
-        assert!(draft(&online, &all_on(), "Hallway", false).is_none(), "only after an offline notice");
-        assert!(draft(&online, &all_on(), "Hallway", true).is_some());
+        assert!(draft(&online, &all_on(), &cam("Hallway", false)).is_none(), "only after an offline notice");
+        assert!(draft(&online, &all_on(), &cam("Hallway", true)).is_some());
 
         let motion = BusEvent::DetectionStarted { camera_id: "c".into(), kind: EventType::Motion, topic: "x".into(), at: Utc::now() };
-        assert!(draft(&motion, &all_on(), "Hallway", false).is_none(), "plain motion is too noisy");
+        assert!(draft(&motion, &all_on(), &cam("Hallway", false)).is_none(), "plain motion is too noisy");
+        let chosen = CameraFacts { notify_motion: true, ..cam("Hallway", false) };
+        let d = draft(&motion, &all_on(), &chosen).expect("chosen for this camera");
+        assert_eq!((d.kind, d.title.as_str(), d.cooldown().as_secs()), ("motion", "Motion detected on Hallway", 300));
         let person = BusEvent::DetectionStarted { camera_id: "c".into(), kind: EventType::Person, topic: "x".into(), at: Utc::now() };
-        assert_eq!(draft(&person, &all_on(), "Hallway", false).unwrap().kind, "person");
+        assert_eq!(draft(&person, &all_on(), &cam("Hallway", false)).unwrap().kind, "person");
 
         let ok = BusEvent::RecordingStopped { camera_id: "c".into(), recording_id: Some("r".into()), error: None, at: Utc::now() };
-        assert!(draft(&ok, &all_on(), "Hallway", false).is_none());
+        assert!(draft(&ok, &all_on(), &cam("Hallway", false)).is_none());
         let failed = BusEvent::RecordingStopped { camera_id: "c".into(), recording_id: None, error: Some("the disk is full".into()), at: Utc::now() };
-        assert_eq!(draft(&failed, &all_on(), "Hallway", false).unwrap().level, NotificationLevel::Error);
+        assert_eq!(draft(&failed, &all_on(), &cam("Hallway", false)).unwrap().level, NotificationLevel::Error);
     }
 
     #[test]
@@ -142,9 +160,9 @@ mod tests {
     #[test]
     fn failed_camera_sign_ins_warn_unless_switched_off() {
         let alert = BusEvent::SecurityAlert { camera_id: "cam-a".into(), topic: "UserAlarm/IllegalAccess".into(), at: chrono::Utc::now() };
-        let d = draft(&alert, &all_on(), "Hall", false).expect("notified");
+        let d = draft(&alert, &all_on(), &cam("Hall", false)).expect("notified");
         assert_eq!((d.kind, d.level, d.title.as_str()), ("security", NotificationLevel::Warning, "Failed sign-in on Hall"));
         assert_eq!(d.cooldown(), Duration::from_secs(600));
-        assert!(draft(&alert, &NotificationSettings { camera_security: false, ..all_on() }, "Hall", false).is_none());
+        assert!(draft(&alert, &NotificationSettings { camera_security: false, ..all_on() }, &cam("Hall", false)).is_none());
     }
 }

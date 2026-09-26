@@ -209,11 +209,15 @@ pub struct MotionSettings {
     /// Which stream motion detection analyses. Falls back to main when there is no substream.
     pub stream: StreamRole,
     pub zones: Vec<MotionZone>,
+    /// Also raise a notification for plain motion (people and vehicles
+    /// follow Settings → Notifications). Off unless chosen for this camera.
+    #[serde(default)]
+    pub notify: bool,
 }
 
 impl Default for MotionSettings {
     fn default() -> Self {
-        Self { enabled: true, source: MotionSource::Onvif, sensitivity: 60, stream: StreamRole::Main, zones: Vec::new() }
+        Self { enabled: true, source: MotionSource::Onvif, sensitivity: 60, stream: StreamRole::Main, zones: Vec::new(), notify: false }
     }
 }
 

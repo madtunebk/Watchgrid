@@ -55,9 +55,10 @@ impl Notifier {
             _ => return,
         };
         let Ok(settings) = crate::settings::load_app(&self.db, self.bind).await else { return };
-        let name = crate::cameras::repo_get(&self.db, &camera).await.ok().flatten().map_or_else(|| camera.clone(), |c| c.name);
-        let was_offline = self.offline_notified.contains(&camera);
-        let Some(draft) = rules::draft(e, &settings.notifications, &name, was_offline) else { return };
+        let cam = crate::cameras::repo_get(&self.db, &camera).await.ok().flatten();
+        let name = cam.as_ref().map_or_else(|| camera.clone(), |c| c.name.clone());
+        let facts = rules::CameraFacts { name: &name, was_offline: self.offline_notified.contains(&camera), notify_motion: cam.as_ref().is_some_and(|c| c.motion.notify) };
+        let Some(draft) = rules::draft(e, &settings.notifications, &facts) else { return };
         match draft.kind {
             "camera_offline" => {
                 self.offline_notified.insert(camera.clone());

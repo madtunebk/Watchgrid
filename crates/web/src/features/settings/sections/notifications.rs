@@ -44,7 +44,7 @@ pub fn NotificationsSection(settings: Signal<Settings>) -> impl IntoView {
 
     view! {
         <div class="settings-tab">
-            <FormSection title="Notify me when" description="Shown in the bell menu and sent to the webhook below.">
+            <FormSection title="Notify me when" description="Shown in the bell menu and sent to the webhook below. Plain motion is chosen per camera (Camera → Motion → Notify me on motion).">
                 <Switch checked=offline label="A camera goes offline" />
                 <Switch checked=person label="A person is detected" />
                 <Switch checked=vehicle label="A vehicle is detected" />
