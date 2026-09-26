@@ -89,6 +89,9 @@ recordings folder is not included — cover it with the NAS's own backup.
   (never rotated).
 - **Restore** (Watchgrid must be stopped; `--replace` overwrites existing data):
 
+  Run these in the Watchgrid folder (where `setup.sh` is, e.g. `cd ~/watchgrid`):
+  `docker compose` finds its settings there.
+
   ```
   sudo docker compose stop watchgrid
   sudo docker compose run --rm watchgrid restore /var/lib/watchgrid/backups/<file>.wgbackup --replace
