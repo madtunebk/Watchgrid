@@ -119,3 +119,5 @@
   color: var(--danger);
   font-size: 0.9333rem;
 }
+.stat--link { display: block; color: inherit; transition: border-color 0.1s, background-color 0.1s; }
+.stat--link:hover { border-color: var(--accent); }

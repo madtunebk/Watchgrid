@@ -12,6 +12,21 @@ pub enum StatusFilter {
 }
 
 impl StatusFilter {
+    /// Name in the page URL (`?status=`).
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::All => "all",
+            Self::Online => "online",
+            Self::Offline => "offline",
+            Self::Recording => "recording",
+            Self::Disabled => "disabled",
+        }
+    }
+
+    pub fn from_key(key: &str) -> Self {
+        [Self::Online, Self::Offline, Self::Recording, Self::Disabled].into_iter().find(|f| f.key() == key).unwrap_or(Self::All)
+    }
+
     fn matches(self, c: &Camera) -> bool {
         match self {
             Self::All => true,

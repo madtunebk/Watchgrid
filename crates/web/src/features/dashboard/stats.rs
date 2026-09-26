@@ -52,11 +52,11 @@ pub fn StatsRow(cameras: Res<Vec<Camera>>, events: Res<EventPage>, storage: Res<
 
     view! {
         <div class="stats">
-            <Stat label="Cameras" value=Signal::derive(move || show(cams().map(|c| c.len())))
+            <Stat label="Cameras" href="/cameras" value=Signal::derive(move || show(cams().map(|c| c.len())))
                 detail=Signal::derive(move || count(|c| !c.enabled).map(|n| if n == 0 { "All enabled".into() } else { format!("{n} disabled") }).unwrap_or_default()) />
-            <Stat label="Online" tone=Tone::Online value=Signal::derive(move || show(count(online)))
+            <Stat label="Online" href="/cameras?status=online" tone=Tone::Online value=Signal::derive(move || show(count(online)))
                 detail=Signal::derive(move || cams().map(|c| format!("of {}", c.len())).unwrap_or_default()) />
-            <Stat label="Offline" value=Signal::derive(move || show(count(offline)))
+            <Stat label="Offline" href="/cameras?status=offline" value=Signal::derive(move || show(count(offline)))
                 tone=Signal::derive(move || if count(offline).unwrap_or(0) > 0 { Tone::Danger } else { Tone::Offline })
                 detail=Signal::derive(move || {
                     let names = offline_names();
@@ -68,15 +68,15 @@ pub fn StatsRow(cameras: Res<Vec<Camera>>, events: Res<EventPage>, storage: Res<
                         (false, n) => format!("{names} (+{n} connecting)"),
                     }
                 }) />
-            <Stat label="Recording" tone=Signal::derive(move || if count(recording).unwrap_or(0) > 0 { Tone::Recording } else { Tone::Offline }) value=Signal::derive(move || show(count(recording)))
+            <Stat label="Recording" href="/cameras?status=recording" tone=Signal::derive(move || if count(recording).unwrap_or(0) > 0 { Tone::Recording } else { Tone::Offline }) value=Signal::derive(move || show(count(recording)))
                 detail=Signal::derive(move || recording_detail().unwrap_or_default()) />
-            <Stat label="Events today" tone=Tone::Motion value=Signal::derive(move || show(today().map(|p| p.total as usize)))
+            <Stat label="Events today" href="/events" tone=Tone::Motion value=Signal::derive(move || show(today().map(|p| p.total as usize)))
                 detail=Signal::derive(move || today().and_then(|p| p.events.first().map(|e| format!("Last at {}", format::time_of_day(e.start_time)))).unwrap_or_else(|| "None yet".into())) />
-            <Stat label="Storage" value=Signal::derive(move || storage_pct().map_or(PENDING.into(), |p| format!("{p:.0}%")))
+            <Stat label="Storage" href="/storage" value=Signal::derive(move || storage_pct().map_or(PENDING.into(), |p| format!("{p:.0}%")))
                 detail=Signal::derive(move || storage.get().and_then(Result::ok).map(|s| if s.available { format!("{} free", format::bytes(s.free)) } else { "Unavailable".into() }).unwrap_or_default())>
                 <Meter value=Signal::derive(move || storage_pct().unwrap_or(0.0)) />
             </Stat>
-            <Stat label="Server" tone=Signal::derive(move || server().1) value=Signal::derive(move || server().0)
+            <Stat label="Server" href="/system" tone=Signal::derive(move || server().1) value=Signal::derive(move || server().0)
                 detail=Signal::derive(move || server().2) />
         </div>
     }

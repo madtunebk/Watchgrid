@@ -6,6 +6,7 @@ mod toolbar;
 
 use leptos::prelude::*;
 use leptos_router::components::A;
+use leptos_router::hooks::{use_navigate, use_query_map};
 
 use crate::api::{self, Topic, use_query};
 use crate::features::cameras::widgets::{CameraCard, NoCameras};
@@ -26,13 +27,37 @@ const VIEW_KEY: &str = "ui.cameras.view";
 #[component]
 pub fn CamerasPage() -> impl IntoView {
     let cameras = use_query(Topic::Cameras, None, api::get_cameras);
-    let search = RwSignal::new(String::new());
-    let status = RwSignal::new(StatusFilter::All);
+    // Search and status live in the URL, so Back (and links from the
+    // dashboard) bring the same view: /cameras?status=offline&q=gate
+    let query = use_query_map();
+    let search = RwSignal::new(query.with_untracked(|q| q.get("q").unwrap_or_default()));
+    let status = RwSignal::new(query.with_untracked(|q| StatusFilter::from_key(&q.get("status").unwrap_or_default())));
+    let navigate = use_navigate();
+    Effect::new(move || {
+        let (q, st) = (search.get(), status.get());
+        let mut parts = Vec::new();
+        if st != StatusFilter::All {
+            parts.push(format!("status={}", st.key()));
+        }
+        if !q.trim().is_empty() {
+            parts.push(format!("q={}", String::from(js_sys::encode_uri_component(q.trim()))));
+        }
+        let url = if parts.is_empty() { "/cameras".to_string() } else { format!("/cameras?{}", parts.join("&")) };
+        navigate(&url, leptos_router::NavigateOptions { replace: true, ..Default::default() });
+    });
     let view_mode = RwSignal::new(if prefs::get(VIEW_KEY).as_deref() == Some("list") { ViewMode::List } else { ViewMode::Grid });
     Effect::new(move || prefs::set(VIEW_KEY, if view_mode.get() == ViewMode::List { "list" } else { "grid" }));
 
     let subtitle = Signal::derive(move || {
-        cameras.get().and_then(Result::ok).map(|c| format!("{} configured", c.len())).unwrap_or_default()
+        cameras
+            .get()
+            .and_then(Result::ok)
+            .map(|c| {
+                let total = c.len();
+                let shown = filter::apply(c, &search.get(), status.get()).len();
+                if shown == total { format!("{total} configured") } else { format!("{shown} of {total} shown") }
+            })
+            .unwrap_or_default()
     });
 
     view! {
