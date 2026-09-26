@@ -65,7 +65,7 @@ pub fn GeneralSection(settings: Signal<Settings>) -> impl IntoView {
                 </Field>
             </FormSection>
             <FormSection title="Region">
-                <Field label="Time zone" hint="Used for recording schedules and the Events hour filter. Clip file names use UTC.">
+                <Field label="Time zone" hint="The NVR's days: what counts as today, yesterday and a date on the Dashboard and in Events (the same for every browser), recording schedules and the Events hour filter. Clip file names use UTC.">
                     <select class="select" on:change=move |ev| zone.set(event_target_value(&ev))>
                         // The saved zone is always offered, even if it isn't in the short list.
                         {move || {
