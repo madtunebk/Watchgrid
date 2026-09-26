@@ -32,6 +32,7 @@ pub fn StreamTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
         record.set(c.recording.stream);
         motion.set(c.motion.stream);
     });
+    save::follow_server(move || (record.get(), motion.get()), saved, on_revert);
 
     let no_sub = "No substream configured";
     let sub = |label, desc| {

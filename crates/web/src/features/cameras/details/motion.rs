@@ -41,6 +41,8 @@ pub fn MotionTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
         notify.set(m.notify);
     });
 
+    save::follow_server(move || (enabled.get(), source.get(), sensitivity.get(), zones.get(), notify.get()), saved, on_revert);
+
     let onvif = Choice::new(MotionSource::Onvif, "Camera / ONVIF").tag("Recommended")
         .describe("The camera reports motion, people and vehicles itself. Lightest on the NAS.");
     let sources = vec![

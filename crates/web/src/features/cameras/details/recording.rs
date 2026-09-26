@@ -61,6 +61,7 @@ pub fn RecordingTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
         schedule.set(r.schedule);
         sound.set(r.record_audio);
     });
+    save::follow_server(current, saved, on_revert);
 
     let modes = vec![
         Choice::new(RecordingMode::Disabled, "Disabled").describe("Never record. Live view keeps working."),

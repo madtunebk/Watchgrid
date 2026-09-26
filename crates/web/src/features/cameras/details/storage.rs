@@ -28,6 +28,7 @@ pub fn StorageTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
         limited.set(r.is_some());
         days.set(r.unwrap_or(30));
     });
+    save::follow_server(draft, move || camera.get().recording.retention_days, on_revert);
     let off = Signal::derive(move || !limited.get());
 
     view! {

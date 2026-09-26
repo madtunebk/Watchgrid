@@ -142,13 +142,19 @@ pub async fn all_ids(state: &AppState) -> ApiResult<Vec<(String, bool)>> {
 pub async fn create(state: &AppState, mut input: CameraInput) -> ApiResult<Camera> {
     lift_url_credentials(&mut input);
     validate::check(&input)?;
-    let id = new_id(state, &input.name).await?;
-    let password = non_empty(&input.password).map(|p| seal(state, &id, "password", p)).transpose()?;
-    let onvif_password = input.onvif.as_ref().and_then(|o| non_empty(&o.password)).map(|p| seal(state, &id, "onvif-password", p)).transpose()?;
-    match repo::insert(&state.db, &id, &input, password, onvif_password).await {
-        Err(e) if repo::is_unique_violation(&e) => return Err(duplicate(&input.name)),
-        other => other?,
-    }
+    // Two cameras added at once may pick the same free id: try again.
+    let mut attempts = 0;
+    let id = loop {
+        let id = new_id(state, &input.name).await?;
+        let password = non_empty(&input.password).map(|p| seal(state, &id, "password", p)).transpose()?;
+        let onvif_password = input.onvif.as_ref().and_then(|o| non_empty(&o.password)).map(|p| seal(state, &id, "onvif-password", p)).transpose()?;
+        match repo::insert(&state.db, &id, &input, password, onvif_password).await {
+            Ok(()) => break id,
+            Err(e) if repo::is_duplicate_name(&e) => return Err(duplicate(&input.name)),
+            Err(e) if repo::is_unique_violation(&e) && attempts < 3 => attempts += 1,
+            Err(e) => return Err(e.into()),
+        }
+    };
     tracing::info!(camera = %id, "camera added");
     changed(state, &id, Some(input.enabled), true);
     get(state, &id).await
@@ -171,7 +177,7 @@ pub async fn update(state: &AppState, id: &str, mut input: CameraInput) -> ApiRe
     };
     let before = connection_key(state, id).await?;
     match repo::update(&state.db, id, &input, password, onvif_password).await {
-        Err(e) if repo::is_unique_violation(&e) => Err(duplicate(&input.name)),
+        Err(e) if repo::is_duplicate_name(&e) => Err(duplicate(&input.name)),
         Err(e) => Err(e.into()),
         Ok(false) => Err(ApiError::not_found("Camera")),
         Ok(true) => {

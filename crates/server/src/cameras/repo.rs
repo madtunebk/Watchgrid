@@ -87,6 +87,11 @@ pub fn is_unique_violation(e: &sqlx::Error) -> bool {
     matches!(e, sqlx::Error::Database(d) if d.code().as_deref() == Some("23505"))
 }
 
+/// A unique violation on the camera name (not on the id).
+pub fn is_duplicate_name(e: &sqlx::Error) -> bool {
+    is_unique_violation(e) && matches!(e, sqlx::Error::Database(d) if d.constraint() == Some("cameras_name_unique"))
+}
+
 pub async fn list(db: &PgPool) -> sqlx::Result<Vec<CameraRow>> {
     sqlx::query_as(&format!("SELECT {COLUMNS} FROM cameras ORDER BY created_at, id")).fetch_all(db).await
 }
@@ -95,8 +100,17 @@ pub async fn get(db: &PgPool, id: &str) -> sqlx::Result<Option<CameraRow>> {
     sqlx::query_as(&format!("SELECT {COLUMNS} FROM cameras WHERE id = $1")).bind(id).fetch_optional(db).await
 }
 
+/// Whether `id` is used, now or in history: a deleted camera's recordings
+/// and events keep its id, and a new camera must never inherit them.
 pub async fn id_taken(db: &PgPool, id: &str) -> sqlx::Result<bool> {
-    sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM cameras WHERE id = $1)").bind(id).fetch_one(db).await
+    sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM cameras WHERE id = $1)
+             OR EXISTS (SELECT 1 FROM recordings WHERE camera_id = $1)
+             OR EXISTS (SELECT 1 FROM events WHERE camera_id = $1)",
+    )
+    .bind(id)
+    .fetch_one(db)
+    .await
 }
 
 pub async fn insert(db: &PgPool, id: &str, i: &CameraInput, password: Option<Vec<u8>>, onvif_password: Option<Vec<u8>>) -> sqlx::Result<()> {

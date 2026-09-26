@@ -171,3 +171,19 @@ async fn cameras_show_their_newest_event(db: PgPool) {
     assert_eq!(last(&b.id), None, "no events yet");
     assert_eq!(service::get(&s, &a.id).await.unwrap().last_event.map(|e| e.event_id), Some("new".to_string()));
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn a_new_camera_never_inherits_a_deleted_ones_history(db: PgPool) {
+    let s = state(db.clone());
+    let old = service::create(&s, input("Garage")).await.unwrap();
+    sqlx::query("INSERT INTO events (camera_id, kind, start_time, end_time, source) VALUES ($1, 'motion', now(), now(), 'test')")
+        .bind(&old.id)
+        .execute(&db)
+        .await
+        .unwrap();
+    service::delete(&s, &old.id).await.unwrap();
+
+    let new = service::create(&s, input("Garage")).await.unwrap();
+    assert_ne!(new.id, old.id, "the old id still names the old camera's events");
+    assert_eq!(new.last_event, None);
+}
