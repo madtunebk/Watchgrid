@@ -41,8 +41,8 @@ pub fn check(i: &CameraInput) -> Result<(), ApiError> {
         return invalid("ONVIF URL must start with http:// or https://");
     }
     let r = &i.recording;
-    if r.pre_record_seconds > 60 || r.post_record_seconds > 300 {
-        return invalid("Pre-record is limited to 60 s and post-record to 300 s");
+    if r.post_record_seconds > watchgrid_model::MAX_POST_RECORD_SECONDS {
+        return invalid("Post-record is limited to 300 s");
     }
     if !(30..=3600).contains(&r.max_clip_seconds) {
         return invalid("Maximum clip duration must be between 30 and 3600 seconds");
@@ -143,7 +143,8 @@ mod tests {
 
     #[test]
     fn recording_limits() {
-        assert!(rejects(|i| i.recording.pre_record_seconds = 61));
+        assert!(rejects(|i| i.recording.post_record_seconds = 301));
+        assert!(!rejects(|i| i.recording.pre_record_seconds = 45), "more pre-record is brought down to 30 by the service, not refused");
         assert!(rejects(|i| i.recording.max_clip_seconds = 10));
         assert!(rejects(|i| i.recording.mode = watchgrid_model::RecordingMode::Scheduled), "scheduled without windows");
         let window = |days: Vec<u8>, start, end| watchgrid_model::ScheduleWindow { days, start_minute: start, end_minute: end };

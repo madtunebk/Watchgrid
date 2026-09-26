@@ -65,14 +65,19 @@ pub fn GeneralSection(settings: Signal<Settings>) -> impl IntoView {
                 </Field>
             </FormSection>
             <FormSection title="Region">
-                <Field label="Time zone" hint="Used for schedules, day boundaries and timestamps in clips.">
+                <Field label="Time zone" hint="Used for recording schedules and the Events hour filter. Clip file names use UTC.">
                     <select class="select" on:change=move |ev| zone.set(event_target_value(&ev))>
+                        // The saved zone is always offered, even if it isn't in the short list.
+                        {move || {
+                            let current = zone.get();
+                            (!ZONES.contains(&current.as_str())).then(|| view! { <option value=current.clone() selected=true>{current.clone()}</option> })
+                        }}
                         {ZONES.iter().map(|z| view! { <option value=*z selected=move || zone.get() == *z>{*z}</option> }).collect_view()}
                     </select>
                 </Field>
                 <Field label="Date format"><RadioCards value=date_format options=formats name="date-format" /></Field>
                 <Switch checked=clock_24h label="24-hour clock" />
-                <p class="note">"Preview: " <strong class="mono">{preview}</strong></p>
+                <p class="note">"Preview (this browser's clock): " <strong class="mono">{preview}</strong></p>
             </FormSection>
             <SaveBar state dirty on_save on_revert />
         </div>

@@ -22,7 +22,7 @@ use crate::bus::{Bus, BusEvent};
 use crate::media::{MediaHub, StreamKind};
 
 /// Pre-record is capped to bound memory (frames are kept in RAM).
-const MAX_PREROLL_SECS: u32 = 30;
+const MAX_PREROLL_SECS: u32 = watchgrid_model::MAX_PRE_RECORD_SECONDS;
 /// Reasons this controller starts, and therefore may stop.
 const OWN: [RecordingReason; 2] = [RecordingReason::Motion, RecordingReason::Event];
 

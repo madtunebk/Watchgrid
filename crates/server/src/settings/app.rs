@@ -75,6 +75,8 @@ pub async fn load(db: &PgPool, bind: std::net::SocketAddr) -> ApiResult<Settings
 pub async fn save(db: &PgPool, mut s: Settings) -> ApiResult<Settings> {
     s.general.nvr_name = s.general.nvr_name.trim().to_string();
     s.notifications.webhook_url = s.notifications.webhook_url.map(|u| u.trim().to_string()).filter(|u| !u.is_empty());
+    // Older settings may hold more pre-record than the recorder keeps.
+    s.recording.pre_record_seconds = s.recording.pre_record_seconds.min(watchgrid_model::MAX_PRE_RECORD_SECONDS);
     validate(&s)?;
     // PostgreSQL's zone database decides which names are real.
     let known: Option<i32> = sqlx::query_scalar("SELECT 1 FROM pg_timezone_names WHERE name = $1").bind(&s.general.timezone).fetch_optional(db).await?;
@@ -106,8 +108,8 @@ fn validate(s: &Settings) -> ApiResult<()> {
     if s.network.http_bind.parse::<std::net::IpAddr>().is_err() {
         return bad("The bind address must be an IP address, e.g. 0.0.0.0");
     }
-    if s.recording.pre_record_seconds > 60 || s.recording.post_record_seconds > 600 {
-        return bad("Pre-record is limited to 60 s and post-record to 600 s");
+    if s.recording.post_record_seconds > watchgrid_model::MAX_POST_RECORD_SECONDS {
+        return bad("Post-record is limited to 300 s");
     }
     if !(5..=10_080).contains(&s.auth.session_timeout_minutes) {
         return bad("Session timeout must be between 5 minutes and 7 days");

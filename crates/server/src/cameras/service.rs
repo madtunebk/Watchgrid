@@ -152,8 +152,14 @@ pub async fn all_ids(state: &AppState) -> ApiResult<Vec<(String, bool)>> {
     Ok(repo::list(&state.db).await?.into_iter().map(|r| r.into_model()).map(|c| (c.id, c.enabled)).collect())
 }
 
+/// Values the recorder can't honour are brought to what it does.
+fn normalize(input: &mut CameraInput) {
+    input.recording.pre_record_seconds = input.recording.pre_record_seconds.min(watchgrid_model::MAX_PRE_RECORD_SECONDS);
+}
+
 pub async fn create(state: &AppState, mut input: CameraInput) -> ApiResult<Camera> {
     lift_url_credentials(&mut input);
+    normalize(&mut input);
     validate::check(&input)?;
     // Two cameras added at once may pick the same free id: try again.
     let mut attempts = 0;
@@ -175,6 +181,7 @@ pub async fn create(state: &AppState, mut input: CameraInput) -> ApiResult<Camer
 
 pub async fn update(state: &AppState, id: &str, mut input: CameraInput) -> ApiResult<Camera> {
     lift_url_credentials(&mut input);
+    normalize(&mut input);
     validate::check(&input)?;
     // An empty/absent password means "keep the stored one".
     let password = match non_empty(&input.password) {

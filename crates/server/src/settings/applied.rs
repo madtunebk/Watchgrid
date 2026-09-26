@@ -62,10 +62,10 @@ pub fn apply(a: &AdvancedSettings) -> bool {
     let udp = a.rtsp_transport == RtspTransport::Udp;
     let changed = UDP.swap(udp, Ordering::Relaxed) != udp;
     RECONNECT_SECS.store(a.reconnect_seconds.clamp(1, 300), Ordering::Relaxed);
-    if let Some(handle) = LOG_FILTER.get() {
-        if let Err(e) = handle.reload(log_filter(a.log_level)) {
-            tracing::warn!("cannot change the log level: {e}");
-        }
+    if let Some(handle) = LOG_FILTER.get()
+        && let Err(e) = handle.reload(log_filter(a.log_level))
+    {
+        tracing::warn!("cannot change the log level: {e}");
     }
     changed
 }

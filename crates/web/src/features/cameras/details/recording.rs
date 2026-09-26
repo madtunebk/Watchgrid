@@ -101,8 +101,8 @@ pub fn RecordingTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
             <FormSection title="Event recording" description="How clips are cut around each event.">
                 <BufferDiagram pre post />
                 <div class="form-grid form-grid--3">
-                    <Field label="Pre-record" hint="Video kept from before the event started">
-                        <NumberInput value=pre min=0 max=60 suffix="seconds" disabled=Signal::derive(move || !event_based()) />
+                    <Field label="Pre-record" hint="Video kept from before the event started (up to 30 s)">
+                        <NumberInput value=pre min=0 max=30 suffix="seconds" disabled=Signal::derive(move || !event_based()) />
                     </Field>
                     <Field label="Post-record" hint="Keep recording after the event ends">
                         <NumberInput value=post min=0 max=300 suffix="seconds" disabled=Signal::derive(move || !event_based()) />

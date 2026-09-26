@@ -45,10 +45,10 @@ pub fn RecordingSection(settings: Signal<Settings>) -> impl IntoView {
             <FormSection title="Defaults for new cameras" description="Each camera keeps its own settings; changing these does not alter existing cameras.">
                 <Field label="Recording mode"><RadioCards value=mode options=modes name="default-mode" /></Field>
                 <div class="form-grid">
-                    <Field label="Pre-record" hint="Seconds kept from before an event">
-                        <NumberInput value=pre min=0 max=60 suffix="seconds" />
+                    <Field label="Pre-record" hint="Seconds kept from before an event (up to 30)">
+                        <NumberInput value=pre min=0 max=30 suffix="seconds" />
                     </Field>
-                    <Field label="Post-record" hint="Seconds recorded after an event ends">
+                    <Field label="Post-record" hint="Seconds recorded after an event ends (up to 300)">
                         <NumberInput value=post min=0 max=300 suffix="seconds" />
                     </Field>
                 </div>

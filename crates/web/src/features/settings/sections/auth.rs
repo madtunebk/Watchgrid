@@ -32,8 +32,8 @@ pub fn AuthSection(settings: Signal<Settings>) -> impl IntoView {
     view! {
         <div class="settings-tab">
             <FormSection title="Sign-in" description="Sign-in is always required for the web interface and the API.">
-                <Field label="Session timeout" hint="Signed-in browsers stay logged in this long without activity.">
-                    <NumberInput value=timeout min=5 max=43_200 suffix="minutes" />
+                <Field label="Session timeout" hint="Signed-in browsers stay logged in this long without activity (up to 7 days).">
+                    <NumberInput value=timeout min=5 max=10_080 suffix="minutes" />
                 </Field>
             </FormSection>
             <SaveBar state dirty on_save on_revert />

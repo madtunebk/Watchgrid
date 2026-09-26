@@ -187,3 +187,12 @@ async fn a_new_camera_never_inherits_a_deleted_ones_history(db: PgPool) {
     assert_ne!(new.id, old.id, "the old id still names the old camera's events");
     assert_eq!(new.last_event, None);
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn pre_record_is_kept_to_what_the_recorder_holds(db: PgPool) {
+    let s = state(db);
+    let mut i = input("Hall");
+    i.recording.pre_record_seconds = 45;
+    let cam = service::create(&s, i).await.unwrap();
+    assert_eq!(cam.recording.pre_record_seconds, watchgrid_model::MAX_PRE_RECORD_SECONDS);
+}

@@ -105,6 +105,11 @@ pub struct LastEventSummary {
     pub time: Timestamp,
 }
 
+/// Longest pre-record the recorder keeps (its buffer holds this much).
+pub const MAX_PRE_RECORD_SECONDS: u32 = 30;
+/// Longest post-record.
+pub const MAX_POST_RECORD_SECONDS: u32 = 300;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RecordingSettings {

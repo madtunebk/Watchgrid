@@ -43,7 +43,7 @@ pub fn AdvancedSection(settings: Signal<Settings>) -> impl IntoView {
         <div class="settings-tab">
             <FormSection title="Cameras">
                 <Field label="RTSP transport"><RadioCards value=transport options=transports name="rtsp-transport" /></Field>
-                <Field label="Reconnect delay" hint="Wait before retrying a camera that dropped; doubles with repeated failures, up to a minute.">
+                <Field label="Reconnect delay" hint="Wait before retrying a camera that dropped; doubles with repeated failures, up to a minute (or this delay, if it is longer).">
                     <NumberInput value=reconnect min=1 max=300 suffix="seconds" />
                 </Field>
             </FormSection>
