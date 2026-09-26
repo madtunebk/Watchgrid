@@ -7,12 +7,13 @@ use leptos::task::spawn_local;
 
 use super::bulk_text;
 use crate::api::{self, RecordingBulkAction, RecordingBulkRequest, RecordingBulkSummary};
+use crate::ui::{Tone, use_toaster};
 
 #[component]
 pub fn BulkDeleteDialog(open: RwSignal<bool>, ids: Signal<Vec<String>>, on_done: Callback<(RecordingBulkAction, RecordingBulkSummary)>) -> impl IntoView {
     let with_events = RwSignal::new(false);
     let busy = RwSignal::new(false);
-    let error = RwSignal::new(None::<String>);
+    let toaster = use_toaster();
     let action = move || if with_events.get() { RecordingBulkAction::DeleteWithEvents } else { RecordingBulkAction::Delete };
     let preview = LocalResource::new(move || {
         let (open, req) = (open.get(), RecordingBulkRequest { ids: ids.get(), action: action() });
@@ -27,7 +28,6 @@ pub fn BulkDeleteDialog(open: RwSignal<bool>, ids: Signal<Vec<String>>, on_done:
         if !busy.get_untracked() {
             open.set(false);
             with_events.set(false);
-            error.set(None);
         }
     };
     let esc = window_event_listener(ev::keydown, move |e| if e.key() == "Escape" { close() });
@@ -37,7 +37,6 @@ pub fn BulkDeleteDialog(open: RwSignal<bool>, ids: Signal<Vec<String>>, on_done:
     let confirm = move |_| {
         let req = RecordingBulkRequest { ids: ids.get_untracked(), action: action() };
         busy.set(true);
-        error.set(None);
         spawn_local(async move {
             let act = req.action;
             match api::apply_recording_bulk(req).await {
@@ -46,9 +45,11 @@ pub fn BulkDeleteDialog(open: RwSignal<bool>, ids: Signal<Vec<String>>, on_done:
                     close();
                     on_done.run((act, summary));
                 }
+                // The outcome is a toast, like a success.
                 Err(e) => {
-                    error.set(Some(e.to_string()));
                     busy.set(false);
+                    close();
+                    toaster.show(Tone::Danger, format!("Couldn't delete: {e}"));
                 }
             }
         });
@@ -84,7 +85,6 @@ pub fn BulkDeleteDialog(open: RwSignal<bool>, ids: Signal<Vec<String>>, on_done:
                         }
                     }}
                 </div>
-                {move || error.get().map(|e| view! { <p class="modal__error">{e}</p> })}
                 <div class="modal__actions">
                     <button class="btn btn--secondary" disabled=busy on:click=move |_| close()>"Cancel"</button>
                     <button class="btn btn--danger-solid" disabled=move || busy.get() || ready().is_none() on:click=confirm>

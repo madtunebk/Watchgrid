@@ -8,7 +8,7 @@ use leptos::task::spawn_local;
 use super::bulk_delete::BulkDeleteDialog;
 use super::bulk_text;
 use crate::api::{self, EventBulkAction, EventBulkRequest, EventBulkSummary, Topic};
-use crate::ui::{I, Icon, ResultNote, Selection, SelectionBar};
+use crate::ui::{I, Icon, Selection, SelectionBar, Tone, use_toaster};
 
 fn refresh() {
     for topic in [Topic::Events, Topic::Recordings, Topic::Storage, Topic::Cameras] {
@@ -19,12 +19,14 @@ fn refresh() {
 #[component]
 pub fn BulkBar(selected: Selection, #[prop(into)] shown: Signal<Vec<String>>) -> impl IntoView {
     let busy = RwSignal::new(false);
-    let note = RwSignal::new(None::<String>);
+    let toaster = use_toaster();
     let delete_open = RwSignal::new(false);
     let ids = Signal::derive(move || selected.get().into_iter().collect::<Vec<_>>());
 
     let done = Callback::new(move |(action, summary): (EventBulkAction, EventBulkSummary)| {
-        note.set(Some(bulk_text::did(action, &summary)));
+        // Something left alone is worth a second look.
+        let tone = if bulk_text::left_alone(&summary).is_empty() { Tone::Online } else { Tone::Warning };
+        toaster.show(tone, bulk_text::did(action, &summary));
         selected.set(BTreeSet::new());
         refresh();
     });
@@ -34,14 +36,13 @@ pub fn BulkBar(selected: Selection, #[prop(into)] shown: Signal<Vec<String>>) ->
         spawn_local(async move {
             match api::apply_event_bulk(req).await {
                 Ok(summary) => done.run((action, summary)),
-                Err(e) => note.set(Some(e.to_string())),
+                Err(e) => toaster.show(Tone::Danger, e.to_string()),
             }
             busy.set(false);
         });
     };
 
     view! {
-        <ResultNote note selected />
         <SelectionBar selected shown label="Selected events">
             <button class="btn btn--secondary btn--sm" disabled=busy on:click=move |_| run(EventBulkAction::Protect)>
                 <Icon icon=I::Lock class="icon icon--sm" />"Protect"

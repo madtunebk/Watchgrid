@@ -4,7 +4,7 @@ use leptos_router::components::A;
 
 use crate::features::clip_export::{ExportMenu, ExportSubject};
 use crate::features::events::mutations;
-use crate::ui::{ConfirmDialog, I, Icon};
+use crate::ui::{ConfirmDialog, I, Icon, Tone, use_toaster};
 
 #[component]
 pub fn EventActions(
@@ -20,7 +20,7 @@ pub fn EventActions(
     let busy = RwSignal::new(false);
     let note = RwSignal::new(None::<String>);
     let confirm = RwSignal::new(false);
-    let delete_error = RwSignal::new(None::<String>);
+    let toaster = use_toaster();
 
     let toggle_protect = {
         let id = event_id.clone();
@@ -40,14 +40,17 @@ pub fn EventActions(
         move |_| {
             let id = id.clone();
             busy.set(true);
-            delete_error.set(None);
             spawn_local(async move {
                 match mutations::delete(id).await {
                     Ok(()) => {
                         confirm.set(false);
+                        toaster.show(Tone::Online, "Event deleted");
                         on_deleted.run(());
                     }
-                    Err(e) => delete_error.set(Some(e.to_string())),
+                    Err(e) => {
+                        confirm.set(false);
+                        toaster.show(Tone::Danger, format!("Couldn't delete the event: {e}"));
+                    }
                 }
                 busy.set(false);
             });
@@ -73,7 +76,7 @@ pub fn EventActions(
                 <Icon icon=I::Trash class="icon icon--sm" />"Delete"
             </button>
             {move || note.get().map(|n| view! { <p class="event-actions__note">{n}</p> })}
-            <ConfirmDialog open=confirm title="Delete event?" confirm_label="Delete event" danger=true busy error=delete_error
+            <ConfirmDialog open=confirm title="Delete event?" confirm_label="Delete event" danger=true busy
                 message=if has_clip {
                     "The event will be removed from the history. Its recording is kept — delete the video from Recordings if you don't need it."
                 } else {

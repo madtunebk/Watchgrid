@@ -11,7 +11,7 @@ use crate::api::{self, Recording};
 use crate::features::clip_export::{ExportMenu, ExportSubject};
 use crate::features::playback::{Clip, Player};
 use crate::format;
-use crate::ui::{ConfirmDialog, I, Icon};
+use crate::ui::{ConfirmDialog, I, Icon, Tone, use_toaster};
 
 #[component]
 pub fn RecordingDrawer(recording: Recording, camera_name: String, on_close: Callback<()>) -> impl IntoView {
@@ -52,13 +52,12 @@ pub fn RecordingDrawer(recording: Recording, camera_name: String, on_close: Call
     let busy = RwSignal::new(false);
     let protect_error = RwSignal::new(None::<String>);
     let confirm_delete = RwSignal::new(false);
-    let delete_error = RwSignal::new(None::<String>);
+    let toaster = use_toaster();
     let do_delete = Callback::new({
         let id = recording.id.clone();
         move |_| {
             let id = id.clone();
             busy.set(true);
-            delete_error.set(None);
             spawn_local(async move {
                 match api::delete_recording(id).await {
                     Ok(()) => {
@@ -66,9 +65,13 @@ pub fn RecordingDrawer(recording: Recording, camera_name: String, on_close: Call
                             api::invalidate(topic);
                         }
                         confirm_delete.set(false);
+                        toaster.show(Tone::Online, "Recording deleted");
                         on_close.run(());
                     }
-                    Err(e) => delete_error.set(Some(e.to_string())),
+                    Err(e) => {
+                        confirm_delete.set(false);
+                        toaster.show(Tone::Danger, format!("Couldn't delete the recording: {e}"));
+                    }
                 }
                 busy.set(false);
             });
@@ -138,7 +141,7 @@ pub fn RecordingDrawer(recording: Recording, camera_name: String, on_close: Call
                         })}
                         {move || protect_error.get().map(|e| view! { <p class="drawer__note">{e}</p> })}
                     </div>
-                    <ConfirmDialog open=confirm_delete title="Delete recording?" confirm_label="Delete recording" danger=true busy error=delete_error
+                    <ConfirmDialog open=confirm_delete title="Delete recording?" confirm_label="Delete recording" danger=true busy
                         message=delete_message.clone() on_confirm=do_delete />
                 })}
                 <div class="drawer__links">

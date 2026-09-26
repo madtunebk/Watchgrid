@@ -31,7 +31,8 @@
 
 /* Toasts: short messages that go away by themselves. */
 .toasts {
-  position: fixed; z-index: 95; right: 1.0667rem; bottom: 1.0667rem;
+  /* Top right, under the header: clear of the bulk bar at the bottom. */
+  position: fixed; z-index: 95; right: 1.0667rem; top: calc(var(--header-h) + 0.8rem);
   display: flex; flex-direction: column; gap: 0.5333rem;
   width: min(24rem, calc(100vw - 2.1333rem));
   pointer-events: none;
