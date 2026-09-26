@@ -9,6 +9,7 @@ pub mod logs;
 pub mod notifications;
 mod client;
 pub mod probes;
+pub mod ptz;
 pub mod recordings;
 pub mod settings;
 pub mod storage;

@@ -29,6 +29,8 @@ pub struct AppState {
     pub supervisor: Arc<Supervisor>,
     /// ONVIF event watchers (motion from cameras).
     pub onvif: Arc<Watchers>,
+    /// PTZ sessions for cameras that move.
+    pub ptz: Arc<crate::cameras::ptz::PtzSessions>,
     /// Software motion detection (cameras without ONVIF events).
     pub motion: Arc<Detectors>,
     /// On-demand live video feeds.
@@ -103,6 +105,7 @@ impl AppState {
             supervisor: Arc::new(supervisor),
             onvif: Arc::new(onvif),
             motion: Arc::new(motion),
+            ptz: Arc::default(),
             media,
             retention,
             started_at: chrono::Utc::now(),

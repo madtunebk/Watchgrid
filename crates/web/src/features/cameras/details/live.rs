@@ -2,7 +2,7 @@ use leptos::html::Div;
 use leptos::prelude::*;
 
 use crate::api::{Camera, CameraStatus};
-use crate::features::cameras::widgets::{CameraPreview, RecordButton};
+use crate::features::cameras::widgets::{CameraPreview, PtzPad, RecordButton};
 use crate::format;
 use crate::ui::{I, Icon, fullscreen, snapshot as snap};
 
@@ -59,6 +59,7 @@ pub fn LiveTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
                 </button>
                 {move || snapshot.get().map(|s| view! { <span class="live-controls__note">{s}</span> })}
             </div>
+            <PtzPad camera_id=camera.get_untracked().id />
 
             {move || {
                 let c = camera.get();

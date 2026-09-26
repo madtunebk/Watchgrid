@@ -7,7 +7,7 @@ use leptos::prelude::*;
 use leptos_router::components::A;
 
 use crate::api::{Camera, CameraStatus};
-use crate::features::cameras::{CameraPreview, RecordButton};
+use crate::features::cameras::{CameraPreview, PtzPad, RecordButton};
 use crate::ui::{I, Icon, snapshot as snap};
 
 #[component]
@@ -50,6 +50,10 @@ pub fn Tile(
     view! {
         <div class="tile" node_ref=el class:tile--flash=flash on:dblclick=move |_| on_focus.run(())>
             {move || camera.get().map(|c| view! { <CameraPreview camera=c substream muted=muted has_audio /> })}
+            // Single-camera view: pan / tilt arrows over the picture.
+            {on_back.is_some().then(|| camera.get_untracked().map(|c| view! {
+                <div class="tile__ptz"><PtzPad camera_id=c.id compact=true /></div>
+            }))}
             <Show when=move || flash.get()>
                 <span class="tile__toast">{move || toast.get()}</span>
             </Show>

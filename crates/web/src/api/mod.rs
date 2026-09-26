@@ -18,6 +18,7 @@ mod exports;
 mod http;
 mod mock;
 mod notifications;
+mod ptz;
 #[cfg(feature = "live-api")]
 mod push;
 pub mod query;
@@ -28,6 +29,7 @@ mod storage;
 mod system;
 
 pub use auth::*;
+pub use ptz::*;
 pub use cameras::*;
 pub use watchgrid_model::*;
 pub use connection::{ConnectionState, provide_connection, use_connection};
