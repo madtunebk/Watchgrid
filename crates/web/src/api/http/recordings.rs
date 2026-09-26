@@ -30,3 +30,7 @@ fn encode(s: &str) -> String {
 pub async fn set_protected(id: &str, protected: bool) -> ApiResult<()> {
     client::put_no_content(&format!("/recordings/{}/protected", encode(id)), &serde_json::json!({ "protected": protected })).await
 }
+
+pub async fn delete(id: &str) -> ApiResult<()> {
+    client::delete(&format!("/recordings/{}", encode(id))).await
+}

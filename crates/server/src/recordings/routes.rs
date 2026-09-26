@@ -4,6 +4,7 @@ use axum::extract::{Path, Query, Request, State};
 use axum::response::{IntoResponse, Response};
 use axum::http::StatusCode;
 use axum::routing::{get, put};
+use watchgrid_model::Event;
 use axum::{Json, Router};
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
@@ -17,7 +18,7 @@ use crate::error::{ApiError, ApiResult};
 use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
-    Router::new().route("/", get(list)).route("/{id}", get(one)).route("/{id}/media", get(media)).route("/{id}/protected", put(protect))
+    Router::new().route("/", get(list)).route("/{id}", get(one).delete(remove)).route("/{id}/media", get(media)).route("/{id}/protected", put(protect))
 }
 
 #[derive(Deserialize)]
@@ -36,7 +37,8 @@ async fn list(State(s): State<AppState>, Query(q): Query<ListQuery>) -> ApiResul
         let now = Utc::now();
         let wanted = (cameras.is_empty() || cameras.contains(&r.camera_id)) && q.to.is_none_or(|to| r.start_time < to) && q.from.is_none_or(|from| now > from);
         if wanted {
-            r.event_ids = crate::events::events_of_recording(&s.db, &r.id).await.unwrap_or_default().into_iter().map(|e| e.id).collect();
+            let events = crate::events::events_of_recording(&s.db, &r.id).await.unwrap_or_default();
+            with_events(&mut r, events);
             list.push(r);
         }
     }
@@ -54,8 +56,14 @@ async fn one(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult<Jso
 /// A recording still being written, with its events.
 pub async fn live(s: &AppState, id: &str) -> Option<Recording> {
     let mut r = s.recorder.live().get(id)?.recording()?;
-    r.event_ids = crate::events::events_of_recording(&s.db, id).await.unwrap_or_default().into_iter().map(|e| e.id).collect();
+    with_events(&mut r, crate::events::events_of_recording(&s.db, id).await.unwrap_or_default());
     Some(r)
+}
+
+/// A clip in progress gets its events (and their protection) from the journal.
+fn with_events(r: &mut Recording, events: Vec<Event>) {
+    r.protected_by_events = events.iter().filter(|e| e.protected).count() as u32;
+    r.event_ids = events.into_iter().map(|e| e.id).collect();
 }
 
 /// The MP4 file, with HTTP range support so the browser can seek. A clip
@@ -78,7 +86,28 @@ struct Protect {
     protected: bool,
 }
 
-/// Protected recordings are never deleted by retention.
+/// Deletes the video; its events stay in the history without it. Refused
+/// while recording or protected (by hand or by any of its events).
+async fn remove(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult<StatusCode> {
+    if s.recorder.live().get(&id).is_some() {
+        return Err(ApiError::conflict("This clip is still being recorded. Stop the recording first."));
+    }
+    match super::delete_recording(&s.db, &s.recording_files, &id).await {
+        Ok(true) => {}
+        Ok(false) => return Err(ApiError::not_found("Recording")),
+        Err(super::DeleteError::Protected) => {
+            return Err(ApiError::conflict("This recording is protected, by hand or by one of its events. Remove the protection first."));
+        }
+        Err(super::DeleteError::Failed(e)) => return Err(ApiError::internal(e)),
+    }
+    tracing::info!(recording = %id, "recording deleted");
+    s.bus.publish(BusEvent::RecordingsChanged);
+    s.bus.publish(BusEvent::EventsChanged);
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Protected recordings are never deleted by retention. This is the manual
+/// protection; protected events keep protecting the clip regardless.
 async fn protect(State(s): State<AppState>, Path(id): Path<String>, Json(body): Json<Protect>) -> ApiResult<StatusCode> {
     repo::get(&s.db, &id).await?.ok_or_else(|| ApiError::not_found("Recording"))?;
     repo::set_protected(&s.db, &id, body.protected).await?;

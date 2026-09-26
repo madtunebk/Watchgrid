@@ -13,8 +13,8 @@ pub use files::RecordingFiles;
 pub async fn file_of(db: &sqlx::PgPool, files: &RecordingFiles, id: &str) -> sqlx::Result<Option<std::path::PathBuf>> {
     Ok(repo::path(db, id).await?.and_then(|(root, rel)| files.resolve(root.as_deref(), &rel)))
 }
-pub use delete::delete_recording;
-pub use repo::{NewRecording, get, insert, protected_bytes, retention_candidates, set_protected, usage_by_camera};
+pub use delete::{DeleteError, delete_recording, lock_clip};
+pub use repo::{NewRecording, get, insert, protected_bytes, retention_candidates, usage_by_camera};
 pub use routes::{live as live_recording, router};
 
 #[cfg(test)]

@@ -59,7 +59,7 @@ pub fn EventActions(
             {has_clip.then(|| view! {
                 <ExportMenu subject=ExportSubject::Event(event_id.clone()) />
                 <button class="btn" class:btn--primary=protected class:btn--secondary=move || !protected.get() disabled=busy on:click=toggle_protect
-                    title="Protected events are never deleted by retention">
+                    title="Protected events and their recordings are never deleted by retention">
                     {move || view! { <Icon icon=if protected.get() { I::Lock } else { I::LockOpen } class="icon icon--sm" /> }}
                     {move || if protected.get() { "Protected" } else { "Protect" }}
                 </button>
@@ -74,7 +74,11 @@ pub fn EventActions(
             </button>
             {move || note.get().map(|n| view! { <p class="event-actions__note">{n}</p> })}
             <ConfirmDialog open=confirm title="Delete event?" confirm_label="Delete event" danger=true busy error=delete_error
-                message=if has_clip { "The event and its recording will be deleted permanently." } else { "The event will be deleted permanently." }.to_string()
+                message=if has_clip {
+                    "The event will be removed from the history. Its recording is kept — delete the video from Recordings if you don't need it."
+                } else {
+                    "The event will be deleted permanently."
+                }.to_string()
                 on_confirm=do_delete />
         </div>
     }

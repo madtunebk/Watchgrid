@@ -26,7 +26,7 @@ pub fn ClipList(recordings: Vec<Recording>, names: HashMap<String, String>, on_o
                         <span class=format!("rec-chip rec-chip--{}", labels::css(r.reason))>{labels::label(r.reason)}</span>
                         <span class="clip-row__camera truncate">{camera}</span>
                         <span class="clip-row__meta">{match events { 0 => String::new(), 1 => "1 event".into(), n => format!("{n} events") }}</span>
-                        <span class="clip-row__lock">{r.protected.then(|| view! { <Icon icon=I::Lock class="icon icon--sm" /> })}</span>
+                        <span class="clip-row__lock">{r.is_protected().then(|| view! { <Icon icon=I::Lock class="icon icon--sm" /> })}</span>
                         <span class="clip-row__num">{format::duration(r.duration)}</span>
                         <span class="clip-row__num">{format::bytes(r.file_size)}</span>
                         <Icon icon=I::ChevronRight class="icon icon--sm evt-row__chevron" />

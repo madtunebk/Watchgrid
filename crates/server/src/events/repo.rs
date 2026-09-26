@@ -265,7 +265,7 @@ pub async fn neighbours(db: &PgPool, e: &Event) -> sqlx::Result<(Option<String>,
     Ok((previous, next))
 }
 
-pub async fn set_protected(db: &PgPool, id: &str, protected: bool) -> sqlx::Result<()> {
+pub async fn set_protected(db: impl sqlx::PgExecutor<'_>, id: &str, protected: bool) -> sqlx::Result<()> {
     sqlx::query("UPDATE events SET protected = $2 WHERE id = $1").bind(id).bind(protected).execute(db).await.map(|_| ())
 }
 

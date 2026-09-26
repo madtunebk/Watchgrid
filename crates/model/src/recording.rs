@@ -26,8 +26,19 @@ pub struct Recording {
     pub reason: RecordingReason,
     /// Bytes
     pub file_size: u64,
+    /// Protected by hand (Recordings → Protect).
     pub protected: bool,
+    /// Protected events in this clip; each one also keeps it from deletion.
+    #[serde(default)]
+    pub protected_by_events: u32,
     pub event_ids: Vec<Id>,
+}
+
+impl Recording {
+    /// Kept from retention and deletion, by hand or by a protected event.
+    pub fn is_protected(&self) -> bool {
+        self.protected || self.protected_by_events > 0
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

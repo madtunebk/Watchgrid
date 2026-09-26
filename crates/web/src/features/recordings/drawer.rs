@@ -11,7 +11,7 @@ use crate::api::{self, Recording};
 use crate::features::clip_export::{ExportMenu, ExportSubject};
 use crate::features::playback::{Clip, Player};
 use crate::format;
-use crate::ui::{I, Icon};
+use crate::ui::{ConfirmDialog, I, Icon};
 
 #[component]
 pub fn RecordingDrawer(recording: Recording, camera_name: String, on_close: Callback<()>) -> impl IntoView {
@@ -45,9 +45,41 @@ pub fn RecordingDrawer(recording: Recording, camera_name: String, on_close: Call
     // Finished clips only: one still recording has no file yet.
     let saved = recording.end_time.is_some();
     let subject = ExportSubject::Recording { id: recording.id.clone(), camera_id: recording.camera_id.clone(), start: recording.start_time };
+    // Manual protection; protected events keep the clip regardless.
     let protected = RwSignal::new(recording.protected);
+    let by_events = recording.protected_by_events;
+    let inherited = by_events > 0;
     let busy = RwSignal::new(false);
     let protect_error = RwSignal::new(None::<String>);
+    let confirm_delete = RwSignal::new(false);
+    let delete_error = RwSignal::new(None::<String>);
+    let do_delete = Callback::new({
+        let id = recording.id.clone();
+        move |_| {
+            let id = id.clone();
+            busy.set(true);
+            delete_error.set(None);
+            spawn_local(async move {
+                match api::delete_recording(id).await {
+                    Ok(()) => {
+                        for topic in [api::Topic::Recordings, api::Topic::Events, api::Topic::Storage] {
+                            api::invalidate(topic);
+                        }
+                        confirm_delete.set(false);
+                        on_close.run(());
+                    }
+                    Err(e) => delete_error.set(Some(e.to_string())),
+                }
+                busy.set(false);
+            });
+        }
+    });
+    let events_count = recording.event_ids.len();
+    let delete_message = match events_count {
+        0 => "The video file will be deleted permanently.".to_string(),
+        1 => "The video file will be deleted permanently. Its event stays in the history, without video.".to_string(),
+        n => format!("The video file will be deleted permanently. Its {n} events stay in the history, without video."),
+    };
     let toggle_protect = {
         let id = recording.id.clone();
         move |_| {
@@ -94,8 +126,20 @@ pub fn RecordingDrawer(recording: Recording, camera_name: String, on_close: Call
                             {move || view! { <Icon icon=if protected.get() { I::Lock } else { I::LockOpen } class="icon icon--sm" /> }}
                             {move || if protected.get() { "Protected" } else { "Protect" }}
                         </button>
+                        <button class="btn btn--danger" disabled=move || busy.get() || protected.get() || inherited
+                            title=move || if protected.get() || inherited { "Remove the protection before deleting" } else { "" }
+                            on:click=move |_| confirm_delete.set(true)>
+                            <Icon icon=I::Trash class="icon icon--sm" />"Delete"
+                        </button>
+                        {inherited.then(|| view! {
+                            <p class="drawer__note">
+                                {if by_events == 1 { "Also kept by a protected event.".to_string() } else { format!("Also kept by {by_events} protected events.") }}
+                            </p>
+                        })}
                         {move || protect_error.get().map(|e| view! { <p class="drawer__note">{e}</p> })}
                     </div>
+                    <ConfirmDialog open=confirm_delete title="Delete recording?" confirm_label="Delete recording" danger=true busy error=delete_error
+                        message=delete_message.clone() on_confirm=do_delete />
                 })}
                 <div class="drawer__links">
                     {event_links.into_iter().map(|(i, id)| view! {

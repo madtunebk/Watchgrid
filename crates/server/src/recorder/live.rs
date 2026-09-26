@@ -59,6 +59,7 @@ impl LiveClip {
             reason: self.reason,
             file_size: index.flushed,
             protected: false,
+            protected_by_events: 0,
             event_ids: Vec::new(),
         })
     }

@@ -45,7 +45,11 @@ pub async fn insert(db: &PgPool, r: &NewRecording) -> sqlx::Result<()> {
     .map(|_| ())
 }
 
-const COLUMNS: &str = "id, camera_id, reason, start_time, end_time, duration_ms, file_size, protected";
+const COLUMNS: &str = "id, camera_id, reason, start_time, end_time, duration_ms, file_size, protected,
+    (SELECT COUNT(*) FROM events e WHERE e.recording_id = recordings.id AND e.protected)::int AS protected_by_events";
+
+/// SQL condition: the recording `r` is protected, by hand or by an event.
+pub(super) const EFFECTIVELY_PROTECTED: &str = "(r.protected OR EXISTS (SELECT 1 FROM events e WHERE e.recording_id = r.id AND e.protected))";
 
 #[derive(sqlx::FromRow)]
 struct Row {
@@ -57,6 +61,7 @@ struct Row {
     duration_ms: i64,
     file_size: i64,
     protected: bool,
+    protected_by_events: i32,
 }
 
 impl Row {
@@ -70,6 +75,7 @@ impl Row {
             reason: parse_reason(&self.reason),
             file_size: self.file_size as u64,
             protected: self.protected,
+            protected_by_events: self.protected_by_events.max(0) as u32,
             event_ids: Vec::new(),
         }
     }
@@ -109,34 +115,31 @@ pub async fn usage_by_camera(db: &PgPool) -> sqlx::Result<Vec<CameraStorageUsage
 
 /// Bytes in recordings that retention never deletes.
 pub async fn protected_bytes(db: &PgPool) -> sqlx::Result<u64> {
-    let n: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(file_size), 0)::bigint FROM recordings WHERE protected").fetch_one(db).await?;
+    let n: i64 = sqlx::query_scalar(&format!("SELECT COALESCE(SUM(r.file_size), 0)::bigint FROM recordings r WHERE {EFFECTIVELY_PROTECTED}")).fetch_one(db).await?;
     Ok(n as u64)
 }
 
 /// Unprotected recordings, oldest first.
 pub async fn retention_candidates(db: &PgPool) -> sqlx::Result<Vec<Candidate>> {
     // The camera's own limit lives in its recording settings (JSON).
-    let rows: Vec<(String, i64, DateTime<Utc>, Option<i32>)> = sqlx::query_as(
-        "SELECT r.id, r.file_size, r.end_time, (c.recording->>'retentionDays')::int
+    let rows: Vec<(String, i64, DateTime<Utc>, Option<i32>, Option<String>)> = sqlx::query_as(&format!(
+        "SELECT r.id, r.file_size, r.end_time, (c.recording->>'retentionDays')::int, r.root
          FROM recordings r LEFT JOIN cameras c ON c.id = r.camera_id
-         WHERE NOT r.protected ORDER BY r.start_time, r.id",
-    )
+         WHERE NOT {EFFECTIVELY_PROTECTED} ORDER BY r.start_time, r.id"
+    ))
     .fetch_all(db)
     .await?;
     Ok(rows
         .into_iter()
-        .map(|(id, bytes, end_time, days)| Candidate { id, bytes: bytes as u64, end_time, camera_max_days: days.and_then(|d| u32::try_from(d).ok()) })
+        .map(|(id, bytes, end_time, days, root)| Candidate {
+            id,
+            bytes: bytes as u64,
+            end_time,
+            camera_max_days: days.and_then(|d| u32::try_from(d).ok()),
+            root,
+            volume: None,
+        })
         .collect())
-}
-
-/// Remove a recording's row. Never removes protected ones.
-pub async fn delete(db: &PgPool, id: &str) -> sqlx::Result<()> {
-    sqlx::query("DELETE FROM recordings WHERE id = $1 AND NOT protected").bind(id).execute(db).await.map(|_| ())
-}
-
-/// Stored (root, relative path) and whether the recording is protected.
-pub async fn path_and_protection(db: &PgPool, id: &str) -> sqlx::Result<Option<(Option<String>, String, bool)>> {
-    sqlx::query_as("SELECT root, path, protected FROM recordings WHERE id = $1").bind(id).fetch_optional(db).await
 }
 
 pub async fn set_protected(db: &PgPool, id: &str, protected: bool) -> sqlx::Result<()> {
