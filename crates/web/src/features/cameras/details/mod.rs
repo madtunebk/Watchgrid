@@ -104,7 +104,7 @@ fn Loaded(current: Memo<Option<api::Camera>>, tab: Memo<&'static str>) -> impl I
                 let available = c.enabled && c.status == CameraStatus::Online;
                 view! {
                     <StateBadges camera=c.clone() />
-                    <RecordButton camera_id=c.id.clone() recording=c.recording_active available />
+                    <RecordButton camera_id=c.id.clone() recording=c.recording_active reason=c.recording_reason available />
                     <A href=format!("/cameras/{}/edit", c.id) attr:class="btn btn--secondary btn--sm">
                         <Icon icon=I::Pencil class="icon icon--sm" />"Edit"
                     </A>

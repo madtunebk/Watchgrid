@@ -27,3 +27,4 @@
 .menu__sep { height: 1px; margin: 0.2667rem 0; background: var(--line); }
 .menu__item--danger { color: var(--danger); }
 .menu__item--danger .icon { color: var(--danger); }
+.menu__error { max-width: 16rem; padding: 0.4rem 0.8rem; color: var(--danger); font-size: 0.8667rem; }

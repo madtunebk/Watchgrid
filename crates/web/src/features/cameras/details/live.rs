@@ -39,7 +39,7 @@ pub fn LiveTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
                 {move || {
                     let c = camera.get();
                     let available = c.enabled && c.status == CameraStatus::Online;
-                    view! { <RecordButton camera_id=c.id.clone() recording=c.recording_active available /> }
+                    view! { <RecordButton camera_id=c.id.clone() recording=c.recording_active reason=c.recording_reason available /> }
                 }}
                 <button class="btn btn--secondary btn--sm" on:click=fullscreen>
                     <Icon icon=I::Maximize class="icon icon--sm" />"Fullscreen"

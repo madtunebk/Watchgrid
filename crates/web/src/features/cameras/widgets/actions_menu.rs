@@ -3,13 +3,25 @@ use leptos::task::spawn_local;
 use leptos_router::components::A;
 
 use super::delete_dialog::DeleteCameraDialog;
+use crate::api::session::can_change;
 use crate::features::cameras::mutations;
 use crate::ui::{I, Icon, Popover};
 
 /// "…" overflow menu: details, edit, enable/disable, delete.
 #[component]
 pub fn ActionsMenu(camera_id: String, camera_name: String, enabled: bool) -> impl IntoView {
+    if !can_change() {
+        // Viewers: only the details link.
+        return view! {
+            <A href=format!("/cameras/{camera_id}") attr:class="icon-btn icon-btn--sm" attr:title="Open details" attr:aria-label="Open details">
+                <Icon icon=I::Eye />
+            </A>
+        }
+        .into_any();
+    }
     let open = RwSignal::new(false);
+    let busy = RwSignal::new(false);
+    let error = RwSignal::new(None::<String>);
     let confirm_delete = RwSignal::new(false);
     let details = format!("/cameras/{camera_id}");
     let edit = format!("/cameras/{camera_id}/edit");
@@ -18,10 +30,16 @@ pub fn ActionsMenu(camera_id: String, camera_name: String, enabled: bool) -> imp
     let toggle_enabled = {
         let id = camera_id.clone();
         move |_| {
-            open.set(false);
             let id = id.clone();
+            busy.set(true);
+            error.set(None);
             spawn_local(async move {
-                let _ = mutations::set_enabled(id, !enabled).await;
+                // The menu stays open on failure so the reason can be read.
+                match mutations::set_enabled(id, !enabled).await {
+                    Ok(_) => open.set(false),
+                    Err(e) => error.set(Some(e.to_string())),
+                }
+                busy.set(false);
             });
         }
     };
@@ -41,10 +59,15 @@ pub fn ActionsMenu(camera_id: String, camera_name: String, enabled: bool) -> imp
                         <Icon icon=I::Pencil class="icon icon--sm" />"Edit camera"
                     </A>
                     <div class="menu__sep"></div>
-                    <button class="menu__item" on:click=toggle_enabled.clone()>
+                    <button class="menu__item" disabled=busy on:click=toggle_enabled.clone()>
                         <Icon icon=I::Power class="icon icon--sm" />
-                        {if enabled { "Disable camera" } else { "Enable camera" }}
+                        {move || match (busy.get(), enabled) {
+                            (true, _) => "Working…",
+                            (false, true) => "Disable camera",
+                            (false, false) => "Enable camera",
+                        }}
                     </button>
+                    {move || error.get().map(|e| view! { <p class="menu__error">{e}</p> })}
                     <button class="menu__item menu__item--danger" on:click=move |_| { open.set(false); confirm_delete.set(true); }>
                         <Icon icon=I::Trash class="icon icon--sm" />"Delete camera"
                     </button>
@@ -53,4 +76,5 @@ pub fn ActionsMenu(camera_id: String, camera_name: String, enabled: bool) -> imp
             <DeleteCameraDialog open=confirm_delete camera_id camera_name />
         </div>
     }
+    .into_any()
 }

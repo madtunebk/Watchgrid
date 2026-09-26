@@ -119,19 +119,21 @@ impl Recorder {
     /// recordings are never ended by events).
     pub async fn stop_if(&self, camera_id: &str, reasons: &[RecordingReason]) {
         if self.running_reason(camera_id).is_some_and(|r| reasons.contains(&r)) {
-            self.stop(camera_id).await;
+            let _ = self.stop(camera_id).await;
         }
     }
 
     /// Stop a recording and wait until it is finalized (bounded).
-    pub async fn stop(&self, camera_id: &str) {
+    /// Returns false when the clip is still being finalized after the
+    /// wait (it will be saved, just later).
+    pub async fn stop(&self, camera_id: &str) -> bool {
         let phase = {
             let jobs = self.jobs.lock().expect("recorder lock");
-            let Some(job) = jobs.get(camera_id) else { return };
+            let Some(job) = jobs.get(camera_id) else { return true };
             job.stop.send_replace(true);
             job.phase.clone()
         };
-        wait_idle(phase).await;
+        wait_idle(phase).await
     }
 
 
@@ -159,10 +161,14 @@ impl Recorder {
     }
 }
 
-async fn wait_idle(mut phase: watch::Receiver<Phase>) {
+/// Wait for the job to finish; false if it is still finalizing after
+/// `STOP_TIMEOUT` (it goes on in the background).
+async fn wait_idle(mut phase: watch::Receiver<Phase>) -> bool {
     // The job ends in Idle; a dropped sender means the job is gone too.
     let done = phase.wait_for(|p| *p == Phase::Idle);
     if tokio::time::timeout(STOP_TIMEOUT, done).await.is_err() {
         tracing::error!("recording did not finalize within {} s", STOP_TIMEOUT.as_secs());
+        return false;
     }
+    true
 }

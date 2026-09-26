@@ -99,7 +99,7 @@ fn Row(camera: Camera) -> impl IntoView {
                     <A href=href attr:class="icon-btn icon-btn--sm" attr:title="Live view" attr:aria-label="Live view">
                         <Icon icon=I::MonitorPlay />
                     </A>
-                    <RecordButton camera_id=id.clone() recording=camera.recording_active available=can_record compact=true />
+                    <RecordButton camera_id=id.clone() recording=camera.recording_active reason=camera.recording_reason available=can_record compact=true />
                     <A href=edit_href attr:class="icon-btn icon-btn--sm row-actions__secondary" attr:title="Edit" attr:aria-label="Edit">
                         <Icon icon=I::Pencil />
                     </A>

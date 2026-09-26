@@ -34,3 +34,12 @@ pub fn session_expired() {
         set_auth_state(AuthState::SignedOut);
     }
 }
+
+/// Whether the signed-in user may change things (admins). Viewers only
+/// watch; the server refuses their changes anyway, the UI just doesn't offer them.
+pub fn can_change() -> bool {
+    match auth_state().get() {
+        AuthState::SignedIn(user) => user.role == crate::api::Role::Admin,
+        _ => false,
+    }
+}

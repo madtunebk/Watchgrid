@@ -65,7 +65,7 @@ pub fn Tile(
                 })}
                 {move || camera.get().map(|c| {
                     let available = c.enabled && c.status == CameraStatus::Online;
-                    view! { <RecordButton camera_id=c.id recording=c.recording_active available compact=true /> }
+                    view! { <RecordButton camera_id=c.id recording=c.recording_active reason=c.recording_reason available compact=true /> }
                 })}
                 <button class="tile__btn" title="Snapshot" aria-label="Snapshot" on:click=snapshot>
                     <Icon icon=I::Camera class="icon icon--sm" />

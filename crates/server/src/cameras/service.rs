@@ -113,7 +113,9 @@ pub async fn start_recording(state: &AppState, id: &str) -> ApiResult<Camera> {
 pub async fn stop_recording(state: &AppState, id: &str) -> ApiResult<Camera> {
     get(state, id).await?;
     tracing::info!(camera = %id, "manual recording stop requested");
-    state.recorder.stop(id).await;
+    if !state.recorder.stop(id).await {
+        return Err(ApiError::conflict("The recording is taking long to finalize. It will appear in Recordings once saved."));
+    }
     get(state, id).await
 }
 

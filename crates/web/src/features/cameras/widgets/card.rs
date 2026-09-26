@@ -23,6 +23,7 @@ pub fn CameraCard(camera: Camera) -> impl IntoView {
     let motion_on = camera.motion.enabled;
     let mode = labels::mode_tag(camera.recording.mode);
     let recording = camera.recording_active;
+    let camera_reason = camera.recording_reason;
     let can_record = camera.enabled && camera.status == CameraStatus::Online;
     let last_event = camera
         .last_event
@@ -64,7 +65,7 @@ pub fn CameraCard(camera: Camera) -> impl IntoView {
                 <A href=href attr:class="btn btn--sm btn--secondary">
                     <Icon icon=I::MonitorPlay class="icon icon--sm" />"Live"
                 </A>
-                <RecordButton camera_id=id.clone() recording available=can_record />
+                <RecordButton camera_id=id.clone() recording reason=camera_reason available=can_record />
                 <span class="cam-card__spacer"></span>
                 <ActionsMenu camera_id=id camera_name=menu_name enabled=camera_enabled />
             </footer>
