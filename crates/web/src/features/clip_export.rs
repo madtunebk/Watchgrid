@@ -52,8 +52,18 @@ pub fn ExportMenu(subject: ExportSubject) -> impl IntoView {
     let jobs = RwSignal::new(Vec::<(ExportJob, String)>::new());
     let note = RwSignal::new(None::<String>);
     let toaster = use_toaster();
-    // A finished upload leaves the list and is announced in a toast.
-    let uploaded = move |name: &str| toaster.show(Tone::Online, format!("Clip uploaded to {name}"));
+    // An upload leaves the list with a toast once it is done, failed, or
+    // waiting for a retry (the server retries on its own).
+    let outcome = move |job: &ExportJob, name: &str| -> bool {
+        let why = job.message.clone().unwrap_or_default();
+        match job.state {
+            ExportState::Done => toaster.show(Tone::Online, format!("Clip uploaded to {name}")),
+            ExportState::Failed => toaster.show(Tone::Danger, format!("Upload to {name} failed: {why}")),
+            ExportState::Queued if job.message.is_some() => toaster.show(Tone::Warning, format!("Upload to {name} failed, retrying automatically: {why}")),
+            ExportState::Queued | ExportState::Uploading => return false,
+        }
+        true
+    };
 
     // Poll unfinished uploads.
     use_interval(Duration::from_millis(600), move || {
@@ -62,9 +72,8 @@ pub fn ExportMenu(subject: ExportSubject) -> impl IntoView {
                 spawn_local(async move {
                     if let Ok(fresh) = api::get_export_job(job.id.clone()).await {
                         let Some(name) = jobs.get_untracked().into_iter().find(|(j, _)| j.id == fresh.id).map(|(_, n)| n) else { return };
-                        if fresh.state == ExportState::Done {
+                        if outcome(&fresh, &name) {
                             jobs.update(|list| list.retain(|(j, _)| j.id != fresh.id));
-                            uploaded(&name);
                         } else {
                             jobs.update(|list| {
                                 if let Some(entry) = list.iter_mut().find(|(j, _)| j.id == fresh.id) {
@@ -88,7 +97,7 @@ pub fn ExportMenu(subject: ExportSubject) -> impl IntoView {
                     // An earlier upload of this clip is reused.
                     Ok(job) if job.state == ExportState::Done => toaster.show(Tone::Online, format!("Already uploaded to {}", t.name)),
                     Ok(job) => jobs.update(|l| l.insert(0, (job, t.name.clone()))),
-                    Err(e) => note.set(Some(format!("{}: {e}", t.name))),
+                    Err(e) => toaster.show(Tone::Danger, format!("Upload to {} failed: {e}", t.name)),
                 }
             });
         }
@@ -190,11 +199,7 @@ pub fn ExportMenu(subject: ExportSubject) -> impl IntoView {
 #[component]
 fn JobRow(job: ExportJob, name: String) -> impl IntoView {
     let (text, class) = match job.state {
-        // Queued again after a failure: say why it is waiting.
-        ExportState::Queued => match &job.message {
-            Some(m) => (format!("{name}: will retry ({m})"), "job"),
-            None => (format!("{name}: queued"), "job"),
-        },
+        ExportState::Queued => (format!("{name}: queued"), "job"),
         ExportState::Uploading => (format!("{name}: uploading {:.0}%", job.progress), "job"),
         ExportState::Done => (format!("{name}: uploaded"), "job job--done"),
         ExportState::Failed => (format!("{name}: {}", job.message.unwrap_or_else(|| "failed".into())), "job job--failed"),

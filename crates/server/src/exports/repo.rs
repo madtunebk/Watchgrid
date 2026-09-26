@@ -260,13 +260,14 @@ pub async fn job_retry_later(db: &PgPool, id: &str, message: &str, at: DateTime<
 }
 
 /// A waiting retry made due now (someone asked for the upload again).
+/// Due retries drop the last error: a queued job with a message is waiting.
 pub async fn retry_now(db: &PgPool, id: &str) -> sqlx::Result<bool> {
-    Ok(sqlx::query("UPDATE export_jobs SET retry_at = NULL WHERE id = $1 AND state = 'queued' AND retry_at IS NOT NULL").bind(id).execute(db).await?.rows_affected() > 0)
+    Ok(sqlx::query("UPDATE export_jobs SET retry_at = NULL, message = NULL WHERE id = $1 AND state = 'queued' AND retry_at IS NOT NULL").bind(id).execute(db).await?.rows_affected() > 0)
 }
 
 /// Retries whose time has come, handed to the queue.
 pub async fn take_due_retries(db: &PgPool) -> sqlx::Result<Vec<String>> {
-    sqlx::query_scalar("UPDATE export_jobs SET retry_at = NULL WHERE state = 'queued' AND retry_at <= now() RETURNING id").fetch_all(db).await
+    sqlx::query_scalar("UPDATE export_jobs SET retry_at = NULL, message = NULL WHERE state = 'queued' AND retry_at <= now() RETURNING id").fetch_all(db).await
 }
 
 /// Jobs interrupted by a restart go back in the queue (waiting retries

@@ -91,6 +91,7 @@ async fn a_failed_upload_waits_for_its_retry(db: PgPool) {
     assert!(repo::requeue_unfinished(&db).await.unwrap().is_empty(), "a restart keeps the wait");
 
     assert!(repo::retry_now(&db, &job.id).await.unwrap(), "asked again: due now");
+    assert!(repo::job_by_id(&db, &job.id).await.unwrap().unwrap().message.is_none(), "no longer waiting");
     assert!(!repo::retry_now(&db, &job.id).await.unwrap());
     repo::job_retry_later(&db, &job.id, "HTTP 503", chrono::Utc::now() - chrono::Duration::seconds(1)).await.unwrap();
     assert_eq!(repo::take_due_retries(&db).await.unwrap(), vec![job.id.clone()]);
