@@ -23,8 +23,9 @@ pub fn DashboardPage() -> impl IntoView {
     });
     let storage = use_query(Topic::Storage, Some(Duration::from_secs(60)), api::get_storage_status);
     let system = use_query(Topic::System, Some(Duration::from_secs(5)), api::get_system_status);
-    // Capacity depends on camera settings, so it refreshes with them.
-    let capacity = use_query(Topic::Cameras, None, api::get_capacity);
+    // Capacity follows settings and slow measurements: its own minute, not
+    // every motion start on the cameras topic.
+    let capacity = use_query(Topic::Settings, Some(Duration::from_secs(60)), api::get_capacity);
 
     // Only re-layout when the "has cameras" answer changes, not on every refetch.
     let has_cameras = Memo::new(move |_| cameras.get().and_then(Result::ok).map(|c| !c.is_empty()));

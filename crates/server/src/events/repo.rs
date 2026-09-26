@@ -321,13 +321,16 @@ pub async fn delete_many(db: &PgPool, ids: &[String]) -> sqlx::Result<Vec<String
 
 /// Each camera's newest event, in one query: one index lookup per camera
 /// (`events_camera_start`), however long the history.
-pub async fn last_per_camera(db: &PgPool) -> sqlx::Result<std::collections::HashMap<String, watchgrid_model::LastEventSummary>> {
+/// `only`: just that camera.
+pub async fn last_per_camera(db: &PgPool, only: Option<&str>) -> sqlx::Result<std::collections::HashMap<String, watchgrid_model::LastEventSummary>> {
     let rows: Vec<(String, String, String, DateTime<Utc>)> = sqlx::query_as(
         "SELECT c.id, e.id, e.kind, e.start_time FROM cameras c
          CROSS JOIN LATERAL (
              SELECT id, kind, start_time FROM events WHERE camera_id = c.id ORDER BY start_time DESC, id DESC LIMIT 1
-         ) e",
+         ) e
+         WHERE $1::text IS NULL OR c.id = $1",
     )
+    .bind(only)
     .fetch_all(db)
     .await?;
     Ok(rows

@@ -83,7 +83,7 @@ fn connect(set_state: WriteSignal<ConnectionState>, attempt: u32) {
         set_state.set(ConnectionState::Connected);
         // Anything may have changed while we were away.
         if attempt > 0 {
-            for t in [Topic::Cameras, Topic::System, Topic::Storage] {
+            for t in Topic::ALL {
                 invalidate(t);
             }
         }

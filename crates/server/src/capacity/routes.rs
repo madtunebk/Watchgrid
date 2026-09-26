@@ -42,7 +42,7 @@ pub async fn estimate(State(s): State<AppState>) -> ApiResult<Json<CapacityEstim
         }
     }
 
-    let cams: Vec<CameraLoad> = crate::cameras::list(&s)
+    let cams: Vec<CameraLoad> = crate::cameras::list_live(&s)
         .await?
         .into_iter()
         .filter(|c| c.enabled)

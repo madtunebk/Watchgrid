@@ -13,7 +13,8 @@ use crate::ui::{Page, Panel, Skeleton, async_view};
 pub fn SystemPage() -> impl IntoView {
     let status = use_query(Topic::System, Some(Duration::from_secs(2)), api::get_system_status);
     let server = use_query(Topic::Server, None, api::get_server_info);
-    let capacity = use_query(Topic::Cameras, None, api::get_capacity);
+    // Its own minute, not every motion start on the cameras topic.
+    let capacity = use_query(Topic::Settings, Some(Duration::from_secs(60)), api::get_capacity);
 
     let subtitle = Signal::derive(move || {
         let s = server.get().and_then(Result::ok);

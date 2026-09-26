@@ -28,6 +28,8 @@ pub enum Topic {
 
 impl Topic {
     const COUNT: usize = 8;
+    pub const ALL: [Topic; Self::COUNT] =
+        [Topic::Server, Topic::System, Topic::Notifications, Topic::Cameras, Topic::Events, Topic::Recordings, Topic::Storage, Topic::Settings];
 }
 
 /// One revision counter per topic. Held outside the reactive context so
@@ -67,11 +69,16 @@ where
     Fut: Future<Output = ApiResult<T>> + 'static,
 {
     let rev = revision(topic);
+    // Polling refreshes only this query; the topic's revision is for real
+    // changes (mutations, server notices). Two pages polling the same topic
+    // must not make every query of it refetch twice.
+    let tick = RwSignal::new(0u64);
     if let Some(every) = poll {
-        use_interval(every, move || rev.update(|r| *r += 1));
+        use_interval(every, move || tick.update(|t| *t += 1));
     }
     LocalResource::new(move || {
         rev.track();
+        tick.track();
         fetch()
     })
 }

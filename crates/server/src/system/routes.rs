@@ -25,7 +25,8 @@ async fn info(State(s): State<AppState>) -> ApiResult<Json<ServerInfo>> {
 
 async fn status(State(s): State<AppState>) -> ApiResult<Json<SystemStatus>> {
     let host = s.metrics.latest();
-    let cams = cameras::list(&s).await?;
+    // Counts only: no storage totals or event lookups on this 5 s poll.
+    let cams = cameras::list_live(&s).await?;
     let enabled = cams.iter().filter(|c| c.enabled);
     let disk = crate::storage::disk_usage_percent(&s.recording_files.root());
     Ok(Json(SystemStatus {

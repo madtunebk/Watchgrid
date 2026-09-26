@@ -82,7 +82,13 @@ struct Extras {
 }
 
 async fn extras(state: &AppState) -> ApiResult<Extras> {
-    Ok(Extras { usage: recording_bytes(state).await?, last_events: crate::events::last_events(&state.db).await? })
+    Ok(Extras { usage: recording_bytes(state).await?, last_events: crate::events::last_events(&state.db, None).await? })
+}
+
+/// The same for one camera only (a camera page polls this).
+async fn extras_of(state: &AppState, id: &str) -> ApiResult<Extras> {
+    let bytes: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(file_size), 0)::bigint FROM recordings WHERE camera_id = $1").bind(id).fetch_one(&state.db).await?;
+    Ok(Extras { usage: HashMap::from([(id.to_string(), bytes.max(0) as u64)]), last_events: crate::events::last_events(&state.db, Some(id)).await? })
 }
 
 /// Stored config with the live state (status, stream details) on top.
@@ -126,7 +132,14 @@ pub async fn list(state: &AppState) -> ApiResult<Vec<Camera>> {
 
 pub async fn get(state: &AppState, id: &str) -> ApiResult<Camera> {
     let row = repo::get(&state.db, id).await?.ok_or_else(|| ApiError::not_found("Camera"))?;
-    Ok(with_live(state, row, &extras(state).await?))
+    Ok(with_live(state, row, &extras_of(state, id).await?))
+}
+
+/// Stored config plus live state only — no storage totals or last events.
+/// For status summaries that poll often and only count cameras.
+pub async fn list_live(state: &AppState) -> ApiResult<Vec<Camera>> {
+    let none = Extras { usage: HashMap::new(), last_events: HashMap::new() };
+    Ok(repo::list(&state.db).await?.into_iter().map(|r| with_live(state, r, &none)).collect())
 }
 
 /// Bytes of recordings per camera id.
