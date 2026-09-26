@@ -29,7 +29,7 @@ impl Report {
 }
 
 pub async fn probe(url: &str, username: &str, password: Option<&str>, measure_for: Duration) -> Result<Report, String> {
-    let mut opened = session::open(url, username, password).await?;
+    let mut opened = session::open(url, username, password, false).await?;
     let mut report = Report { facts: opened.facts.clone(), connect_latency: opened.latency, ..Default::default() };
 
     let measuring = Instant::now();

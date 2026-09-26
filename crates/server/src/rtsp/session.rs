@@ -46,7 +46,8 @@ fn transport() -> Transport {
     if crate::settings::applied::rtsp_udp() { Transport::Udp(UdpTransportOptions::default()) } else { Transport::Tcp(TcpTransportOptions::default()) }
 }
 
-pub async fn open(url: &str, username: &str, password: Option<&str>) -> Result<Opened, String> {
+/// Open the camera's stream; with `audio`, also its G.711 audio.
+pub async fn open(url: &str, username: &str, password: Option<&str>, audio: bool) -> Result<Opened, String> {
     let url = url::Url::parse(url).map_err(|e| format!("invalid URL: {e}"))?;
     let creds = password.map(|p| Credentials { username: username.to_string(), password: p.to_string() });
     let options = SessionOptions::default()
@@ -79,7 +80,7 @@ pub async fn open(url: &str, username: &str, password: Option<&str>) -> Result<O
         .setup(video, SetupOptions::default().transport(transport()))
         .await
         .map_err(|e| format!("SETUP failed: {e}"))?;
-    let audio = setup_audio(&mut session).await;
+    let audio = if audio { setup_audio(&mut session).await } else { None };
     // Start RTP numbering from the first packet actually received: cameras
     // serving several clients (supervisor, tests, live view, recorder) often
     // announce a different sequence number in the PLAY response.

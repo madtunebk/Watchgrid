@@ -16,14 +16,22 @@ use crate::supervisor::backoff;
 
 /// How long a feed stays open without viewers (covers page navigation).
 const LINGER: Duration = Duration::from_secs(5);
+/// A session with audio that fails this soon (some Tapo firmware drops the
+/// connection at PLAY once audio is set up) is retried without audio.
+const AUDIO_TRIAL: Duration = Duration::from_secs(15);
 const TICK: Duration = Duration::from_secs(1);
 
 pub async fn run(hub: Arc<MediaHub>, key: Key, ch: Arc<Channels>) {
     let (id, kind) = (&key.0, key.1);
     let mut attempt = 0u32;
     let mut idle = Idle::default();
+    // Audio only on the main stream: Tapo cameras refuse PLAY on a second
+    // session with audio, so one per camera. And it's a bonus: dropped for
+    // this feed if it makes the camera fail.
+    let mut audio = kind == StreamKind::Main;
     loop {
-        let reason = match open(&hub, id, kind).await {
+        let started = Instant::now();
+        let reason = match open(&hub, id, kind, audio).await {
             Err(e) => e,
             Ok(opened) => {
                 attempt = 0;
@@ -41,6 +49,12 @@ pub async fn run(hub: Arc<MediaHub>, key: Key, ch: Arc<Channels>) {
                 }
             }
         };
+        if audio && started.elapsed() < AUDIO_TRIAL {
+            audio = false;
+            tracing::warn!(camera = %id, ?kind, "stream failed with audio ({reason}); continuing without audio");
+            ch.state.send_replace(FeedState::Connecting);
+            continue;
+        }
         attempt += 1;
         tracing::debug!(camera = %id, ?kind, "live feed failed: {reason}");
         ch.state.send_replace(FeedState::Failed(reason));
@@ -59,7 +73,7 @@ pub async fn run(hub: Arc<MediaHub>, key: Key, ch: Arc<Channels>) {
     tracing::info!(camera = %id, ?kind, "live feed stopped");
 }
 
-async fn open(hub: &MediaHub, id: &str, kind: StreamKind) -> Result<Opened, String> {
+async fn open(hub: &MediaHub, id: &str, kind: StreamKind, audio: bool) -> Result<Opened, String> {
     let info = cameras::connection_info(&hub.db, &hub.credentials, id).await?.ok_or("camera not found")?;
     if !info.enabled {
         return Err("camera is disabled".into());
@@ -69,7 +83,7 @@ async fn open(hub: &MediaHub, id: &str, kind: StreamKind) -> Result<Opened, Stri
         StreamKind::Sub => info.sub_url.unwrap_or(info.main_url),
         StreamKind::Main => info.main_url,
     };
-    session::open(&url, &info.username, info.password.as_deref()).await
+    session::open(&url, &info.username, info.password.as_deref(), audio).await
 }
 
 /// Why forwarding stopped.
