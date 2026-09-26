@@ -6,7 +6,7 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 use super::icons::{I, Icon};
-use super::leave_guard::guard_unsaved;
+use super::leave_guard::LeaveGuard;
 use crate::api::ApiResult;
 
 #[derive(Clone, Copy)]
@@ -47,8 +47,8 @@ pub fn SaveBar(
     #[prop(default = "Saved — applied live, no restart needed")]
     saved_text: &'static str,
 ) -> impl IntoView {
-    guard_unsaved(dirty);
     view! {
+        <LeaveGuard dirty />
         <div class="save-bar" class:save-bar--dirty=dirty>
             <span class="save-bar__status">
                 {move || {
