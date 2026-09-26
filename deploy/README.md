@@ -92,6 +92,9 @@ run automatically; settings, key and recordings are kept.
 
 ## HTTPS
 
-Put Watchgrid behind a reverse proxy with TLS (Caddy, nginx, Traefik) and
-set `WATCHGRID_SECURE_COOKIES=1`. The proxy must pass WebSocket upgrades
-for `/api/v1/ws` and `/api/v1/cameras/*/live`.
+Put Watchgrid behind a reverse proxy with TLS (Caddy, nginx, Traefik; see
+`deploy/nginx/`) and set `WATCHGRID_TRUSTED_PROXIES` to its address (e.g.
+`127.0.0.1`). The proxy must pass WebSocket upgrades for `/api/v1/ws` and
+`/api/v1/cameras/*/live`, and `X-Forwarded-For` / `X-Forwarded-Proto`.
+Session cookies then become Secure for HTTPS visitors automatically;
+`WATCHGRID_SECURE_COOKIES=1` forces it for everyone.
