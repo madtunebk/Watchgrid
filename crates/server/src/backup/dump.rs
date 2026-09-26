@@ -17,7 +17,7 @@ fn quote(name: &str) -> String {
 }
 
 /// Watchgrid's tables (everything in `public` but the migration history).
-pub async fn tables(db: &PgPool) -> sqlx::Result<Vec<String>> {
+pub async fn tables<'e>(db: impl sqlx::PgExecutor<'e>) -> sqlx::Result<Vec<String>> {
     sqlx::query_scalar(
         "SELECT tablename::text FROM pg_tables WHERE schemaname = 'public' AND tablename <> '_sqlx_migrations' ORDER BY tablename",
     )
@@ -26,21 +26,22 @@ pub async fn tables(db: &PgPool) -> sqlx::Result<Vec<String>> {
 }
 
 /// Highest applied migration, 0 for an empty database.
-pub async fn schema_version(db: &PgPool) -> sqlx::Result<i64> {
-    let exists: bool = sqlx::query_scalar("SELECT to_regclass('public._sqlx_migrations') IS NOT NULL").fetch_one(db).await?;
+pub async fn schema_version(db: &mut PgConnection) -> sqlx::Result<i64> {
+    let exists: bool = sqlx::query_scalar("SELECT to_regclass('public._sqlx_migrations') IS NOT NULL").fetch_one(&mut *db).await?;
     if !exists {
         return Ok(0);
     }
     sqlx::query_scalar("SELECT COALESCE(MAX(version), 0) FROM _sqlx_migrations WHERE success").fetch_one(db).await
 }
 
-pub async fn sequences(db: &PgPool) -> sqlx::Result<BTreeMap<String, i64>> {
+pub async fn sequences<'e>(db: impl sqlx::PgExecutor<'e>) -> sqlx::Result<BTreeMap<String, i64>> {
     let rows: Vec<(String, Option<i64>)> =
         sqlx::query_as("SELECT sequencename::text, last_value FROM pg_sequences WHERE schemaname = 'public'").fetch_all(db).await?;
     Ok(rows.into_iter().filter_map(|(name, v)| v.map(|v| (name, v))).collect())
 }
 
-pub async fn copy_out(db: &PgPool, table: &str) -> sqlx::Result<Vec<u8>> {
+/// A table's rows (on the backup's snapshot connection).
+pub async fn copy_out(db: &mut PgConnection, table: &str) -> sqlx::Result<Vec<u8>> {
     let mut stream = db.copy_out_raw(&format!("COPY {} TO STDOUT", quote(table))).await?;
     let mut out = Vec::new();
     while let Some(chunk) = stream.try_next().await? {

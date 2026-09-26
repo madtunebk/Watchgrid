@@ -35,21 +35,29 @@ pub async fn create(db: &PgPool, key_file: &Path, out: &Path) -> Result<archive:
         std::fs::create_dir_all(dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
     }
     let db_err = |e: sqlx::Error| format!("cannot read the database: {e}");
-    let schema_version = dump::schema_version(db).await.map_err(db_err)?;
-    let names = dump::tables(db).await.map_err(db_err)?;
+    // One read-only snapshot for everything: the server may keep writing,
+    // but every table (and the schema version) is from the same moment.
+    let mut tx = db.begin().await.map_err(db_err)?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY").execute(&mut *tx).await.map_err(db_err)?;
+    let schema_version = dump::schema_version(&mut tx).await.map_err(db_err)?;
+    let names = dump::tables(&mut *tx).await.map_err(db_err)?;
     let mut tables = std::collections::BTreeMap::new();
     for t in &names {
-        tables.insert(t.clone(), dump::copy_out(db, t).await.map_err(db_err)?);
+        tables.insert(t.clone(), dump::copy_out(&mut tx, t).await.map_err(db_err)?);
     }
+    let sequences = dump::sequences(&mut *tx).await.map_err(db_err)?;
+    tx.rollback().await.map_err(db_err)?;
     let manifest = archive::Manifest {
         format: archive::FORMAT,
         created_at: Utc::now(),
         build: option_env!("WATCHGRID_BUILD").unwrap_or("dev").into(),
         schema_version,
         tables: names,
-        sequences: dump::sequences(db).await.map_err(db_err)?,
+        sequences,
     };
-    archive::write(out, &archive::Contents { manifest: manifest.clone(), key, tables })?;
+    // Compressing and writing block: off the async workers.
+    let (out, contents) = (out.to_path_buf(), archive::Contents { manifest: manifest.clone(), key, tables });
+    tokio::task::spawn_blocking(move || archive::write(&out, &contents)).await.map_err(|e| e.to_string())??;
     Ok(manifest)
 }
 

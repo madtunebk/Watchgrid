@@ -41,13 +41,25 @@ pub struct Contents {
     pub tables: BTreeMap<String, Vec<u8>>,
 }
 
+/// Write the archive next to `path` under a unique temporary name, then
+/// rename it into place and make the rename durable. Blocking: call it
+/// off the async runtime.
 pub fn write(path: &Path, c: &Contents) -> Result<(), String> {
-    let tmp = path.with_extension("partial");
-    let result = write_to(&tmp, c).and_then(|()| std::fs::rename(&tmp, path).map_err(|e| format!("cannot finish {}: {e}", path.display())));
+    let unique = format!("partial-{}-{}", std::process::id(), chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default());
+    let tmp = path.with_extension(unique);
+    let result = write_to(&tmp, c)
+        .and_then(|()| std::fs::rename(&tmp, path).map_err(|e| format!("cannot finish {}: {e}", path.display())))
+        .and_then(|()| sync_dir(path));
     if result.is_err() {
         let _ = std::fs::remove_file(&tmp);
     }
     result
+}
+
+/// Make a rename in `path`'s folder survive a power cut.
+fn sync_dir(path: &Path) -> Result<(), String> {
+    let dir = path.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    std::fs::File::open(dir).and_then(|d| d.sync_all()).map_err(|e| format!("cannot sync {}: {e}", dir.display()))
 }
 
 fn write_to(path: &Path, c: &Contents) -> Result<(), String> {
@@ -65,10 +77,11 @@ fn write_to(path: &Path, c: &Contents) -> Result<(), String> {
     file.sync_all().map_err(err)
 }
 
-/// The backup holds the master key: readable by the owner only.
+/// The backup holds the master key: readable by the owner only. Created
+/// fresh (never an existing file, which could have other permissions).
 fn private_file(path: &Path) -> std::io::Result<std::fs::File> {
     use std::os::unix::fs::OpenOptionsExt;
-    std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(path)
+    std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(path)
 }
 
 fn append<W: Write>(tar: &mut tar::Builder<W>, name: &str, data: &[u8]) -> std::io::Result<()> {
