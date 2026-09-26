@@ -103,10 +103,10 @@ impl Sweeper {
         };
         let mut free: Vec<(u64, u64)> = Vec::new();
         let add = |volume: Option<u64>, dir: PathBuf, free: &mut Vec<(u64, u64)>| {
-            if let Some(v) = volume.filter(|v| !free.iter().any(|(seen, _)| seen == v)) {
-                if let Ok(d) = disk::space(&dir) {
-                    free.push((v, d.free));
-                }
+            if let Some(v) = volume.filter(|v| !free.iter().any(|(seen, _)| seen == v))
+                && let Ok(d) = disk::space(&dir)
+            {
+                free.push((v, d.free));
             }
         };
         add(device_of(&None), default.clone(), &mut free);

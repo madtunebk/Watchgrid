@@ -40,10 +40,21 @@ impl RecordingFiles {
         *self.current.write().expect("files lock") = root;
     }
 
+    /// Make `root` ready for recordings without using it yet: the
+    /// in-progress folder exists and can be written to.
+    pub fn prepare_root(root: &Path) -> io::Result<()> {
+        let partial = root.join(PARTIAL_DIR);
+        std::fs::create_dir_all(&partial)?;
+        if !partial.is_dir() {
+            return Err(io::Error::other(format!("{} exists but is not a folder", partial.display())));
+        }
+        crate::storage::location::probe(&partial)
+    }
+
     /// Create the directories and report files left by an interrupted run.
     pub fn prepare(&self) -> io::Result<()> {
         let partial = self.root().join(PARTIAL_DIR);
-        std::fs::create_dir_all(&partial)?;
+        Self::prepare_root(&self.root())?;
         let leftovers = std::fs::read_dir(&partial)?.filter_map(Result::ok).count();
         if leftovers > 0 {
             tracing::warn!("{leftovers} incomplete recording file(s) from an interrupted run in {}", partial.display());

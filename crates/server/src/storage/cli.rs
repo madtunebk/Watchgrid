@@ -58,7 +58,9 @@ async fn set_path(db: &PgPool, path: &str) -> Result<(), String> {
             allow_in_sandbox(&p)?;
         }
     }
-    location::check_writable(&p.to_string_lossy())?;
+    // Only a write test here: the in-progress folder is made by the server,
+    // as its own user (made by root, it would be root's).
+    let p = location::check_writable(&p.to_string_lossy())?;
     location::save(db, &p).await.map_err(|e| e.to_string())?;
     println!("New recordings will be written to {}. Existing clips stay where they are.", p.display());
     if is_root() && Path::new(UNIT).exists() {

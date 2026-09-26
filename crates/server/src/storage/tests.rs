@@ -97,3 +97,31 @@ mod sweep {
         let _ = std::fs::remove_dir_all(dir);
     }
 }
+
+mod folder_switch {
+    use sqlx::PgPool;
+
+    use crate::recordings::RecordingFiles;
+    use crate::storage::location;
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn a_failed_switch_keeps_the_old_folder(db: PgPool) {
+        let base = std::env::temp_dir().join(format!("watchgrid-switch-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let (old, bad, good) = (base.join("old"), base.join("bad"), base.join("good"));
+        for d in [&old, &bad, &good] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        std::fs::write(bad.join(".partial"), b"a file, not a folder").unwrap();
+        let files = RecordingFiles::new(old.clone());
+
+        assert!(location::apply(&db, &files, bad.to_str().unwrap()).await.is_err());
+        assert_eq!(files.root(), old, "still recording to the old folder");
+        assert_eq!(location::load(&db).await.unwrap(), None, "nothing saved");
+
+        let now = location::apply(&db, &files, good.to_str().unwrap()).await.unwrap();
+        assert_eq!((files.root(), location::load(&db).await.unwrap()), (now.clone(), Some(now.clone())));
+        assert!(now.join(".partial").is_dir(), "prepared before use");
+        let _ = std::fs::remove_dir_all(base);
+    }
+}
