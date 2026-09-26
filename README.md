@@ -41,7 +41,7 @@ Pick one:
   [`deploy/docker/README.md`](deploy/docker/README.md). `setup.sh` creates the
   database (in your PostgreSQL container, or a bundled one) and starts
   everything.
-- **Linux with systemd** — see [`deploy/README.md`](deploy/README.md).
+- **Linux with systemd** — see [`deploy/systemd/README.md`](deploy/systemd/README.md).
 
 Both need **PostgreSQL 14+**.
 
@@ -129,7 +129,7 @@ crates/server   the NVR server (API, RTSP, recording, motion, exports…)
 crates/web      the web UI (Leptos, compiled to WebAssembly)
 crates/model    types shared by both
 xtask           `cargo web` — builds and serves the UI
-deploy          systemd, Docker and nginx setups
+deploy          docker/, systemd/ and nginx/ setups
 progress        development log, one file per step
 ```
 
