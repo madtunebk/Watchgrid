@@ -17,12 +17,21 @@ pub fn StorageSection() -> impl IntoView {
             {move || match first.get() {
                 None => view! { <Skeleton lines=4 height="3rem" /> }.into_any(),
                 Some(Err(error)) => view! { <ErrorBox error /> }.into_any(),
-                Some(Ok(false)) => view! { <EmptyState icon=I::TriangleAlert title="Storage unavailable" text="The recording volume is not mounted." /> }.into_any(),
-                Some(Ok(true)) => {
+                // The folder can still be changed when the current one is gone:
+                // that is exactly when it helps.
+                Some(Ok(available)) => {
                     let status = storage.get_untracked().and_then(Result::ok).expect("loaded");
-                    let capacity = format!("{} free of {}", format::bytes(status.free), format::bytes(status.total));
+                    let capacity = if available {
+                        format!("{} free of {}", format::bytes(status.free), format::bytes(status.total))
+                    } else {
+                        "Unavailable — the volume is not mounted or can't be read".to_string()
+                    };
                     let folder = status.path.clone();
                     view! {
+                        {(!available).then(|| view! {
+                            <EmptyState icon=I::TriangleAlert title="Storage unavailable" compact=true
+                                text="The recording volume can't be read. Mount it again, or choose another folder below." />
+                        })}
                         <FormSection title="Recording location" description="Where new clips are written. Existing clips stay where they are and keep playing.">
                             <FolderField current=folder />
                             <dl class="kv kv--wide">

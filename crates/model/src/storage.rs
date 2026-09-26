@@ -27,14 +27,25 @@ pub struct RetentionPolicy {
 #[serde(rename_all = "camelCase")]
 pub struct StorageStatus {
     pub path: String,
+    /// The volume answers (its size can be read).
     pub available: bool,
+    /// New recordings can be written in this folder.
+    #[serde(default = "yes")]
+    pub writable: bool,
     pub total: u64,
     pub used: u64,
     pub free: u64,
-    /// Bytes taken by NVR recordings.
+    /// Bytes taken by NVR recordings, in every folder ever used.
     pub recordings_size: u64,
+    /// Of those, the bytes in the current folder (what shares this volume).
+    #[serde(default)]
+    pub recordings_here: u64,
     /// Bytes in protected recordings (never auto-deleted).
     pub protected_size: u64,
     pub per_camera: Vec<CameraStorageUsage>,
     pub retention: RetentionPolicy,
+}
+
+fn yes() -> bool {
+    true
 }

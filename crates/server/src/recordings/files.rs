@@ -31,6 +31,11 @@ impl RecordingFiles {
         Self { current: RwLock::new(base.clone()), base }
     }
 
+    /// The configured default folder (recordings stored without a root).
+    pub fn base(&self) -> &Path {
+        &self.base
+    }
+
     /// Where new recordings go.
     pub fn root(&self) -> PathBuf {
         self.current.read().expect("files lock").clone()

@@ -24,7 +24,22 @@ async fn status(State(s): State<AppState>) -> ApiResult<Json<StorageStatus>> {
     }
     let per_camera = recordings::usage_by_camera(&s.db).await?;
     let space = space.ok();
+    // Recordings in the current folder: stored with no root while it is the
+    // default one, or with its path as root.
+    let current = s.recording_files.root();
+    let is_base = current == s.recording_files.base();
+    let here: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(file_size), 0)::bigint FROM recordings WHERE ($1 AND root IS NULL) OR root = $2 OR root = $3",
+    )
+    .bind(is_base)
+    .bind(current.to_string_lossy().as_ref())
+    .bind(path.to_string_lossy().as_ref())
+    .fetch_one(&s.db)
+    .await?;
     Ok(Json(StorageStatus {
+        // Clips are written in `.partial` first; before it exists, the folder itself.
+        writable: if path.join(".partial").is_dir() { disk::writable(&path.join(".partial")) } else { disk::writable(&path) },
+        recordings_here: here.max(0) as u64,
         path: path.display().to_string(),
         available: space.is_some(),
         total: space.map_or(0, |d| d.total),

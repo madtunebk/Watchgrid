@@ -28,11 +28,17 @@ pub fn StoragePage() -> impl IntoView {
                 Some(Ok(true)) => {
                     let status = storage.get_untracked().and_then(Result::ok).expect("loaded");
                     view! {
-                        {move || storage.get().and_then(Result::ok).map(|status| view! { <VolumeStats status /> })}
+                        {move || storage.get().and_then(Result::ok).map(|status| view! {
+                            {(!status.writable).then(|| view! {
+                                <p class="note note--warning">"Watchgrid can't write to this folder, so new recordings fail. Check that the disk is mounted and the folder's permissions, or choose another folder in Settings → Storage."</p>
+                            })}
+                            <VolumeStats status />
+                        })}
                         <div class="storage-layout">
                             <Panel title="Usage by camera">
                                 {move || {
-                                    let list = cameras.get().and_then(Result::ok).unwrap_or_default();
+                                    // `None` while the camera list is unknown: don't call anything "removed".
+                                    let list = cameras.get().and_then(Result::ok);
                                     storage.get().and_then(Result::ok).map(|status| view! { <UsageTable status cameras=list /> })
                                 }}
                             </Panel>

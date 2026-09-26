@@ -26,6 +26,14 @@ pub fn space(path: &Path) -> std::io::Result<DiskSpace> {
     Ok(DiskSpace { total, used: total.saturating_sub(all_free), free: s.f_bavail as u64 * unit })
 }
 
+/// Whether this process may write in `dir` (a permission check, no file is
+/// written: cheap enough for a status poll).
+pub fn writable(dir: &Path) -> bool {
+    let Ok(c_path) = CString::new(dir.as_os_str().as_bytes()) else { return false };
+    // SAFETY: `c_path` is a valid NUL-terminated string.
+    dir.is_dir() && unsafe { libc::access(c_path.as_ptr(), libc::W_OK) } == 0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -39,5 +47,12 @@ mod tests {
     #[test]
     fn missing_paths_are_errors() {
         assert!(space(Path::new("/definitely/not/here")).is_err());
+    }
+
+    #[test]
+    fn writable_checks_permission_without_writing() {
+        assert!(writable(&std::env::temp_dir()));
+        assert!(!writable(Path::new("/proc")), "a read-only place");
+        assert!(!writable(Path::new("/definitely/not/here")));
     }
 }

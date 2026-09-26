@@ -36,6 +36,8 @@ pub async fn status() -> ApiResult<StorageStatus> {
         let used = if available { OTHER_DATA + recordings_size } else { 0 };
 
         StorageStatus {
+            writable: true,
+            recordings_here: recordings_size,
             path: "/volume1/nvr".into(),
             available,
             total,
