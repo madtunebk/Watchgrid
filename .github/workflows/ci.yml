@@ -1,0 +1,55 @@
+# On every push to main, every pull request, or by hand (Actions → ci →
+# Run workflow): run the tests and build the archives. The archives are kept
+# as a downloadable artifact of the run for 14 days — no release is made.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    # Throwaway database for the tests (sqlx::test makes one per test).
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: ci
+        ports: ["5432:5432"]
+        options: --health-cmd pg_isready --health-interval 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools clang nasm binaryen
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add wasm32-unknown-unknown x86_64-unknown-linux-musl
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ci-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ci-
+
+      - name: Test
+        env:
+          DATABASE_URL: postgres://postgres:ci@localhost:5432/postgres
+        run: cargo test --workspace --exclude watchgrid-web
+
+      - name: Build archives
+        run: sh deploy/release.sh "dev-${GITHUB_SHA::7}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: watchgrid-dev-${{ github.sha }}
+          path: target/release-out/
+          retention-days: 14
