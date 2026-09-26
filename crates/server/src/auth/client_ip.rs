@@ -63,6 +63,22 @@ pub fn client_ip(peer: IpAddr, headers: &HeaderMap) -> IpAddr {
     resolve(peer, headers, trusted())
 }
 
+/// The browser reached us over HTTPS through a trusted proxy
+/// (`X-Forwarded-Proto: https`).
+pub fn via_https(peer: IpAddr, headers: &HeaderMap) -> bool {
+    https_through(peer, headers, trusted())
+}
+
+fn https_through(peer: IpAddr, headers: &HeaderMap, trusted: &[Range]) -> bool {
+    trusted.iter().any(|r| r.contains(peer))
+        && headers
+            .get("x-forwarded-proto")
+            .and_then(|v| v.to_str().ok())
+            // The nearest proxy's value is the last one.
+            .and_then(|v| v.rsplit(',').next())
+            .is_some_and(|p| p.trim().eq_ignore_ascii_case("https"))
+}
+
 fn resolve(peer: IpAddr, headers: &HeaderMap, trusted: &[Range]) -> IpAddr {
     let is_trusted = |ip: IpAddr| trusted.iter().any(|r| r.contains(ip));
     if !is_trusted(peer) {
@@ -111,6 +127,16 @@ mod tests {
         assert_eq!(resolve(ip("127.0.0.1"), &h, &trusted), ip("192.168.1.50"), "via nginx");
         assert_eq!(resolve(ip("192.168.1.66"), &h, &trusted), ip("192.168.1.66"), "direct: header ignored");
         assert_eq!(resolve(ip("127.0.0.1"), &h, &[]), ip("127.0.0.1"), "nothing trusted by default");
+    }
+
+    #[test]
+    fn https_is_believed_only_from_trusted_proxies() {
+        let trusted = parse_list("127.0.0.1");
+        let h = headers(&[("x-forwarded-proto", "https")]);
+        assert!(https_through(ip("127.0.0.1"), &h, &trusted));
+        assert!(!https_through(ip("192.168.1.66"), &h, &trusted), "anyone can send the header");
+        assert!(!https_through(ip("127.0.0.1"), &headers(&[("x-forwarded-proto", "http")]), &trusted));
+        assert!(!https_through(ip("127.0.0.1"), &HeaderMap::new(), &trusted));
     }
 
     #[test]

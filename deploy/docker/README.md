@@ -110,11 +110,13 @@ Watchgrid serves plain HTTP; a reverse proxy in front adds TLS.
 Then, in `watchgrid.env`, and restart (`sudo docker compose up -d`):
 
 ```
-WATCHGRID_SECURE_COOKIES=1
 WATCHGRID_TRUSTED_PROXIES=127.0.0.1     # the proxy's address as Watchgrid sees it
 ```
 
-Without `WATCHGRID_TRUSTED_PROXIES` every client appears as the proxy: the
-sessions list shows its address, and a few wrong passwords from anyone
-lock sign-in for everybody. `X-Forwarded-For` is only believed from the
-listed addresses.
+Without it every client appears as the proxy: the sessions list shows its
+address, and a few wrong passwords from anyone lock sign-in for everybody.
+`X-Forwarded-For` / `X-Forwarded-Proto` are only believed from the listed
+addresses. Browsers that come over HTTPS get Secure session cookies
+automatically, while `http://<nas>:8090` on the LAN keeps working;
+`WATCHGRID_SECURE_COOKIES=1` forces Secure for everyone (plain HTTP sign-in
+then stops working).

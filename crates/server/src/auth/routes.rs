@@ -27,14 +27,19 @@ pub fn router() -> Router<AppState> {
         .route("/sessions/{id}", delete(revoke))
 }
 
-/// Set `WATCHGRID_SECURE_COOKIES=1` when Watchgrid is served over HTTPS
-/// (directly or behind a TLS proxy).
-fn secure_cookies() -> bool {
+/// `WATCHGRID_SECURE_COOKIES=1` marks every session cookie Secure. Without
+/// it, cookies are Secure exactly when the browser came over HTTPS through
+/// a trusted proxy, so plain-HTTP access on the LAN keeps working.
+fn always_secure() -> bool {
     std::env::var("WATCHGRID_SECURE_COOKIES").is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
 }
 
-fn session_cookie(token: &str, max_age_secs: i64) -> HeaderValue {
-    let secure = if secure_cookies() { "; Secure" } else { "" };
+fn peer_ip(peer: Option<Extension<ConnectInfo<SocketAddr>>>) -> IpAddr {
+    peer.map_or(IpAddr::V4(Ipv4Addr::LOCALHOST), |Extension(ConnectInfo(a))| a.ip())
+}
+
+fn session_cookie(token: &str, max_age_secs: i64, https: bool) -> HeaderValue {
+    let secure = if always_secure() || https { "; Secure" } else { "" };
     let value = format!("{COOKIE}={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age={max_age_secs}{secure}");
     HeaderValue::from_str(&value).expect("cookie is ASCII")
 }
@@ -55,8 +60,9 @@ async fn login(
     headers: HeaderMap,
     Json(c): Json<Credentials>,
 ) -> ApiResult<Response> {
-    let peer = peer.map_or(IpAddr::V4(Ipv4Addr::LOCALHOST), |Extension(ConnectInfo(a))| a.ip());
+    let peer = peer_ip(peer);
     let ip = super::client_ip::client_ip(peer, &headers);
+    let https = super::client_ip::via_https(peer, &headers);
     if no_users(&s).await? {
         return Err(ApiError::no_users());
     }
@@ -95,7 +101,7 @@ async fn login(
     tracing::info!(%ip, username = %user.username, "signed in");
 
     let mut resp = Json(user.public()).into_response();
-    resp.headers_mut().insert(header::SET_COOKIE, session_cookie(&token, lifetime.num_seconds()));
+    resp.headers_mut().insert(header::SET_COOKIE, session_cookie(&token, lifetime.num_seconds(), https));
     Ok(resp)
 }
 
@@ -105,7 +111,8 @@ fn cookie_token_from(headers: &HeaderMap) -> Option<String> {
     cookie_token(&req)
 }
 
-async fn logout(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Response> {
+async fn logout(State(s): State<AppState>, peer: Option<Extension<ConnectInfo<SocketAddr>>>, headers: HeaderMap) -> ApiResult<Response> {
+    let https = super::client_ip::via_https(peer_ip(peer), &headers);
     if let Some(token) = cookie_token_from(&headers)
         && let Some(a) = sessions::find(&s.db, &token).await?
     {
@@ -113,7 +120,7 @@ async fn logout(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Resp
         tracing::info!(username = %a.username, "signed out");
     }
     let mut resp = StatusCode::NO_CONTENT.into_response();
-    resp.headers_mut().insert(header::SET_COOKIE, session_cookie("", 0));
+    resp.headers_mut().insert(header::SET_COOKIE, session_cookie("", 0, https));
     Ok(resp)
 }
 
