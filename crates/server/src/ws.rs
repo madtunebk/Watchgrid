@@ -18,7 +18,8 @@ pub async fn upgrade(ws: WebSocketUpgrade, State(state): State<AppState>) -> Res
 fn topics(event: &BusEvent) -> &'static [&'static str] {
     match event {
         BusEvent::CameraOnline { .. } | BusEvent::CameraOffline { .. } | BusEvent::CameraStopped { .. } => &["cameras", "system"],
-        BusEvent::EventsChanged => &["events"],
+        // Cameras show their last event.
+        BusEvent::EventsChanged => &["events", "cameras"],
         BusEvent::NotificationsChanged => &["notifications"],
         BusEvent::DetectionStarted { .. } | BusEvent::DetectionEnded { .. } => &["cameras"],
         BusEvent::SecurityAlert { .. } => &["events"],

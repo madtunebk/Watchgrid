@@ -150,3 +150,24 @@ async fn recording_needs_an_online_camera(db: PgPool) {
     let after = service::stop_recording(&s, &cam.id).await.unwrap();
     assert!(!after.recording_active);
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn cameras_show_their_newest_event(db: PgPool) {
+    let s = state(db.clone());
+    let a = service::create(&s, input("Front Door")).await.unwrap();
+    let b = service::create(&s, input("Garage")).await.unwrap();
+    for (id, at) in [("old", "2026-09-26T08:00:00Z"), ("new", "2026-09-26T09:00:00Z")] {
+        sqlx::query("INSERT INTO events (id, camera_id, kind, start_time, end_time, source) VALUES ($1, $2, 'motion', $3::timestamptz, $3::timestamptz, 'test')")
+            .bind(id)
+            .bind(&a.id)
+            .bind(at)
+            .execute(&db)
+            .await
+            .unwrap();
+    }
+    let list = service::list(&s).await.unwrap();
+    let last = |id: &str| list.iter().find(|c| c.id == id).unwrap().last_event.clone();
+    assert_eq!(last(&a.id).map(|e| (e.event_id, e.kind)), Some(("new".to_string(), watchgrid_model::EventType::Motion)));
+    assert_eq!(last(&b.id), None, "no events yet");
+    assert_eq!(service::get(&s, &a.id).await.unwrap().last_event.map(|e| e.event_id), Some("new".to_string()));
+}

@@ -75,10 +75,21 @@ fn lift_url_credentials(input: &mut CameraInput) {
     }
 }
 
+/// What the camera list adds to each stored camera.
+struct Extras {
+    usage: HashMap<String, u64>,
+    last_events: HashMap<String, watchgrid_model::LastEventSummary>,
+}
+
+async fn extras(state: &AppState) -> ApiResult<Extras> {
+    Ok(Extras { usage: recording_bytes(state).await?, last_events: crate::events::last_events(&state.db).await? })
+}
+
 /// Stored config with the live state (status, stream details) on top.
-fn with_live(state: &AppState, row: repo::CameraRow, usage: &HashMap<String, u64>) -> Camera {
+fn with_live(state: &AppState, row: repo::CameraRow, extras: &Extras) -> Camera {
     let mut camera = row.into_model();
-    camera.storage_used = Some(usage.get(&camera.id).copied().unwrap_or(0));
+    camera.storage_used = Some(extras.usage.get(&camera.id).copied().unwrap_or(0));
+    camera.last_event = extras.last_events.get(&camera.id).cloned();
     state.live.overlay(&mut camera);
     state.recorder.overlay(&mut camera);
     camera
@@ -107,13 +118,13 @@ pub async fn stop_recording(state: &AppState, id: &str) -> ApiResult<Camera> {
 }
 
 pub async fn list(state: &AppState) -> ApiResult<Vec<Camera>> {
-    let usage = recording_bytes(state).await?;
-    Ok(repo::list(&state.db).await?.into_iter().map(|r| with_live(state, r, &usage)).collect())
+    let extras = extras(state).await?;
+    Ok(repo::list(&state.db).await?.into_iter().map(|r| with_live(state, r, &extras)).collect())
 }
 
 pub async fn get(state: &AppState, id: &str) -> ApiResult<Camera> {
     let row = repo::get(&state.db, id).await?.ok_or_else(|| ApiError::not_found("Camera"))?;
-    Ok(with_live(state, row, &recording_bytes(state).await?))
+    Ok(with_live(state, row, &extras(state).await?))
 }
 
 /// Bytes of recordings per camera id.

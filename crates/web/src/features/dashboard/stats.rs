@@ -1,6 +1,6 @@
 use leptos::prelude::*;
 
-use crate::api::{ApiResult, Camera, CameraStatus, Event, RecordingReason, StorageStatus, SystemStatus};
+use crate::api::{ApiResult, Camera, CameraStatus, EventPage, RecordingReason, StorageStatus, SystemStatus};
 use crate::format;
 use crate::ui::{Meter, Stat, Tone};
 
@@ -10,7 +10,7 @@ const PENDING: &str = "—";
 
 /// KPI strip. Each tile shows "—" until its data arrives.
 #[component]
-pub fn StatsRow(cameras: Res<Vec<Camera>>, events: Res<Vec<Event>>, storage: Res<StorageStatus>, system: Res<SystemStatus>) -> impl IntoView {
+pub fn StatsRow(cameras: Res<Vec<Camera>>, events: Res<EventPage>, storage: Res<StorageStatus>, system: Res<SystemStatus>) -> impl IntoView {
     let cams = move || cameras.get().and_then(Result::ok);
     let count = move |f: fn(&Camera) -> bool| cams().map(|c| c.iter().filter(|c| f(c)).count());
     let show = |n: Option<usize>| n.map_or(PENDING.to_string(), |n| n.to_string());
@@ -50,8 +50,8 @@ pub fn StatsRow(cameras: Res<Vec<Camera>>, events: Res<Vec<Event>>, storage: Res
                 detail=Signal::derive(move || { let n = offline_names(); if n.is_empty() { "None".into() } else { n } }) />
             <Stat label="Recording" tone=Tone::Recording value=Signal::derive(move || show(count(recording)))
                 detail=Signal::derive(move || recording_detail().unwrap_or_default()) />
-            <Stat label="Events today" tone=Tone::Motion value=Signal::derive(move || show(today().map(|e| e.len())))
-                detail=Signal::derive(move || today().and_then(|e| e.first().map(|e| format!("Last at {}", format::time_of_day(e.start_time)))).unwrap_or_else(|| "None yet".into())) />
+            <Stat label="Events today" tone=Tone::Motion value=Signal::derive(move || show(today().map(|p| p.total as usize)))
+                detail=Signal::derive(move || today().and_then(|p| p.events.first().map(|e| format!("Last at {}", format::time_of_day(e.start_time)))).unwrap_or_else(|| "None yet".into())) />
             <Stat label="Storage" value=Signal::derive(move || storage_pct().map_or(PENDING.into(), |p| format!("{p:.0}%")))
                 detail=Signal::derive(move || storage.get().and_then(Result::ok).map(|s| if s.available { format!("{} free", format::bytes(s.free)) } else { "Unavailable".into() }).unwrap_or_default())>
                 <Meter value=Signal::derive(move || storage_pct().unwrap_or(0.0)) />

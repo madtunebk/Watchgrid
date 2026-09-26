@@ -17,9 +17,9 @@ use crate::ui::{I, Icon, Page, Panel, Skeleton, async_view};
 #[component]
 pub fn DashboardPage() -> impl IntoView {
     let cameras = use_query(Topic::Cameras, None, api::get_cameras);
+    // Only the few shown; the page's total is the day's real count.
     let events = use_query(Topic::Events, Some(Duration::from_secs(30)), || {
-        let query = EventQuery { from: Some(start_of_today()), ..Default::default() };
-        async move { api::get_events(query).await.map(|page| page.events) }
+        api::get_events(EventQuery { from: Some(start_of_today()), limit: Some(super::recent_events::LIMIT as u32), ..Default::default() })
     });
     let storage = use_query(Topic::Storage, Some(Duration::from_secs(60)), api::get_storage_status);
     let system = use_query(Topic::System, Some(Duration::from_secs(5)), api::get_system_status);

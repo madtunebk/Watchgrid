@@ -1,14 +1,15 @@
 use leptos::prelude::*;
 
-use crate::api::{ApiResult, Camera, Event};
+use crate::api::{ApiResult, Camera, EventPage};
 use crate::features::events::EventRow;
 use crate::ui::{EmptyState, I, Skeleton, async_view};
 
-const LIMIT: usize = 8;
+pub const LIMIT: usize = 8;
 
 #[component]
-pub fn RecentEvents(events: LocalResource<ApiResult<Vec<Event>>>, cameras: LocalResource<ApiResult<Vec<Camera>>>) -> impl IntoView {
-    async_view(events, || view! { <Skeleton lines=5 /> }.into_any(), move |list| {
+pub fn RecentEvents(events: LocalResource<ApiResult<EventPage>>, cameras: LocalResource<ApiResult<Vec<Camera>>>) -> impl IntoView {
+    async_view(events, || view! { <Skeleton lines=5 /> }.into_any(), move |page| {
+        let list = page.events;
         if list.is_empty() {
             return view! { <EmptyState icon=I::Activity title="No events yet today" compact=true /> }.into_any();
         }
