@@ -53,3 +53,22 @@ async fn a_failed_job_can_be_queued_again(db: PgPool) {
     repo::job_finished(&db, &first.id, &Err("timeout".into())).await.unwrap();
     assert!(repo::insert_job(&db, None, "rec-1", &id).await.unwrap().is_some(), "retry after a failure");
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn an_edit_keeps_the_id_and_clears_the_problem(db: PgPool) {
+    let id = repo::new_target_id(&db).await.unwrap();
+    repo::insert_target(&db, &target(&id)).await.unwrap();
+    repo::set_problem(&db, &id, Some("bad key")).await.unwrap();
+    let job = repo::insert_job(&db, None, "rec-1", &id).await.unwrap().unwrap();
+
+    let edited = StoredTarget { location: "other/prefix".into(), secret_enc: Some(vec![4, 5]), ..target(&id) };
+    assert!(repo::update_target(&db, &edited).await.unwrap());
+    let saved = repo::target_by_id(&db, &id).await.unwrap().unwrap();
+    assert_eq!(saved.location, "other/prefix");
+    assert_eq!(saved.secret_enc, Some(vec![4, 5]));
+    assert!(saved.problem.is_none(), "a tested edit is ready");
+    assert!(saved.settings().has_secret);
+    assert!(!serde_json::to_string(&saved.settings()).unwrap().contains("[4,5]"), "the secret never leaves");
+    assert!(repo::job_by_id(&db, &job.id).await.unwrap().is_some(), "jobs stay with the edited destination");
+    assert!(!repo::update_target(&db, &target("exp-missing")).await.unwrap());
+}

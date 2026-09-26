@@ -6,7 +6,7 @@ use crate::api::{self, ExportTarget, Topic, invalidate};
 use crate::ui::{Badge, ConfirmDialog, Icon, Tone};
 
 #[component]
-pub fn TargetCard(target: ExportTarget) -> impl IntoView {
+pub fn TargetCard(target: ExportTarget, on_edit: Callback<()>) -> impl IntoView {
     let busy = RwSignal::new(false);
     let confirm = RwSignal::new(false);
     let error = RwSignal::new(None::<String>);
@@ -64,6 +64,7 @@ pub fn TargetCard(target: ExportTarget) -> impl IntoView {
             </label>
             <div class="dest__actions">
                 {(!target.ready).then(|| view! { <button class="btn btn--primary btn--sm" disabled=busy on:click=reconnect.clone()>"Reconnect"</button> })}
+                <button class="btn btn--secondary btn--sm" disabled=busy on:click=move |_| on_edit.run(())>"Edit"</button>
                 <button class="btn btn--danger btn--sm" disabled=busy on:click=move |_| confirm.set(true)>"Remove"</button>
             </div>
             <ConfirmDialog open=confirm title="Remove destination?" confirm_label="Remove" danger=true busy error

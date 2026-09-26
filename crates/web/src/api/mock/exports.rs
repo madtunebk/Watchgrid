@@ -6,7 +6,7 @@ use super::db::with_db;
 use super::sim::latency;
 use gloo_timers::future::TimeoutFuture;
 
-use crate::api::{ApiError, ApiResult, AutoUpload, ConnectionProbe, ExportJob, ExportKind, ExportState, ExportTarget, ExportTargetInput};
+use crate::api::{ApiError, ApiResult, AutoUpload, ConnectionProbe, ExportJob, ExportKind, ExportState, ExportTarget, ExportTargetInput, ExportTargetSettings};
 
 /// Simulated upload time.
 const UPLOAD_MS: i64 = 4_000;
@@ -101,6 +101,44 @@ pub async fn create(input: ExportTargetInput) -> ApiResult<ExportTarget> {
         db.export_targets.push(target.clone());
         target
     }))
+}
+
+/// The demo keeps no endpoints or keys: the form shows them empty.
+pub async fn settings(id: &str) -> ApiResult<ExportTargetSettings> {
+    latency().await;
+    with_db(|db| {
+        let t = db.export_targets.iter().find(|t| t.id == id).ok_or_else(|| ApiError::not_found("Export destination"))?;
+        Ok(ExportTargetSettings {
+            name: t.name.clone(),
+            kind: t.kind,
+            endpoint: String::new(),
+            location: t.location.clone(),
+            username: String::new(),
+            has_secret: true,
+            auto_upload: t.auto_upload,
+        })
+    })
+}
+
+pub async fn test_saved(_id: &str, input: &ExportTargetInput) -> ApiResult<ConnectionProbe> {
+    let input = ExportTargetInput { secret: Some("saved".into()), ..input.clone() };
+    test(&input).await
+}
+
+pub async fn update(id: &str, input: ExportTargetInput) -> ApiResult<ExportTarget> {
+    latency().await;
+    if input.name.trim().is_empty() {
+        return Err(ApiError::new(422, "invalid", "Give the destination a name"));
+    }
+    with_db(|db| {
+        let t = db.export_targets.iter_mut().find(|t| t.id == id).ok_or_else(|| ApiError::not_found("Export destination"))?;
+        t.name = input.name.trim().into();
+        t.location = input.location;
+        t.auto_upload = input.auto_upload;
+        t.ready = true;
+        t.problem = None;
+        Ok(t.clone())
+    })
 }
 
 pub async fn set_auto(id: &str, rule: AutoUpload) -> ApiResult<()> {

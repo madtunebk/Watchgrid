@@ -2,7 +2,7 @@
 
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
-use watchgrid_model::{AutoUpload, ExportJob, ExportKind, ExportState, ExportTarget};
+use watchgrid_model::{AutoUpload, ExportJob, ExportKind, ExportState, ExportTarget, ExportTargetSettings};
 
 pub fn kind_name(k: ExportKind) -> &'static str {
     match k {
@@ -68,6 +68,19 @@ impl StoredTarget {
             auto_upload: self.auto_upload,
         }
     }
+
+    /// What the edit form needs: everything but the secret.
+    pub fn settings(&self) -> ExportTargetSettings {
+        ExportTargetSettings {
+            name: self.name.clone(),
+            kind: self.kind,
+            endpoint: self.endpoint.clone(),
+            location: self.location.clone(),
+            username: self.username.clone(),
+            has_secret: self.secret_enc.is_some(),
+            auto_upload: self.auto_upload,
+        }
+    }
 }
 
 type TargetRow = (String, String, String, String, String, String, Option<Vec<u8>>, String, Option<String>);
@@ -106,6 +119,21 @@ pub async fn insert_target(db: &PgPool, t: &StoredTarget) -> sqlx::Result<()> {
         .execute(db)
         .await
         .map(|_| ())
+}
+
+/// Save an edited destination (kind and id stay); clears its problem.
+pub async fn update_target(db: &PgPool, t: &StoredTarget) -> sqlx::Result<bool> {
+    let done = sqlx::query("UPDATE export_targets SET name = $2, endpoint = $3, location = $4, username = $5, secret_enc = $6, auto_upload = $7, problem = NULL WHERE id = $1")
+        .bind(&t.id)
+        .bind(&t.name)
+        .bind(&t.endpoint)
+        .bind(&t.location)
+        .bind(&t.username)
+        .bind(&t.secret_enc)
+        .bind(rule_name(t.auto_upload))
+        .execute(db)
+        .await?;
+    Ok(done.rows_affected() > 0)
 }
 
 pub async fn set_auto(db: &PgPool, id: &str, rule: AutoUpload) -> sqlx::Result<bool> {

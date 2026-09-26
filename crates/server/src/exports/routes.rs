@@ -5,10 +5,10 @@ use std::time::Instant;
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::routing::{delete, get, post, put};
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use serde::Deserialize;
-use watchgrid_model::{AutoUpload, ConnectionProbe, ExportJob, ExportTarget, ExportTargetInput};
+use watchgrid_model::{AutoUpload, ConnectionProbe, ExportJob, ExportTarget, ExportTargetInput, ExportTargetSettings};
 
 use super::providers::{Provider, TargetConfig};
 use super::repo::{self, StoredTarget};
@@ -20,7 +20,8 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/targets", get(list).post(create))
         .route("/targets/test", post(test))
-        .route("/targets/{id}", delete(remove))
+        .route("/targets/{id}", get(settings).put(update).delete(remove))
+        .route("/targets/{id}/test", post(test_saved))
         .route("/targets/{id}/auto-upload", put(set_auto))
         .route("/targets/{id}/reconnect", post(reconnect))
         .route("/jobs/{id}", get(job))
@@ -80,6 +81,73 @@ async fn create(State(s): State<AppState>, Json(input): Json<ExportTargetInput>)
     };
     repo::insert_target(&s.db, &target).await?;
     tracing::info!(target = %target.id, kind = ?target.kind, "export destination added");
+    Ok(Json(target.public()))
+}
+
+/// The saved settings for the edit form (never the secret).
+async fn settings(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult<Json<ExportTargetSettings>> {
+    let target = repo::target_by_id(&s.db, &id).await?.ok_or_else(|| ApiError::not_found("Export destination"))?;
+    Ok(Json(target.settings()))
+}
+
+/// The secret an edit uses: the one typed, else the saved one, but only for
+/// the server it was saved for: a changed endpoint never receives it.
+fn edit_secret(s: &AppState, saved: &StoredTarget, input: &ExportTargetInput) -> ApiResult<String> {
+    if let Some(typed) = input.secret.as_deref().filter(|x| !x.is_empty()) {
+        return Ok(typed.to_string());
+    }
+    let Some(enc) = &saved.secret_enc else { return Ok(String::new()) };
+    if input.endpoint.trim() != saved.endpoint {
+        return Err(ApiError::invalid("Enter the secret again: a saved secret is only sent to the server it was saved for"));
+    }
+    let secret = s.credentials.open(&secret_aad(&saved.id), enc).map_err(ApiError::internal)?;
+    String::from_utf8(secret).map_err(ApiError::internal)
+}
+
+/// A saved destination, checked before its edit is applied.
+async fn edited(s: &AppState, id: &str, input: &ExportTargetInput) -> ApiResult<(StoredTarget, String, ConnectionProbe)> {
+    let saved = repo::target_by_id(&s.db, id).await?.ok_or_else(|| ApiError::not_found("Export destination"))?;
+    if input.kind != saved.kind {
+        return Err(ApiError::invalid("The service of a destination can't change: add a new destination instead"));
+    }
+    let secret = edit_secret(s, &saved, input)?;
+    let p = probe(Provider::new(&TargetConfig { secret: &secret, ..config(input) })).await;
+    Ok((saved, secret, p))
+}
+
+/// Try an edit before saving it, with the saved secret if none was typed.
+async fn test_saved(State(s): State<AppState>, Path(id): Path<String>, Json(input): Json<ExportTargetInput>) -> ApiResult<Json<ConnectionProbe>> {
+    edited(&s, &id, &input).await.map(|(_, _, p)| Json(p))
+}
+
+/// Save an edit; like adding, it must pass the test first.
+async fn update(State(s): State<AppState>, Path(id): Path<String>, Json(input): Json<ExportTargetInput>) -> ApiResult<Json<ExportTarget>> {
+    let name = input.name.trim();
+    if name.is_empty() {
+        return Err(ApiError::invalid("Give the destination a name"));
+    }
+    let (saved, secret, p) = edited(&s, &id, &input).await?;
+    if !p.ok {
+        return Err(ApiError::invalid(p.message));
+    }
+    let secret_enc = match secret.is_empty() {
+        true => None,
+        false => Some(s.credentials.seal(&secret_aad(&id), secret.as_bytes()).map_err(ApiError::internal)?),
+    };
+    let target = StoredTarget {
+        name: name.to_string(),
+        endpoint: input.endpoint.trim().to_string(),
+        location: input.location.trim().to_string(),
+        username: input.username.trim().to_string(),
+        secret_enc,
+        auto_upload: input.auto_upload,
+        problem: None,
+        ..saved
+    };
+    if !repo::update_target(&s.db, &target).await? {
+        return Err(ApiError::not_found("Export destination"));
+    }
+    tracing::info!(target = %target.id, "export destination edited");
     Ok(Json(target.public()))
 }
 

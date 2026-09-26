@@ -61,6 +61,20 @@ pub struct ExportTargetInput {
     pub auto_upload: AutoUpload,
 }
 
+/// A saved destination as the edit form needs it (`GET /exports/targets/{id}`).
+/// The secret is never returned: `has_secret` says whether one is saved.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportTargetSettings {
+    pub name: String,
+    pub kind: ExportKind,
+    pub endpoint: String,
+    pub location: String,
+    pub username: String,
+    pub has_secret: bool,
+    pub auto_upload: AutoUpload,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExportState {

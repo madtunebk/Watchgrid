@@ -1,8 +1,8 @@
 //! Export destinations and jobs over HTTP — same functions as the mock's
-//! `exports` module. Secrets are sent once (when adding) and never returned.
+//! `exports` module. Secrets are sent when adding or replacing them, never returned.
 
 use super::client;
-use crate::api::{ApiResult, AutoUpload, ConnectionProbe, ExportJob, ExportTarget, ExportTargetInput};
+use crate::api::{ApiResult, AutoUpload, ConnectionProbe, ExportJob, ExportTarget, ExportTargetInput, ExportTargetSettings};
 
 fn enc(s: &str) -> String {
     js_sys::encode_uri_component(s).into()
@@ -30,6 +30,18 @@ pub async fn test(input: &ExportTargetInput) -> ApiResult<ConnectionProbe> {
 
 pub async fn create(input: ExportTargetInput) -> ApiResult<ExportTarget> {
     client::post("/exports/targets", Some(&input)).await
+}
+
+pub async fn settings(id: &str) -> ApiResult<ExportTargetSettings> {
+    client::get(&format!("/exports/targets/{}", enc(id))).await
+}
+
+pub async fn test_saved(id: &str, input: &ExportTargetInput) -> ApiResult<ConnectionProbe> {
+    client::post(&format!("/exports/targets/{}/test", enc(id)), Some(input)).await
+}
+
+pub async fn update(id: &str, input: ExportTargetInput) -> ApiResult<ExportTarget> {
+    client::put(&format!("/exports/targets/{}", enc(id)), &input).await
 }
 
 pub async fn set_auto(id: &str, rule: AutoUpload) -> ApiResult<()> {

@@ -1,4 +1,4 @@
-use super::{ApiResult, AutoUpload, ConnectionProbe, ExportJob, ExportTarget, ExportTargetInput, Id, backend};
+use super::{ApiResult, AutoUpload, ConnectionProbe, ExportJob, ExportTarget, ExportTargetInput, ExportTargetSettings, Id, backend};
 
 /// GET /api/v1/exports/targets — configured destinations (no secrets).
 pub async fn get_export_targets() -> ApiResult<Vec<ExportTarget>> {
@@ -28,6 +28,21 @@ pub async fn test_export_target(input: ExportTargetInput) -> ApiResult<Connectio
 /// POST /api/v1/exports/targets
 pub async fn create_export_target(input: ExportTargetInput) -> ApiResult<ExportTarget> {
     backend::exports::create(input).await
+}
+
+/// GET /api/v1/exports/targets/{id} — saved settings for the edit form (no secret).
+pub async fn get_export_target_settings(id: Id) -> ApiResult<ExportTargetSettings> {
+    backend::exports::settings(&id).await
+}
+
+/// POST /api/v1/exports/targets/{id}/test — try an edit; no secret keeps the saved one.
+pub async fn test_saved_export_target(id: Id, input: ExportTargetInput) -> ApiResult<ConnectionProbe> {
+    backend::exports::test_saved(&id, &input).await
+}
+
+/// PUT /api/v1/exports/targets/{id} — save an edit (tested first).
+pub async fn update_export_target(id: Id, input: ExportTargetInput) -> ApiResult<ExportTarget> {
+    backend::exports::update(&id, input).await
 }
 
 /// PUT /api/v1/exports/targets/{id}/auto-upload
