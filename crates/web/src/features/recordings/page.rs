@@ -8,6 +8,7 @@ use leptos_router::NavigateOptions;
 
 use super::clips::ClipList;
 use super::drawer::RecordingDrawer;
+use super::dvr::DvrPlayer;
 use super::state::{State, View, ZOOMS};
 use super::timeline::{Scale, Timeline};
 use super::toolbar::Toolbar;
@@ -32,6 +33,15 @@ pub fn RecordingsPage() -> impl IntoView {
     });
     let selected = RwSignal::new(None::<Recording>);
     let open = Callback::new(move |r: Recording| selected.set(Some(r)));
+    // DVR playback: camera, start time, and that camera's clips as they
+    // were when clicked (the 30 s refresh must not restart playback).
+    let dvr = RwSignal::new(None::<(String, chrono::DateTime<chrono::Utc>, Vec<Recording>)>);
+    let playhead = RwSignal::new(None::<chrono::DateTime<chrono::Utc>>);
+    let on_seek = Callback::new(move |(camera, at): (String, chrono::DateTime<chrono::Utc>)| {
+        let mut clips: Vec<Recording> = recordings.get_untracked().and_then(Result::ok).unwrap_or_default().into_iter().filter(|r| r.camera_id == camera).collect();
+        clips.sort_by_key(|r| r.start_time);
+        dvr.set(Some((camera, at, clips)));
+    });
     let zoom = Signal::derive(move || state.get().zoom);
 
     // + / − zoom the timeline.
@@ -59,6 +69,10 @@ pub fn RecordingsPage() -> impl IntoView {
     view! {
         <Page title="Recordings" subtitle>
             <Toolbar state cameras=camera_list on_change />
+            {move || dvr.get().map(|(camera, at, clips)| {
+                let camera_name = camera_list.get_untracked().into_iter().find(|c| c.id == camera).map(|c| c.name).unwrap_or(camera);
+                view! { <DvrPlayer camera_name clips at playhead on_details=open on_close=Callback::new(move |_| dvr.set(None)) /> }
+            })}
             {move || {
                 let all = camera_list.get();
                 if cameras.get().is_some() && all.is_empty() {
@@ -73,7 +87,7 @@ pub fn RecordingsPage() -> impl IntoView {
                         match s.view {
                             View::Timeline => {
                                 let (start, end) = s.day_range();
-                                view! { <Timeline cameras=shown recordings=list scale=Scale::new(start, end) zoom on_open=open /> }.into_any()
+                                view! { <Timeline cameras=shown recordings=list scale=Scale::new(start, end) zoom on_seek playhead /> }.into_any()
                             }
                             View::Clips if list.is_empty() => view! {
                                 <EmptyState icon=I::Film title="No recordings on this day" text="Pick another day or camera." />

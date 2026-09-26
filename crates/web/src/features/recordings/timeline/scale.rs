@@ -33,6 +33,11 @@ impl Scale {
         Some((left, (self.pct(to) - left).max(min)))
     }
 
+    /// The time at `fraction` (0..=1) of the day.
+    pub fn at(&self, fraction: f64) -> DateTime<Utc> {
+        self.start + Duration::milliseconds((self.span_ms() * fraction.clamp(0.0, 1.0)) as i64)
+    }
+
     pub fn contains(&self, t: DateTime<Utc>) -> bool {
         t >= self.start && t < self.end
     }
@@ -53,5 +58,20 @@ impl Scale {
             t += Duration::minutes(step);
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn position_and_time_convert_both_ways() {
+        let start: DateTime<Utc> = "2026-09-26T00:00:00Z".parse().unwrap();
+        let s = Scale::new(start, start + Duration::hours(24));
+        let noon = start + Duration::hours(12);
+        assert_eq!(s.at(0.5), noon);
+        assert!((s.pct(noon) - 50.0).abs() < 1e-9);
+        assert_eq!(s.at(2.0), start + Duration::hours(24), "clamped");
     }
 }

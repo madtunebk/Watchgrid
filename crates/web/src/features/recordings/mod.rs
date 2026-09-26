@@ -2,6 +2,7 @@
 
 mod clips;
 mod drawer;
+mod dvr;
 mod labels;
 mod page;
 mod state;
