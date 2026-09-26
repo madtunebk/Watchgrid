@@ -53,10 +53,12 @@ pub fn EventsPage() -> impl IntoView {
     keep_only_shown(selected, shown);
     // Deleting the last events of the last page: go back to the new last page.
     Effect::new(move || {
-        if let Some(Ok(p)) = events.get() {
-            if p.events.is_empty() && p.total > 0 && page_no.get_untracked() > 0 {
-                page_no.set((p.total - 1) / PAGE);
-            }
+        if let Some(Ok(p)) = events.get()
+            && p.events.is_empty()
+            && p.total > 0
+            && page_no.get_untracked() > 0
+        {
+            page_no.set((p.total - 1) / PAGE);
         }
     });
 
