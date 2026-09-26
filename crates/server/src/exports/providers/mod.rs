@@ -69,7 +69,7 @@ pub fn client() -> &'static reqwest::Client {
 
 /// A file as a request body stream, reporting bytes read.
 async fn file_body(file: &Path, progress: impl Fn(u64) + Send + Sync + 'static) -> Result<(u64, reqwest::Body), String> {
-    let f = tokio::fs::File::open(file).await.map_err(|e| format!("cannot open {}: {e}", file.display()))?;
+    let f = tokio::fs::File::open(file).await.map_err(|e| format!("cannot open the clip file: {e}"))?;
     let size = f.metadata().await.map_err(|e| e.to_string())?.len();
     Ok((size, reqwest::Body::wrap_stream(read_chunks(f, progress))))
 }
@@ -118,7 +118,10 @@ fn extract_message(body: &str) -> String {
     body.chars().filter(|c| !c.is_control()).take(160).collect::<String>().trim().to_string()
 }
 
+/// Without the request URL: it names paths inside the destination, which
+/// the UI doesn't show.
 fn net_error(what: &str, e: reqwest::Error) -> String {
+    let e = e.without_url();
     let mut msg = format!("{what}: {e}");
     let mut source = std::error::Error::source(&e);
     while let Some(s) = source {
