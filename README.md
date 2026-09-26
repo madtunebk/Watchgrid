@@ -35,17 +35,70 @@ Everything builds with Cargo.
 
 ## Install
 
-Pick one:
+Two ways, both with **PostgreSQL 14+**. Choose one.
 
-- **Docker (Synology DSM and other NAS)** — see
-  [`deploy/docker/README.md`](deploy/docker/README.md). `setup.sh` creates the
-  database (in your PostgreSQL container, or a bundled one) and starts
-  everything.
-- **Linux with systemd** — see [`deploy/systemd/README.md`](deploy/systemd/README.md).
+### A. Docker (Synology DSM, other NAS, any Docker host)
 
-Both need **PostgreSQL 14+**.
+The script to run is **`setup.sh`**, from the bundle.
+
+1. **Build the bundle** on a Linux machine with Rust (see
+   [Build from source](#build-from-source)):
+   ```sh
+   sh deploy/docker/package.sh          # → target/watchgrid-docker.tar.gz
+   ```
+2. **Copy it to the NAS** and unpack it into its own folder:
+   ```sh
+   mkdir -p ~/watchgrid && cd ~/watchgrid
+   tar -xzf watchgrid-docker.tar.gz --strip-components=1
+   ```
+3. **Choose the database password** (only the first time):
+   ```sh
+   head -c 24 /dev/urandom | base64 | tr -d '/+=\n' > db-password
+   ```
+4. **Run the setup** — it uses your PostgreSQL container, or starts its own:
+   ```sh
+   sudo sh setup.sh
+   ```
+5. **Create your account**, then open `http://<nas>:8090`:
+   ```sh
+   sudo docker exec -it watchgrid watchgrid user create <username>
+   ```
+
+**Upgrade:** build a new bundle, unpack it over the same folder, run
+`sudo sh setup.sh` again. Details: [`deploy/docker/README.md`](deploy/docker/README.md).
+
+### B. Bare metal (Linux server with systemd)
+
+The script to run is **`deploy/systemd/install.sh`**, from the source folder.
+
+1. **Create the database:**
+   ```sh
+   sudo -u postgres createuser --pwprompt watchgrid
+   sudo -u postgres createdb --owner watchgrid watchgrid
+   ```
+2. **Build** (see [Build from source](#build-from-source)):
+   ```sh
+   cargo build --release -p watchgrid-server
+   cargo web build --release --live
+   ```
+3. **Install** — the first run creates the settings file:
+   ```sh
+   sudo sh deploy/systemd/install.sh
+   sudoedit /etc/watchgrid/watchgrid.env      # DATABASE_URL, WATCHGRID_BIND
+   sudo sh deploy/systemd/install.sh          # installs and starts the service
+   ```
+4. **Create your account**, then open `http://<server>:8090`:
+   ```sh
+   sudo watchgrid user create <username>
+   ```
+
+**Upgrade:** pull, build again, `sudo sh deploy/systemd/install.sh`.
+Details: [`deploy/systemd/README.md`](deploy/systemd/README.md).
 
 ### Build from source
+
+Needs Rust (stable), the WebAssembly target and a C/C++ compiler
+(`build-essential` on Debian/Ubuntu) — no Node.js.
 
 ```sh
 rustup target add wasm32-unknown-unknown
@@ -53,31 +106,23 @@ cargo build --release -p watchgrid-server   # the server: target/release/watchgr
 cargo web build --release --live            # the web UI: dist/
 ```
 
-For the static binary used by the Docker image:
+The Docker bundle uses a fully static binary; for that also:
 
 ```sh
 rustup target add x86_64-unknown-linux-musl
-sudo apt install musl-tools clang             # OpenH264 is compiled with clang for musl
-sh deploy/docker/package.sh                   # → target/watchgrid-docker.tar.gz
+sudo apt install musl-tools clang            # OpenH264 is compiled with clang for musl
 ```
 
-## First sign-in: create an account
+## Accounts and passwords
 
 Accounts are managed **only on the server** — the web UI can sign in and
-out but never create users or reset passwords.
+out but never create users or reset passwords. The password is asked in
+the terminal (never passed on the command line). Add `--viewer` to
+`create` for a read-only account. With Docker, prefix the commands with
+`sudo docker exec -it watchgrid`; on bare metal, with `sudo`:
 
 ```sh
-# Docker
-sudo docker exec -it watchgrid watchgrid user create <username>
-
-# systemd install
-sudo watchgrid user create <username>
-```
-
-You are asked for the password in the terminal (it is never passed on the
-command line). Add `--viewer` for a read-only account. Other commands:
-
-```sh
+watchgrid user create <username>      # add --viewer for read-only
 watchgrid user list
 watchgrid user passwd <username>      # new password
 watchgrid user disable <username>     # or enable / delete
