@@ -1,0 +1,11 @@
+[package]
+name = "watchgrid-model"
+description = "Data model shared by the Watchgrid web UI and the (future) Rust backend API."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde.workspace = true
+chrono.workspace = true

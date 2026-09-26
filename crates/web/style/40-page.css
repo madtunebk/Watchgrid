@@ -1,0 +1,28 @@
+/* Page frame and page-level error states. */
+
+.page { display: flex; flex-direction: column; min-height: 100%; }
+.page__head {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.5333rem 1.0667rem;
+  padding: 0.9333rem 1.0667rem;
+  border-bottom: 1px solid var(--line);
+}
+.page__titles { flex: 1; min-width: 0; }
+.page__title { font-size: 1.2667rem; font-weight: 600; color: var(--fg-strong); }
+.page__subtitle { font-size: 0.9333rem; color: var(--muted); }
+.page__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5333rem; }
+.page__body { flex: 1; padding: 1.0667rem; }
+.page__body--flush { padding: 0; }
+@media (min-width: 1024px) {
+  .page__head { padding: 0.9333rem 1.6rem; }
+  .page__body:not(.page__body--flush) { padding: 1.6rem; }
+}
+
+.error-page {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.5333rem;
+  min-height: 21.3333rem; height: 100%; padding: 1.6rem;
+  text-align: center;
+}
+.error-page__code { font: 0.9333rem var(--font-mono); letter-spacing: 0.15em; text-transform: uppercase; color: var(--faint); }
+.error-page__title { font-size: 1.3333rem; font-weight: 600; color: var(--fg-strong); }
+.error-page__text { max-width: 28rem; font-size: 0.9333rem; color: var(--muted); }
+.error-page .btn { margin-top: 0.8rem; }

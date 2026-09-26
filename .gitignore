@@ -1,0 +1,14 @@
+/target
+/dist
+/.env
+/data
+/.tmp
+# Never tracked: secrets, database copies, backups, conversation exports.
+master.key
+db-password
+db.env
+watchgrid.env
+*.wgbackup
+*.dump
+*.sql.gz
+/*.txt

@@ -1,0 +1,50 @@
+[package]
+name = "watchgrid-server"
+description = "Watchgrid NVR server: HTTP API, database, and (later) camera supervision."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "watchgrid"
+path = "src/main.rs"
+
+[dependencies]
+watchgrid-model.workspace = true
+serde.workspace = true
+chrono.workspace = true
+serde_json = "1"
+axum = { version = "0.8.9", features = ["ws"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "net", "fs", "io-util", "time"] }
+sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio", "postgres", "macros", "migrate", "chrono", "json"] }
+tower-http = { version = "0.6.11", features = ["fs"] }
+tower = { version = "0.5.3", default-features = false, features = ["util"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+dotenvy = "0.15.7"
+aes-gcm = "0.10.3"
+retina = { version = "0.4.20", features = ["h265"] }
+url = "2.5.8"
+libc = "0.2"
+argon2 = "0.5"
+blake2 = "0.10"
+zeroize = { version = "1", features = ["serde"] }
+quick-xml = "0.38"
+sha1 = "0.10"
+base64 = "0.22"
+# HTTPS for cloud export targets: pure-Rust TLS with bundled root certificates
+# (never the system's OpenSSL or CA store, which differ on every NAS).
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-webpki-roots-no-provider", "stream", "http2"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+hmac = "0.12"
+sha2 = "0.10"
+futures = "0.3.34"
+# Software motion detection decodes the substream (Cisco OpenH264, BSD,
+# compiled from bundled source).
+# Camera audio (G.711) becomes Opus for browsers and recordings; pure Rust.
+opus-pure = "0.2"
+# Backups: one .wgbackup file (tar + gzip, pure Rust).
+tar = "0.4"
+flate2 = "1"
+openh264 = { version = "0.9", default-features = false, features = ["source"] }

@@ -1,0 +1,10 @@
+[alias]
+# cargo web build [--release]   -> dist/
+# cargo web serve [--release] [--port N]  -> build, serve, rebuild on change
+web = "run --quiet --package xtask --"
+
+[env]
+# Static musl build of openh264 (see .cargo/musl-cxx.sh). Needs clang and
+# musl-tools; the glibc dev build uses the system C++ compiler as usual.
+CXX_x86_64_unknown_linux_musl = { value = ".cargo/musl-cxx.sh", relative = true }
+CXXSTDLIB_x86_64_unknown_linux_musl = ""

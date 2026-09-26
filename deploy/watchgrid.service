@@ -1,0 +1,53 @@
+# Watchgrid NVR — installed to /etc/systemd/system/watchgrid.service by deploy/install.sh
+[Unit]
+Description=Watchgrid NVR
+Documentation=file:///usr/share/doc/watchgrid/README.md
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=watchgrid
+Group=watchgrid
+EnvironmentFile=/etc/watchgrid/watchgrid.env
+ExecStart=/usr/bin/watchgrid serve
+Restart=on-failure
+RestartSec=5
+# Running recordings are finalized on SIGTERM (up to ~30 s).
+KillSignal=SIGTERM
+TimeoutStopSec=45
+
+# State under /var/lib/watchgrid (created with the right owner by systemd).
+StateDirectory=watchgrid
+StateDirectoryMode=0750
+# Config and secrets are readable, never writable, by the service.
+ConfigurationDirectory=watchgrid
+ConfigurationDirectoryMode=0750
+
+# Sandbox: the whole file system is read-only except the paths below.
+# Extra recording folders are added by `sudo watchgrid storage set-path`
+# (drop-in watchgrid.service.d/recordings.conf).
+ProtectSystem=strict
+ReadWritePaths=/var/lib/watchgrid
+ProtectHome=read-only
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,29 @@
+/* Overlays: modal dialog. */
+
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 90;
+  background: rgb(0 0 0 / 0.6);
+  animation: fade-in 0.12s ease-out;
+}
+.modal {
+  position: fixed; z-index: 91; top: 50%; left: 50%;
+  width: min(30.6667rem, calc(100vw - 2.1333rem));
+  transform: translate(-50%, -50%);
+  padding: 1.4667rem;
+  background: var(--surface-2);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-popover);
+  animation: pop-in 0.14s ease-out;
+}
+.modal__title { font-size: 1.2rem; font-weight: 600; color: var(--fg-strong); }
+.modal__text { margin-top: 0.5333rem; color: var(--muted); }
+.modal__error { margin-top: 0.6667rem; color: var(--danger); }
+.modal__actions { display: flex; justify-content: flex-end; gap: 0.5333rem; margin-top: 1.3333rem; }
+@keyframes fade-in { from { opacity: 0; } }
+
+.btn--danger-solid { background: var(--danger); color: #fff; }
+.btn--danger-solid:hover { background: #dc2626; }
+
+.menu__sep { height: 1px; margin: 0.2667rem 0; background: var(--line); }
+.menu__item--danger { color: var(--danger); }
+.menu__item--danger .icon { color: var(--danger); }

@@ -1,0 +1,32 @@
+/* Event widgets: type chips and list rows. */
+
+.evt-chip {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 4.6667rem; height: 1.4667rem; padding: 0 0.4667rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.7333rem; font-weight: 700; letter-spacing: 0.06em;
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+.evt-chip--motion { color: var(--motion); }
+.evt-chip--person { color: #60a5fa; }
+.evt-chip--vehicle { color: #a78bfa; }
+.evt-chip--animal { color: #34d399; }
+.evt-chip--onvif { color: #94a3b8; }
+.evt-chip--manual { color: #f87171; }
+.evt-chip--api { color: #22d3ee; }
+.evt-chip--scheduled { color: #a78bfa; }
+.evt-chip--offline { color: var(--danger); }
+.evt-chip--online { color: var(--online); }
+.evt-chip--security { color: var(--danger); }
+
+.event-list { display: flex; flex-direction: column; margin: -0.4rem -0.5333rem; }
+.event-row {
+  display: grid; grid-template-columns: 3.2rem auto minmax(0, 1fr) auto; align-items: center; gap: 0.8rem;
+  padding: 0.4667rem 0.5333rem;
+  border-radius: var(--radius);
+}
+.event-row:hover { background: var(--surface-3); }
+.event-row__time { font: 0.9333rem var(--font-mono); color: var(--muted); }
+.event-row__camera { color: var(--fg); }
+.event-row__duration { font: 0.8667rem var(--font-mono); color: var(--muted); }
+.event-row__duration--live { color: var(--recording); font-weight: 600; }

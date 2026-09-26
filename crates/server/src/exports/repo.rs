@@ -1,0 +1,216 @@
+//! SQL for export destinations and jobs.
+
+use chrono::{DateTime, Utc};
+use sqlx::PgPool;
+use watchgrid_model::{AutoUpload, ExportJob, ExportKind, ExportState, ExportTarget};
+
+pub fn kind_name(k: ExportKind) -> &'static str {
+    match k {
+        ExportKind::GoogleDrive => "google_drive",
+        ExportKind::S3 => "s3",
+        ExportKind::Nextcloud => "nextcloud",
+        ExportKind::Dropbox => "dropbox",
+    }
+}
+
+fn parse_kind(s: &str) -> ExportKind {
+    match s {
+        "google_drive" => ExportKind::GoogleDrive,
+        "nextcloud" => ExportKind::Nextcloud,
+        "dropbox" => ExportKind::Dropbox,
+        _ => ExportKind::S3,
+    }
+}
+
+pub fn rule_name(r: AutoUpload) -> &'static str {
+    match r {
+        AutoUpload::Off => "off",
+        AutoUpload::Protected => "protected",
+        AutoUpload::Person => "person",
+        AutoUpload::Motion => "motion",
+        AutoUpload::AllEvents => "all_events",
+    }
+}
+
+fn parse_rule(s: &str) -> AutoUpload {
+    match s {
+        "protected" => AutoUpload::Protected,
+        "person" => AutoUpload::Person,
+        "motion" => AutoUpload::Motion,
+        "all_events" => AutoUpload::AllEvents,
+        _ => AutoUpload::Off,
+    }
+}
+
+/// A destination with everything needed to use it (secret still sealed).
+pub struct StoredTarget {
+    pub id: String,
+    pub name: String,
+    pub kind: ExportKind,
+    pub endpoint: String,
+    pub location: String,
+    pub username: String,
+    pub secret_enc: Option<Vec<u8>>,
+    pub auto_upload: AutoUpload,
+    pub problem: Option<String>,
+}
+
+impl StoredTarget {
+    /// What the browser may see: no endpoint credentials, no secret.
+    pub fn public(&self) -> ExportTarget {
+        ExportTarget {
+            id: self.id.clone(),
+            name: self.name.clone(),
+            kind: self.kind,
+            location: self.location.clone(),
+            ready: self.problem.is_none(),
+            problem: self.problem.clone(),
+            auto_upload: self.auto_upload,
+        }
+    }
+}
+
+type TargetRow = (String, String, String, String, String, String, Option<Vec<u8>>, String, Option<String>);
+
+fn target(r: TargetRow) -> StoredTarget {
+    StoredTarget { id: r.0, name: r.1, kind: parse_kind(&r.2), endpoint: r.3, location: r.4, username: r.5, secret_enc: r.6, auto_upload: parse_rule(&r.7), problem: r.8 }
+}
+
+const TARGET_COLUMNS: &str = "id, name, kind, endpoint, location, username, secret_enc, auto_upload, problem";
+
+pub async fn targets(db: &PgPool) -> sqlx::Result<Vec<StoredTarget>> {
+    let rows: Vec<TargetRow> = sqlx::query_as(&format!("SELECT {TARGET_COLUMNS} FROM export_targets ORDER BY created_at")).fetch_all(db).await?;
+    Ok(rows.into_iter().map(target).collect())
+}
+
+pub async fn target_by_id(db: &PgPool, id: &str) -> sqlx::Result<Option<StoredTarget>> {
+    let row: Option<TargetRow> = sqlx::query_as(&format!("SELECT {TARGET_COLUMNS} FROM export_targets WHERE id = $1")).bind(id).fetch_optional(db).await?;
+    Ok(row.map(target))
+}
+
+/// Reserve an id (needed before sealing the secret, which is bound to it).
+pub async fn new_target_id(db: &PgPool) -> sqlx::Result<String> {
+    sqlx::query_scalar("SELECT 'exp-' || nextval('export_targets_seq')").fetch_one(db).await
+}
+
+pub async fn insert_target(db: &PgPool, t: &StoredTarget) -> sqlx::Result<()> {
+    sqlx::query("INSERT INTO export_targets (id, name, kind, endpoint, location, username, secret_enc, auto_upload) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)")
+        .bind(&t.id)
+        .bind(&t.name)
+        .bind(kind_name(t.kind))
+        .bind(&t.endpoint)
+        .bind(&t.location)
+        .bind(&t.username)
+        .bind(&t.secret_enc)
+        .bind(rule_name(t.auto_upload))
+        .execute(db)
+        .await
+        .map(|_| ())
+}
+
+pub async fn set_auto(db: &PgPool, id: &str, rule: AutoUpload) -> sqlx::Result<bool> {
+    Ok(sqlx::query("UPDATE export_targets SET auto_upload = $2 WHERE id = $1").bind(id).bind(rule_name(rule)).execute(db).await?.rows_affected() > 0)
+}
+
+pub async fn set_problem(db: &PgPool, id: &str, problem: Option<&str>) -> sqlx::Result<()> {
+    sqlx::query("UPDATE export_targets SET problem = $2 WHERE id = $1").bind(id).bind(problem).execute(db).await.map(|_| ())
+}
+
+pub async fn delete_target(db: &PgPool, id: &str) -> sqlx::Result<bool> {
+    Ok(sqlx::query("DELETE FROM export_targets WHERE id = $1").bind(id).execute(db).await?.rows_affected() > 0)
+}
+
+fn parse_state(s: &str) -> ExportState {
+    match s {
+        "uploading" => ExportState::Uploading,
+        "done" => ExportState::Done,
+        "failed" => ExportState::Failed,
+        _ => ExportState::Queued,
+    }
+}
+
+type JobRow = (String, Option<String>, String, String, i64, i64, Option<String>, Option<String>, DateTime<Utc>);
+
+fn job(r: JobRow) -> ExportJob {
+    let progress = if r.4 > 0 { (r.5 as f32 / r.4 as f32 * 100.0).min(100.0) } else { 0.0 };
+    let state = parse_state(&r.3);
+    ExportJob {
+        id: r.0,
+        event_id: r.1,
+        target_id: r.2,
+        progress: if state == ExportState::Done { 100.0 } else { progress },
+        state,
+        link: r.6,
+        message: r.7,
+        created_at: r.8,
+    }
+}
+
+const JOB_COLUMNS: &str = "id, event_id, target_id, state, bytes_total, bytes_done, link, message, created_at";
+
+pub async fn job_by_id(db: &PgPool, id: &str) -> sqlx::Result<Option<ExportJob>> {
+    let row: Option<JobRow> = sqlx::query_as(&format!("SELECT {JOB_COLUMNS} FROM export_jobs WHERE id = $1")).bind(id).fetch_optional(db).await?;
+    Ok(row.map(job))
+}
+
+/// An unfinished or successful job for this clip and destination, if any.
+pub async fn existing_job(db: &PgPool, recording_id: &str, target_id: &str) -> sqlx::Result<Option<ExportJob>> {
+    let row: Option<JobRow> = sqlx::query_as(&format!(
+        "SELECT {JOB_COLUMNS} FROM export_jobs WHERE recording_id = $1 AND target_id = $2 AND state <> 'failed' ORDER BY created_at DESC LIMIT 1"
+    ))
+    .bind(recording_id)
+    .bind(target_id)
+    .fetch_optional(db)
+    .await?;
+    Ok(row.map(job))
+}
+
+pub async fn insert_job(db: &PgPool, event_id: Option<&str>, recording_id: &str, target_id: &str) -> sqlx::Result<ExportJob> {
+    let row: JobRow = sqlx::query_as(&format!(
+        "INSERT INTO export_jobs (event_id, recording_id, target_id, state) VALUES ($1, $2, $3, 'queued') RETURNING {JOB_COLUMNS}"
+    ))
+    .bind(event_id)
+    .bind(recording_id)
+    .bind(target_id)
+    .fetch_one(db)
+    .await?;
+    Ok(job(row))
+}
+
+/// (event, recording, target) of a job.
+pub async fn job_parts(db: &PgPool, id: &str) -> sqlx::Result<Option<(Option<String>, String, String)>> {
+    sqlx::query_as("SELECT event_id, recording_id, target_id FROM export_jobs WHERE id = $1").bind(id).fetch_optional(db).await
+}
+
+pub async fn job_started(db: &PgPool, id: &str, total: i64) -> sqlx::Result<()> {
+    sqlx::query("UPDATE export_jobs SET state = 'uploading', bytes_total = $2, bytes_done = 0, updated_at = now() WHERE id = $1")
+        .bind(id)
+        .bind(total)
+        .execute(db)
+        .await
+        .map(|_| ())
+}
+
+pub async fn job_progress(db: &PgPool, id: &str, done: i64) -> sqlx::Result<()> {
+    sqlx::query("UPDATE export_jobs SET bytes_done = $2, updated_at = now() WHERE id = $1").bind(id).bind(done).execute(db).await.map(|_| ())
+}
+
+pub async fn job_finished(db: &PgPool, id: &str, result: &Result<String, String>) -> sqlx::Result<()> {
+    let (state, link, message) = match result {
+        Ok(link) => ("done", Some(link.as_str()), None),
+        Err(e) => ("failed", None, Some(e.as_str())),
+    };
+    sqlx::query("UPDATE export_jobs SET state = $2, link = $3, message = $4, bytes_done = CASE WHEN $2 = 'done' THEN bytes_total ELSE bytes_done END, updated_at = now() WHERE id = $1")
+        .bind(id)
+        .bind(state)
+        .bind(link)
+        .bind(message)
+        .execute(db)
+        .await
+        .map(|_| ())
+}
+
+/// Jobs interrupted by a restart go back in the queue.
+pub async fn requeue_unfinished(db: &PgPool) -> sqlx::Result<Vec<String>> {
+    sqlx::query_scalar("UPDATE export_jobs SET state = 'queued', bytes_done = 0 WHERE state IN ('queued', 'uploading') RETURNING id").fetch_all(db).await
+}

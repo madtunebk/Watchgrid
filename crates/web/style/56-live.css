@@ -1,0 +1,112 @@
+/* Live View: video wall of tiles. */
+
+/* The wall takes exactly the space left under the header and page title;
+   the grid then sizes itself from the wall (container query units). */
+.live-wall {
+  container-type: size;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.5333rem;
+  height: calc(100dvh - var(--header-h) - 5.2rem);
+  padding: 0.5333rem;
+  background: #000;
+}
+.live-wall:fullscreen { height: 100vh; padding: 0; }
+.live-wall__loading, .live-wall__empty { width: 100%; max-width: 73.3333rem; margin-top: 1.6rem; }
+
+/* Keep the whole N×N grid inside the viewport: an N×N grid of 16:9 tiles is itself 16:9. */
+.live-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--cols), minmax(0, 1fr));
+  gap: 0.2667rem;
+  /* An N×N grid of 16:9 tiles is itself 16:9. Leave room for the hint line. */
+  width: min(100cqw - 1.0667rem, (100cqh - 3.4667rem) * 16 / 9);
+}
+.live-wall:fullscreen .live-grid { width: min(100cqw, 100cqh * 16 / 9); gap: 2px; }
+.live-wall:fullscreen .wall-footer { display: none; }
+
+/* One camera over the wall (CAM_FS); the grid stays mounted underneath. */
+.live-wall { position: relative; }
+.live-focus {
+  position: absolute; inset: 0; z-index: 5;
+  container-type: size;
+  display: flex; align-items: center; justify-content: center;
+  background: #000;
+}
+.live-focus__stage { width: min(100cqw, 100cqh * 16 / 9); }
+
+.grid-cell { position: relative; min-width: 0; border-radius: 2px; outline: 2px solid transparent; transition: outline-color 0.1s, opacity 0.1s; }
+.grid-cell[draggable="true"] { cursor: grab; }
+.grid-cell--dragging { opacity: 0.4; }
+.grid-cell--over { outline-color: var(--accent); }
+
+.tile { position: relative; aspect-ratio: 16 / 9; overflow: hidden; background: #05070a; }
+.tile .preview { height: 100%; }
+.tile--flash::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: #fff; animation: snap 0.35s ease-out forwards;
+}
+@keyframes snap { from { opacity: 0.55; } to { opacity: 0; } }
+.tile__toast {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  padding: 0.2667rem 0.6667rem; border-radius: var(--radius);
+  background: rgb(0 0 0 / 0.75); color: #fff; font-size: 0.8667rem;
+}
+
+/* Hover controls */
+.tile__controls {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  display: flex; align-items: center; gap: 0.2667rem;
+  padding: 1.6rem 0.5333rem 0.5333rem;
+  background: linear-gradient(to top, rgb(0 0 0 / 0.8), transparent);
+  opacity: 0; transform: translateY(0.4rem);
+  transition: opacity 0.15s, transform 0.15s;
+}
+.tile:hover .tile__controls, .tile:focus-within .tile__controls { opacity: 1; transform: none; }
+.tile:hover .preview__osd { opacity: 0; }
+.tile__spacer { flex: 1; }
+.tile__btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 2.1333rem; height: 2.1333rem;
+  border-radius: var(--radius);
+  background: rgb(255 255 255 / 0.08);
+  color: #fff;
+}
+.tile__btn:hover { background: rgb(255 255 255 / 0.2); }
+.tile__controls .rec-btn { width: 2.1333rem; height: 2.1333rem; padding: 0; background: rgb(255 255 255 / 0.08); border: 0; }
+.tile__controls .rec-btn.btn--record { background: var(--recording); }
+
+/* Empty tile */
+.tile--empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.5333rem;
+  border: 1px dashed var(--line-strong);
+  background: var(--surface);
+  color: var(--faint);
+}
+.tile__select {
+  height: 2.2667rem; padding: 0 0.6667rem; max-width: 80%;
+  background: var(--surface-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  color: var(--fg);
+  font: inherit;
+}
+.tile__hint { font-size: 0.8rem; color: var(--faint); }
+.live-grid[style*="--cols: 4"] .tile__hint, .live-grid[style*="--cols:4"] .tile__hint { display: none; }
+
+/* Footer: load, pager, hint */
+.wall-footer {
+  flex-shrink: 0;
+  display: flex; align-items: center; gap: 1.0667rem;
+  width: min(100cqw - 1.0667rem, (100cqh - 3.4667rem) * 16 / 9);
+  min-height: 2.4rem;
+  font-size: 0.8667rem;
+}
+.wall-footer__load { display: flex; align-items: center; gap: 0.8rem; min-width: 0; }
+.wall-footer__hint { margin-left: auto; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.load { display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 500; }
+.load__dot { width: 0.5333rem; height: 0.5333rem; border-radius: 50%; background: currentColor; }
+.load--light { color: var(--online); }
+.load--moderate { color: var(--warning); }
+.load--heavy { color: var(--danger); }
+.load__tip { color: var(--danger); }
+.pager { display: flex; align-items: center; gap: 0.4rem; }
+.pager__label { min-width: 5.8667rem; text-align: center; font-weight: 500; color: var(--fg-strong); font-variant-numeric: tabular-nums; }

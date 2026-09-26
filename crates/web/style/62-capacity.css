@@ -1,0 +1,18 @@
+/* Capacity estimate panel. */
+
+.capacity { display: flex; flex-direction: column; gap: 0.6667rem; }
+.capacity__head { display: flex; align-items: baseline; gap: 0.5333rem; }
+.capacity__count { font-size: 1.8667rem; line-height: 2.1333rem; font-weight: 600; color: var(--fg-strong); font-variant-numeric: tabular-nums; }
+.capacity__of { font-size: 1.2rem; font-weight: 500; color: var(--muted); }
+.capacity__unit { color: var(--muted); }
+.capacity__verdict { font-size: 0.9333rem; color: var(--muted); }
+.capacity__resources { display: flex; flex-direction: column; gap: 0.5333rem; margin-top: 0.2667rem; }
+.capacity__row { display: grid; grid-template-columns: 8rem 1fr 2.9333rem; align-items: center; gap: 0.6667rem; }
+.capacity__label { display: inline-flex; align-items: center; gap: 0.5333rem; color: var(--muted); }
+.capacity__row--limit .capacity__label { color: var(--fg-strong); font-weight: 500; }
+.capacity__pct { text-align: right; font: 0.8667rem var(--font-mono); color: var(--muted); }
+.capacity__hw { font-size: 0.8667rem; color: var(--faint); }
+.capacity__advice { display: flex; flex-direction: column; gap: 0.4rem; padding-top: 0.6667rem; border-top: 1px solid var(--line); }
+.capacity__advice li { display: flex; gap: 0.5333rem; font-size: 0.8667rem; color: var(--fg); }
+.capacity__advice .icon { flex-shrink: 0; margin-top: 0.2rem; color: var(--warning); }
+.meter__fill--online { background: var(--online); }

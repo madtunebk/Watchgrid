@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Watchgrid · viewport check</title>
+<style>
+  body { margin: 0; padding: 12px; background: #111; color: #ccc; font: 13px system-ui, sans-serif; }
+  form { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+  input { width: 360px; padding: 4px 8px; background: #222; color: #eee; border: 1px solid #444; }
+  .frames { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+  figure { margin: 0; }
+  figcaption { margin-bottom: 4px; }
+  .box { overflow: hidden; border: 1px solid #333; }
+  iframe { border: 0; transform-origin: 0 0; background: #000; }
+  pre { white-space: pre-wrap; color: #f6b; margin: 4px 0 0; max-width: 640px; }
+</style>
+</head>
+<body>
+<!-- Dev-only (served by `cargo web serve`). The scaling below applies to
+     this test page's frames only; the app inside each frame renders at the
+     real viewport size. -->
+<form onsubmit="load(); return false">
+  <label>Path <input id="path" value="/"></label>
+  <button>Load</button>
+  <button type="button" onclick="report()">Check overflow</button>
+</form>
+<div class="frames" id="frames"></div>
+<script>
+const ALL = [[1280, 720], [1366, 768], [1920, 1080], [2560, 1440], [3840, 2160]];
+// `?size=1280x720` shows one size as large as fits; otherwise all, small.
+const only = new URLSearchParams(location.search).get('size');
+const SIZES = only ? [only.split('x').map(Number)] : ALL;
+const SCALE = only ? Math.min(1, (innerWidth - 24) / SIZES[0][0], (innerHeight - 80) / SIZES[0][1]) : 0.2;
+function load() {
+  const path = document.getElementById('path').value || '/';
+  const root = document.getElementById('frames');
+  root.innerHTML = '';
+  for (const [w, h] of SIZES) {
+    const fig = document.createElement('figure');
+    fig.innerHTML = `<figcaption>${w}×${h}</figcaption><div class="box" style="width:${w * SCALE}px;height:${h * SCALE}px"><iframe width="${w}" height="${h}" style="transform:scale(${SCALE})" src="${path}"></iframe></div><pre></pre>`;
+    root.appendChild(fig);
+  }
+}
+function audit(frame) {
+  const doc = frame.contentDocument, w = frame.width | 0, h = frame.height | 0, out = [];
+  if (!doc) return ['not loaded'];
+  const se = doc.scrollingElement;
+  if (se.scrollWidth > w + 1) out.push(`page scrolls horizontally (+${se.scrollWidth - w}px)`);
+  if (se.scrollHeight > h + 1) out.push(`page scrolls vertically (+${se.scrollHeight - h}px)`);
+  const c = doc.querySelector('.shell__content');
+  if (c && c.scrollWidth > c.clientWidth + 1) out.push(`content scrolls horizontally (+${c.scrollWidth - c.clientWidth}px)`);
+  const skip = '.tl__scroll, .table-wrap, .tabs, .settings__nav, .popover, .drawer';
+  const seen = new Set();
+  for (const el of doc.querySelectorAll('.shell *')) {
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 || r.right <= w + 1 || el.closest(skip)) continue;
+    const key = el.tagName.toLowerCase() + '.' + String(el.className).trim().split(/\s+/)[0];
+    if (!seen.has(key)) { seen.add(key); out.push(`${key} ends at ${Math.round(r.right)}px`); }
+    if (seen.size > 8) break;
+  }
+  return out;
+}
+function report() {
+  const all = {};
+  document.querySelectorAll('figure').forEach(fig => {
+    const f = fig.querySelector('iframe');
+    const res = audit(f);
+    fig.querySelector('pre').textContent = res.join('\n');
+    all[`${f.width}x${f.height}`] = res;
+  });
+  return all;
+}
+window.report = report;
+window.loadPath = p => { document.getElementById('path').value = p; load(); };
+const initial = new URLSearchParams(location.search).get('path');
+if (initial) document.getElementById('path').value = initial;
+load();
+</script>
+</body>
+</html>

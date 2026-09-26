@@ -1,0 +1,34 @@
+/* Dashboard layout. */
+
+.dash { display: grid; gap: 1.3333rem; grid-template-columns: minmax(0, 1fr); align-items: start; }
+@media (min-width: 1280px) { .dash { grid-template-columns: minmax(0, 1fr) 26.6667rem; } }
+
+.dash__main { min-width: 0; }
+.dash__side { display: flex; flex-direction: column; gap: 1.0667rem; min-width: 0; }
+
+.section__head { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; margin-bottom: 0.8rem; }
+.section__title { font-size: 1rem; font-weight: 600; color: var(--fg-strong); }
+
+.onboarding {
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+.onboarding .empty { padding: 6.4rem 1.6rem; }
+
+.sys-summary, .storage-summary { display: flex; flex-direction: column; gap: 1.0667rem; }
+
+.usage-list { display: flex; flex-direction: column; gap: 0.5333rem; }
+.usage-list__row { display: grid; grid-template-columns: 7.3333rem 1fr auto; align-items: center; gap: 0.8rem; }
+.usage-list__bar { height: 0.4rem; border-radius: 0.2rem; background: var(--surface-3); overflow: hidden; }
+.usage-list__bar span { display: block; height: 100%; background: var(--stream); border-radius: 0.2rem; }
+.usage-list__value { font: 0.8667rem var(--font-mono); color: var(--muted); }
+
+.cam-card--more {
+  align-items: center; justify-content: center; gap: 0.4rem;
+  min-height: 13.3333rem;
+  border-style: dashed;
+  color: var(--muted);
+}
+.cam-card--more:hover { color: var(--fg-strong); border-color: var(--accent); }
+.cam-card--more__count { font-size: 2.1333rem; font-weight: 600; color: var(--fg-strong); }
