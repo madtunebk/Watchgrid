@@ -93,14 +93,27 @@ fn append<W: Write>(tar: &mut tar::Builder<W>, name: &str, data: &[u8]) -> std::
     tar.append_data(&mut header, name, data)
 }
 
+/// Most uncompressed data a backup may hold (a guard against a damaged or
+/// hostile file filling memory).
+const MAX_TOTAL: u64 = 8 << 30;
+
 pub fn read(path: &Path) -> Result<Contents, String> {
     let file = std::fs::File::open(path).map_err(|e| format!("cannot open {}: {e}", path.display()))?;
     let bad = |what: String| format!("{} is not a Watchgrid backup: {what}", path.display());
     let mut archive = tar::Archive::new(GzDecoder::new(file));
     let (mut manifest, mut key, mut tables) = (None, None, BTreeMap::new());
+    let mut seen = std::collections::BTreeSet::new();
+    let mut total = 0u64;
     for entry in archive.entries().map_err(|e| bad(e.to_string()))? {
         let mut entry = entry.map_err(|e| bad(e.to_string()))?;
         let name = entry.path().map_err(|e| bad(e.to_string()))?.to_string_lossy().into_owned();
+        if !seen.insert(name.clone()) {
+            return Err(bad(format!("`{name}` appears twice")));
+        }
+        total += entry.size();
+        if total > MAX_TOTAL {
+            return Err(bad("larger than any Watchgrid backup can be".into()));
+        }
         let mut data = Vec::new();
         entry.read_to_end(&mut data).map_err(|e| bad(e.to_string()))?;
         match name.as_str() {
@@ -118,6 +131,9 @@ pub fn read(path: &Path) -> Result<Contents, String> {
         return Err(format!("{} uses backup format {}; this Watchgrid reads format {FORMAT}", path.display(), manifest.format));
     }
     let key = key.ok_or_else(|| bad("no master key".into()))?;
+    if key.len() != 32 {
+        return Err(bad(format!("the master key has {} bytes instead of 32", key.len())));
+    }
     if let Some(missing) = manifest.tables.iter().find(|t| !tables.contains_key(*t)) {
         return Err(bad(format!("table `{missing}` is missing")));
     }

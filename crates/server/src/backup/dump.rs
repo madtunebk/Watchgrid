@@ -5,12 +5,12 @@ use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
 use futures::TryStreamExt;
-use sqlx::postgres::{PgConnectOptions, PgConnection, PgPoolCopyExt};
-use sqlx::{Connection, PgPool};
+use sqlx::postgres::{PgConnectOptions, PgConnection};
+use sqlx::Connection;
 
 /// Held by a running server; a restore refuses to run while it is taken
 /// (and a second server can't start on the same database).
-const SERVER_LOCK: i64 = 0x5747_4E56_52; // "WGNVR"
+const SERVER_LOCK: i64 = 0x0057_474E_5652; // "WGNVR"
 
 fn quote(name: &str) -> String {
     format!("\"{}\"", name.replace('"', "\"\""))
@@ -50,21 +50,32 @@ pub async fn copy_out(db: &mut PgConnection, table: &str) -> sqlx::Result<Vec<u8
     Ok(out)
 }
 
-pub async fn copy_in(db: &PgPool, table: &str, data: &[u8]) -> sqlx::Result<()> {
+pub async fn copy_in(db: &mut PgConnection, table: &str, data: &[u8]) -> sqlx::Result<()> {
     let mut copy = db.copy_in_raw(&format!("COPY {} FROM STDIN", quote(table))).await?;
     copy.send(data).await?;
     copy.finish().await.map(|_| ())
 }
 
-pub async fn set_sequences(db: &PgPool, values: &BTreeMap<String, i64>) -> sqlx::Result<()> {
+pub async fn set_sequences(db: &mut PgConnection, values: &BTreeMap<String, i64>) -> sqlx::Result<()> {
     for (name, value) in values {
-        sqlx::query("SELECT setval($1::regclass, $2, true)").bind(quote(name)).bind(value).execute(db).await?;
+        sqlx::query("SELECT setval($1::regclass, $2, true)").bind(quote(name)).bind(value).execute(&mut *db).await?;
     }
     Ok(())
 }
 
+/// Whether the database was set up by Watchgrid (it has the migration
+/// history). A restore never wipes a database that wasn't.
+pub async fn is_watchgrid(db: &mut PgConnection) -> sqlx::Result<bool> {
+    sqlx::query_scalar("SELECT to_regclass('public._sqlx_migrations') IS NOT NULL").fetch_one(db).await
+}
+
+/// Whether this Watchgrid knows the backup's schema version.
+pub fn known_schema(version: i64) -> bool {
+    sqlx::migrate!("./migrations").iter().any(|m| m.version == version)
+}
+
 /// `tables` ordered so that every table comes after those it references.
-pub async fn load_order(db: &PgPool, tables: &[String]) -> sqlx::Result<Vec<String>> {
+pub async fn load_order<'e>(db: impl sqlx::PgExecutor<'e>, tables: &[String]) -> sqlx::Result<Vec<String>> {
     let edges: Vec<(String, String)> = sqlx::query_as(
         "SELECT c.conrelid::regclass::text, c.confrelid::regclass::text FROM pg_constraint c
          JOIN pg_namespace n ON n.oid = c.connamespace WHERE c.contype = 'f' AND n.nspname = 'public'",
@@ -96,9 +107,9 @@ fn order(tables: &[String], edges: &[(String, String)]) -> Vec<String> {
 }
 
 /// Migrations up to and including `version` (the backup's schema).
-pub async fn migrate_to(db: &PgPool, version: i64) -> Result<(), String> {
+pub async fn migrate_to(db: &mut PgConnection, version: i64) -> Result<(), String> {
     let all = sqlx::migrate!("./migrations");
-    if !all.iter().any(|m| m.version == version) {
+    if !known_schema(version) {
         return Err(format!("the backup's database schema ({version}) is unknown to this Watchgrid; restore it with the same or a newer version"));
     }
     // Only the fields `migrate!` fills; pinned sqlx version (see Cargo.lock).
@@ -112,19 +123,20 @@ pub async fn migrate_to(db: &PgPool, version: i64) -> Result<(), String> {
 }
 
 /// Everything after the backup's schema.
-pub async fn migrate_all(db: &PgPool) -> Result<(), String> {
+pub async fn migrate_all(db: &mut PgConnection) -> Result<(), String> {
     sqlx::migrate!("./migrations").run(db).await.map_err(|e| format!("database migration failed: {e}"))
 }
 
-/// Drop every Watchgrid table and sequence (restore --replace).
-pub async fn drop_everything(db: &PgPool) -> sqlx::Result<()> {
-    let tables: Vec<String> = sqlx::query_scalar("SELECT tablename::text FROM pg_tables WHERE schemaname = 'public'").fetch_all(db).await?;
+/// Drop every Watchgrid table and sequence (restore --replace), inside the
+/// restore's transaction: nothing is gone unless the restore commits.
+pub async fn drop_everything(db: &mut PgConnection) -> sqlx::Result<()> {
+    let tables: Vec<String> = sqlx::query_scalar("SELECT tablename::text FROM pg_tables WHERE schemaname = 'public'").fetch_all(&mut *db).await?;
     for t in tables {
-        sqlx::query(&format!("DROP TABLE IF EXISTS {} CASCADE", quote(&t))).execute(db).await?;
+        sqlx::query(&format!("DROP TABLE IF EXISTS {} CASCADE", quote(&t))).execute(&mut *db).await?;
     }
-    let seqs: Vec<String> = sqlx::query_scalar("SELECT sequencename::text FROM pg_sequences WHERE schemaname = 'public'").fetch_all(db).await?;
+    let seqs: Vec<String> = sqlx::query_scalar("SELECT sequencename::text FROM pg_sequences WHERE schemaname = 'public'").fetch_all(&mut *db).await?;
     for s in seqs {
-        sqlx::query(&format!("DROP SEQUENCE IF EXISTS {} CASCADE", quote(&s))).execute(db).await?;
+        sqlx::query(&format!("DROP SEQUENCE IF EXISTS {} CASCADE", quote(&s))).execute(&mut *db).await?;
     }
     Ok(())
 }
