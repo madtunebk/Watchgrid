@@ -14,3 +14,9 @@ pub async fn get_recordings(query: RecordingQuery) -> ApiResult<Vec<Recording>> 
 pub async fn set_recording_protected(id: Id, protected: bool) -> ApiResult<()> {
     backend::recordings::set_protected(&id, protected).await
 }
+
+/// DELETE /api/v1/recordings/{id} — removes the video; its events stay in
+/// the history. Refused while recording or protected.
+pub async fn delete_recording(id: Id) -> ApiResult<()> {
+    backend::recordings::delete(&id).await
+}

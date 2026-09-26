@@ -114,7 +114,8 @@ fn push(
             _ => RecordingReason::Event,
         },
         file_size: (secs + pre_post) as u64 * bytes_per_sec,
-        protected: n % 23 == 0,
+        protected: false,
+        protected_by_events: u32::from(n % 23 == 0),
         event_ids: vec![id],
     });
 }
@@ -151,6 +152,7 @@ fn continuous(recordings: &mut Vec<Recording>, cam: &Camera, today: DateTime<Utc
                 reason: RecordingReason::Continuous,
                 file_size: secs as u64 * bytes_per_sec,
                 protected: false,
+                protected_by_events: 0,
                 event_ids: vec![],
             });
         }

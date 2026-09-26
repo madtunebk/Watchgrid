@@ -90,13 +90,19 @@ struct Protect {
     protected: bool,
 }
 
-/// Protecting an event also protects its recording from retention.
+/// A protected event also keeps its recording from deletion (worked out
+/// from the events each time, so unprotecting one event never exposes a
+/// clip another protected event shares).
 async fn protect(State(s): State<AppState>, Path(id): Path<String>, Json(body): Json<Protect>) -> ApiResult<StatusCode> {
     let event = repo::get(&s.db, &id).await?.ok_or_else(|| ApiError::not_found("Event"))?;
-    repo::set_protected(&s.db, &id, body.protected).await?;
+    let mut tx = s.db.begin().await?;
+    // Wait for a delete of the clip in progress, so none can start from a
+    // stale view of the protection.
     if let Some(r) = &event.recording_id {
-        recordings::set_protected(&s.db, r, body.protected).await?;
+        recordings::lock_clip(&mut tx, r).await?;
     }
+    repo::set_protected(&mut *tx, &id, body.protected).await?;
+    tx.commit().await?;
     s.bus.publish(BusEvent::EventsChanged);
     s.bus.publish(BusEvent::RecordingsChanged);
     if body.protected {
@@ -105,22 +111,22 @@ async fn protect(State(s): State<AppState>, Path(id): Path<String>, Json(body): 
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Deletes the event and its recording. Refused while protected.
+/// Deletes the event from the history. Its recording stays: other events
+/// may share the clip, and the video has its own delete in Recordings.
+/// Refused while protected or while the detection is still going on.
 async fn remove(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult<StatusCode> {
     let event = repo::get(&s.db, &id).await?.ok_or_else(|| ApiError::not_found("Event"))?;
     if event.protected {
         return Err(ApiError::conflict("This event is protected. Remove protection before deleting it."));
     }
     if event.end_time.is_none() && event.recording_id.is_some() {
-        return Err(ApiError::conflict("This recording is still running. Stop it before deleting the event."));
-    }
-    if let Some(r) = &event.recording_id {
-        recordings::delete_recording(&s.db, &s.recording_files, r).await.map_err(ApiError::internal)?;
-        s.bus.publish(BusEvent::RecordingsChanged);
+        return Err(ApiError::conflict("This event is still going on. Delete it once it has ended."));
     }
     repo::delete(&s.db, &id).await?;
     tracing::info!(event = %id, "event deleted");
     s.bus.publish(BusEvent::EventsChanged);
+    // The clip lost an event (and maybe its protection).
+    s.bus.publish(BusEvent::RecordingsChanged);
     Ok(StatusCode::NO_CONTENT)
 }
 

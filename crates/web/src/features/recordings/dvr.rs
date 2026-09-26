@@ -143,6 +143,7 @@ mod tests {
             reason: RecordingReason::Continuous,
             file_size: 1,
             protected: false,
+            protected_by_events: 0,
             event_ids: vec![],
         }
     }

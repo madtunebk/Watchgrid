@@ -35,7 +35,7 @@ pub fn TrackRow(camera_id: String, recordings: Vec<Recording>, scale: Scale, zoo
                     <button
                         class=format!("tl-seg tl-seg--{}", labels::css(r.reason))
                         class:tl-seg--live=live
-                        class:tl-seg--protected=r.protected
+                        class:tl-seg--protected=r.is_protected()
                         style:left=format!("{left:.4}%")
                         style:width=format!("{width:.4}%")
                         title=tip.clone()

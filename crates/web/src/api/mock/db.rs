@@ -22,6 +22,16 @@ pub struct Db {
     pub logs: Vec<LogEntry>,
 }
 
+impl Db {
+    /// A clip is protected by each protected event in it (as on the server).
+    pub fn recount_protection(&mut self, recording_id: &str) {
+        let n = self.events.iter().filter(|e| e.protected && e.recording_id.as_deref() == Some(recording_id)).count() as u32;
+        if let Some(r) = self.recordings.iter_mut().find(|r| r.id == recording_id) {
+            r.protected_by_events = n;
+        }
+    }
+}
+
 thread_local! {
     static DB: RefCell<Db> = RefCell::new(seed::build(scenario::current()));
 }

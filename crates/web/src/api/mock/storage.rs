@@ -30,7 +30,7 @@ pub async fn status() -> ApiResult<StorageStatus> {
         per_camera.sort_by(|a, b| b.bytes.cmp(&a.bytes));
 
         let recordings_size: u64 = per_camera.iter().map(|u| u.bytes).sum();
-        let protected_size = db.recordings.iter().filter(|r| r.protected).map(|r| r.file_size).sum();
+        let protected_size = db.recordings.iter().filter(|r| r.is_protected()).map(|r| r.file_size).sum();
         let available = db.scenario != Scenario::NoStorage;
         let total = if available { 4 * TB } else { 0 };
         let used = if available { OTHER_DATA + recordings_size } else { 0 };

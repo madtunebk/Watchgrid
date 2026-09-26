@@ -68,3 +68,100 @@ async fn usage_is_summed_per_camera(db: PgPool) {
     assert_eq!(usage[0].oldest, Some(at("2026-09-23T10:00:00Z")));
     assert_eq!(repo::protected_bytes(&db).await.unwrap(), 1_000_000);
 }
+
+mod protection_and_delete {
+    use sqlx::PgPool;
+
+    use super::rec;
+    use crate::recordings::{DeleteError, RecordingFiles, delete_recording, repo};
+
+    /// A recordings folder with the file of `r1` on disk.
+    fn folder(name: &str) -> (RecordingFiles, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!("watchgrid-{name}-{}", std::process::id()));
+        let files = RecordingFiles::new(dir);
+        let file = files.resolve(None, "cam-a/2026-09-24/r1.mp4").unwrap();
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, b"video").unwrap();
+        (files, file)
+    }
+
+    async fn event(db: &PgPool, id: &str, recording: &str, protected: bool) {
+        sqlx::query("INSERT INTO events (id, camera_id, kind, start_time, end_time, recording_id, source, protected) VALUES ($1, 'cam-a', 'motion', now(), now(), $2, 'test', $3)")
+            .bind(id)
+            .bind(recording)
+            .bind(protected)
+            .execute(db)
+            .await
+            .unwrap();
+    }
+
+    async fn set_event(db: &PgPool, id: &str, protected: bool) {
+        sqlx::query("UPDATE events SET protected = $2 WHERE id = $1").bind(id).bind(protected).execute(db).await.unwrap();
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn unprotecting_one_event_keeps_a_clip_another_protects(db: PgPool) {
+        let (files, file) = folder("shared-protect");
+        repo::insert(&db, &rec("r1", "cam-a", "2026-09-24T10:00:00Z", 60)).await.unwrap();
+        event(&db, "a", "r1", true).await;
+        event(&db, "b", "r1", true).await;
+
+        set_event(&db, "a", false).await;
+        let r = repo::get(&db, "r1").await.unwrap().unwrap();
+        assert_eq!((r.protected, r.protected_by_events, r.is_protected()), (false, 1, true));
+        assert!(repo::retention_candidates(&db).await.unwrap().is_empty(), "retention skips it");
+        assert_eq!(delete_recording(&db, &files, "r1").await, Err(DeleteError::Protected));
+        assert!(file.exists());
+
+        set_event(&db, "b", false).await;
+        assert_eq!(repo::retention_candidates(&db).await.unwrap().len(), 1, "no protection left");
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn protecting_an_event_while_recording_holds_after_the_clip_is_saved(db: PgPool) {
+        event(&db, "a", "r1", true).await; // the clip is still being written
+        repo::insert(&db, &rec("r1", "cam-a", "2026-09-24T10:00:00Z", 60)).await.unwrap();
+        assert!(repo::get(&db, "r1").await.unwrap().unwrap().is_protected());
+        assert_eq!(repo::protected_bytes(&db).await.unwrap(), 1_000_000);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn manual_and_event_protection_are_independent(db: PgPool) {
+        repo::insert(&db, &rec("r1", "cam-a", "2026-09-24T10:00:00Z", 60)).await.unwrap();
+        event(&db, "a", "r1", true).await;
+        repo::set_protected(&db, "r1", true).await.unwrap();
+        repo::set_protected(&db, "r1", false).await.unwrap();
+        assert!(repo::get(&db, "r1").await.unwrap().unwrap().is_protected(), "still protected by the event");
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn deleting_a_recording_keeps_its_events_without_video(db: PgPool) {
+        let (files, file) = folder("delete-links");
+        repo::insert(&db, &rec("r1", "cam-a", "2026-09-24T10:00:00Z", 60)).await.unwrap();
+        event(&db, "a", "r1", false).await;
+        event(&db, "b", "r1", false).await;
+
+        assert_eq!(delete_recording(&db, &files, "r1").await, Ok(true));
+        assert!(!file.exists());
+        assert!(repo::get(&db, "r1").await.unwrap().is_none());
+        let links: Vec<Option<String>> = sqlx::query_scalar("SELECT recording_id FROM events ORDER BY id").fetch_all(&db).await.unwrap();
+        assert_eq!(links, [None, None], "events stay, unlinked");
+        assert_eq!(delete_recording(&db, &files, "r1").await, Ok(false), "already gone");
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn a_failed_file_removal_changes_nothing(db: PgPool) {
+        let (files, file) = folder("delete-fails");
+        repo::insert(&db, &rec("r1", "cam-a", "2026-09-24T10:00:00Z", 60)).await.unwrap();
+        event(&db, "a", "r1", false).await;
+        // A directory where the file should be: remove_file fails.
+        std::fs::remove_file(&file).unwrap();
+        std::fs::create_dir_all(file.join("x")).unwrap();
+
+        assert!(matches!(delete_recording(&db, &files, "r1").await, Err(DeleteError::Failed(_))));
+        assert!(repo::get(&db, "r1").await.unwrap().is_some(), "row kept");
+        let link: Option<String> = sqlx::query_scalar("SELECT recording_id FROM events").fetch_one(&db).await.unwrap();
+        assert_eq!(link.as_deref(), Some("r1"), "link kept");
+        std::fs::remove_dir_all(&file).unwrap();
+    }
+}

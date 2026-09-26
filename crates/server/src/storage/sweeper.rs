@@ -1,6 +1,9 @@
 //! Applies the retention policy: periodically, and right after the policy
 //! changes.
 
+use std::collections::HashMap;
+use std::os::unix::fs::MetadataExt;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -64,12 +67,12 @@ impl Sweeper {
             }
             Err(e) => tracing::warn!("event retention failed: {e}"),
         }
-        let candidates = recordings::retention_candidates(&self.db).await.map_err(|e| e.to_string())?;
+        let mut candidates = recordings::retention_candidates(&self.db).await.map_err(|e| e.to_string())?;
         if policy == retention::default_policy() && candidates.iter().all(|c| c.camera_max_days.is_none()) {
             return Ok(0);
         }
         let recordings_bytes = recordings::usage_by_camera(&self.db).await.map_err(|e| e.to_string())?.iter().map(|u| u.bytes).sum();
-        let free = disk::space(&self.files.root()).ok().map(|d| d.free);
+        let free = self.volumes(&mut candidates);
         let doomed = plan::plan(&policy, &candidates, Usage { recordings_bytes, free }, Utc::now());
 
         let mut deleted = 0;
@@ -82,8 +85,36 @@ impl Sweeper {
         Ok(deleted)
     }
 
+    /// Tag each candidate with the filesystem it is on; returns the free
+    /// space of every such volume (and of the current recordings folder).
+    fn volumes(&self, candidates: &mut [plan::Candidate]) -> Vec<(u64, u64)> {
+        let default = self.files.root();
+        let mut devices: HashMap<Option<String>, Option<u64>> = HashMap::new();
+        let mut device_of = |root: &Option<String>| {
+            *devices.entry(root.clone()).or_insert_with(|| {
+                let dir = root.as_ref().map_or_else(|| default.clone(), PathBuf::from);
+                std::fs::metadata(dir).ok().map(|m| m.dev())
+            })
+        };
+        let mut free: Vec<(u64, u64)> = Vec::new();
+        let add = |volume: Option<u64>, dir: PathBuf, free: &mut Vec<(u64, u64)>| {
+            if let Some(v) = volume.filter(|v| !free.iter().any(|(seen, _)| seen == v)) {
+                if let Ok(d) = disk::space(&dir) {
+                    free.push((v, d.free));
+                }
+            }
+        };
+        add(device_of(&None), default.clone(), &mut free);
+        for c in candidates.iter_mut() {
+            c.volume = device_of(&c.root);
+            let dir = c.root.as_ref().map_or_else(|| default.clone(), PathBuf::from);
+            add(c.volume, dir, &mut free);
+        }
+        free
+    }
+
     async fn delete(&self, id: &str) -> Result<(), String> {
-        recordings::delete_recording(&self.db, &self.files, id).await?;
+        recordings::delete_recording(&self.db, &self.files, id).await.map_err(|e| e.to_string())?;
         tracing::info!(recording = %id, "deleted by retention");
         Ok(())
     }

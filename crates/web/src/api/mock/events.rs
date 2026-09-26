@@ -53,9 +53,8 @@ pub async fn set_protected(id: &str, protected: bool) -> ApiResult<()> {
     with_db(|db| {
         let e = db.events.iter_mut().find(|e| e.id == id).ok_or_else(|| ApiError::not_found("Event"))?;
         e.protected = protected;
-        let rec = e.recording_id.clone();
-        if let Some(r) = db.recordings.iter_mut().find(|r| Some(&r.id) == rec.as_ref()) {
-            r.protected = protected;
+        if let Some(rec) = e.recording_id.clone() {
+            db.recount_protection(&rec);
         }
         Ok(())
     })
@@ -68,9 +67,10 @@ pub async fn delete(id: &str) -> ApiResult<()> {
         if db.events[i].protected {
             return Err(ApiError::conflict("This event is protected. Remove protection before deleting it."));
         }
+        // The recording stays (as on the server); it only loses this event.
         let event = db.events.remove(i);
-        if let Some(rec) = event.recording_id {
-            db.recordings.retain(|r| r.id != rec);
+        if let Some(r) = db.recordings.iter_mut().find(|r| Some(&r.id) == event.recording_id.as_ref()) {
+            r.event_ids.retain(|e| e != &event.id);
         }
         Ok(())
     })

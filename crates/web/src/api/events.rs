@@ -15,7 +15,8 @@ pub async fn set_event_protected(id: Id, protected: bool) -> ApiResult<()> {
     backend::events::set_protected(&id, protected).await
 }
 
-/// DELETE /api/v1/events/{id} — also removes its recording. Refused while protected.
+/// DELETE /api/v1/events/{id} — removes the event from the history; its
+/// recording is kept. Refused while protected.
 pub async fn delete_event(id: Id) -> ApiResult<()> {
     backend::events::delete(&id).await
 }
