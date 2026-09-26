@@ -22,6 +22,8 @@ pub fn CameraCard(camera: Camera) -> impl IntoView {
     let host = camera.host.clone();
     let motion_on = camera.motion.enabled;
     let mode = labels::mode_tag(camera.recording.mode);
+    let frame = NodeRef::<leptos::html::Div>::new();
+    let on_screen = crate::ui::use_on_screen(frame);
     let recording = camera.recording_active;
     let camera_reason = camera.recording_reason;
     let can_record = camera.enabled && camera.status == CameraStatus::Online;
@@ -39,7 +41,15 @@ pub fn CameraCard(camera: Camera) -> impl IntoView {
             </header>
 
             <A href=href.clone() attr:class="cam-card__preview" attr:aria-label=open_label>
-                {move || view! { <CameraPreview camera=camera.clone() substream=true /> }}
+                // Live video only while the card can be seen (dashboards and
+                // long camera lists would otherwise stream every camera).
+                <div class="cam-card__frame" node_ref=frame>
+                    {move || if on_screen.get() {
+                        view! { <CameraPreview camera=camera.clone() substream=true /> }.into_any()
+                    } else {
+                        view! { <div class="preview"></div> }.into_any()
+                    }}
+                </div>
             </A>
 
             <dl class="cam-card__facts">

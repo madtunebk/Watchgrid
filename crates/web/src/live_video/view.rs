@@ -17,6 +17,9 @@ pub fn LiveVideo(
     /// Told whether the stream has sound (to show a mute button).
     #[prop(default = None)]
     has_audio: Option<RwSignal<bool>>,
+    /// Told whether pictures are actually playing (for the LIVE tag).
+    #[prop(default = None)]
+    playing: Option<RwSignal<bool>>,
 ) -> impl IntoView {
     let host = NodeRef::<Div>::new();
     let Some(pool::Acquired { lease, video, state, audio }) = pool::acquire(&socket_url(&camera_id, substream)) else {
@@ -24,6 +27,10 @@ pub fn LiveVideo(
     };
     if let Some(out) = has_audio {
         Effect::new(move || out.set(audio.get()));
+    }
+    if let Some(out) = playing {
+        let state = state.clone();
+        Effect::new(move || out.set(state.with(|s| *s == PlayerState::Playing)));
     }
     let el = video.clone();
     Effect::new(move || {

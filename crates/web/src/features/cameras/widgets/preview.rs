@@ -29,6 +29,9 @@ pub fn CameraPreview(
     let sub = camera.sub_stream.as_ref().filter(|_| substream);
     let summary = labels::stream_summary(sub.unwrap_or(&camera.main_stream)).map(|s| if sub.is_some() { format!("{s} · SUB") } else { s });
     let now = use_now(Duration::from_secs(1));
+    // LIVE means pictures are arriving, not just that the camera is online.
+    // (The mock build has no player: its demo surface counts as playing.)
+    let playing = RwSignal::new(!cfg!(feature = "live-api"));
 
     let surface = if !camera.enabled {
         view! { <div class="preview__state"><Icon icon=I::VideoOff class="icon icon--xl" /><span>"Camera disabled"</span></div> }.into_any()
@@ -37,14 +40,14 @@ pub fn CameraPreview(
     } else if offline {
         view! { <div class="preview__state preview__state--offline"><Icon icon=I::VideoOff class="icon icon--xl" /><span>"Camera offline"</span><small>"Reconnecting…"</small></div> }.into_any()
     } else {
-        live_surface(&camera, sub.is_some(), muted, has_audio)
+        live_surface(&camera, sub.is_some(), muted, has_audio, playing)
     };
 
     view! {
         <div class="preview" class:preview--live=streaming>
             {surface}
             <div class="preview__tags">
-                {streaming.then(|| view! { <span class="ptag ptag--live">"LIVE"</span> })}
+                {move || (streaming && playing.get()).then(|| view! { <span class="ptag ptag--live">"LIVE"</span> })}
                 {camera.motion_active.then(|| view! { <span class="ptag ptag--motion">"MOTION"</span> })}
                 {camera.recording_active.then(|| view! { <span class="ptag ptag--rec"><span class="ptag__dot pulse"></span>"REC"</span> })}
             </div>
@@ -60,12 +63,12 @@ pub fn CameraPreview(
 }
 
 #[cfg(feature = "live-api")]
-fn live_surface(camera: &Camera, substream: bool, muted: Option<Signal<bool>>, has_audio: Option<RwSignal<bool>>) -> AnyView {
+fn live_surface(camera: &Camera, substream: bool, muted: Option<Signal<bool>>, has_audio: Option<RwSignal<bool>>, playing: RwSignal<bool>) -> AnyView {
     use crate::live_video::LiveVideo;
-    view! { <LiveVideo camera_id=camera.id.clone() substream muted has_audio /> }.into_any()
+    view! { <LiveVideo camera_id=camera.id.clone() substream muted has_audio playing=Some(playing) /> }.into_any()
 }
 
 #[cfg(not(feature = "live-api"))]
-fn live_surface(_camera: &Camera, _substream: bool, _muted: Option<Signal<bool>>, _has_audio: Option<RwSignal<bool>>) -> AnyView {
+fn live_surface(_camera: &Camera, _substream: bool, _muted: Option<Signal<bool>>, _has_audio: Option<RwSignal<bool>>, _playing: RwSignal<bool>) -> AnyView {
     view! { <div class="preview__state preview__state--live"><Icon icon=I::Cctv class="icon icon--xl" /></div> }.into_any()
 }
