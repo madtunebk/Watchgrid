@@ -1,14 +1,22 @@
 #!/bin/sh
-# Install (or upgrade) Watchgrid on this machine. Run from the repository
-# root after building:
+# Install (or upgrade) Watchgrid on this machine. Run it either from the
+# repository root after building:
 #   cargo build --release -p watchgrid-server
 #   cargo web build --release --live
 #   sudo sh deploy/systemd/install.sh
+# or from an unpacked release archive (watchgrid + ui/ next to deploy/).
 set -eu
 
-BIN=target/release/watchgrid
-# Built UI (override when staged elsewhere, e.g. UI=target/ui-release).
-UI=${UI:-dist}
+# Built program and UI: from a source build, else from a release archive.
+# Override when staged elsewhere, e.g. UI=target/ui-release.
+if [ -z "${BIN:-}" ]; then
+    BIN=target/release/watchgrid
+    [ -x "$BIN" ] || [ ! -x watchgrid ] || BIN=./watchgrid
+fi
+if [ -z "${UI:-}" ]; then
+    UI=dist
+    [ -f "$UI/index.html" ] || [ ! -f ui/index.html ] || UI=ui
+fi
 [ "$(id -u)" -eq 0 ] || { echo "run as root: sudo sh deploy/systemd/install.sh" >&2; exit 1; }
 [ -x "$BIN" ] || { echo "missing $BIN — run: cargo build --release -p watchgrid-server" >&2; exit 1; }
 [ -f "$UI/index.html" ] || { echo "missing $UI/ — run: cargo web build --release --live" >&2; exit 1; }
