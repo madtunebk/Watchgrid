@@ -15,12 +15,11 @@ pub async fn update(settings: Settings) -> ApiResult<Settings> {
     if settings.general.nvr_name.trim().is_empty() {
         return Err(ApiError::new(422, "invalid", "The NVR needs a name"));
     }
-    if settings.network.http_port == 0 {
-        return Err(ApiError::new(422, "invalid", "HTTP port must be between 1 and 65535"));
-    }
     let saved = with_db(|db| {
         db.server.name = settings.general.nvr_name.trim().to_string();
-        db.settings = settings;
+        // Read-only, like on the server.
+        let network = db.settings.network.clone();
+        db.settings = Settings { network, ..settings };
         db.settings.clone()
     });
     invalidate(Topic::Server);

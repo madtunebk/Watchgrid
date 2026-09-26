@@ -22,8 +22,6 @@ pub struct GeneralSettings {
     pub nvr_name: String,
     /// IANA zone, e.g. "Europe/Bucharest".
     pub timezone: String,
-    /// BCP-47, e.g. "en", "ro".
-    pub language: String,
     pub date_format: DateFormat,
     pub clock_24h: bool,
 }
@@ -37,20 +35,19 @@ pub struct RecordingDefaults {
     pub post_record_seconds: u32,
 }
 
+/// Read-only: where the server listens, set by the environment
+/// (`WATCHGRID_BIND`). A save ignores what is sent here.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NetworkSettings {
     pub http_bind: String,
     pub http_port: u16,
-    /// Future: HTTPS with a provided or self-signed certificate.
-    pub https_enabled: bool,
-    pub https_port: u16,
 }
 
+/// Sign-in is always required; only how long a session lasts is set here.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthSettings {
-    pub enabled: bool,
     pub session_timeout_minutes: u32,
 }
 

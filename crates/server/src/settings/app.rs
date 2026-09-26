@@ -22,13 +22,12 @@ pub fn defaults(bind: std::net::SocketAddr) -> Settings {
         general: GeneralSettings {
             nvr_name: "Watchgrid".into(),
             timezone: timezone::name().into(),
-            language: "en".into(),
             date_format: DateFormat::Iso,
             clock_24h: true,
         },
         recording: RecordingDefaults { mode: RecordingMode::Events, pre_record_seconds: 5, post_record_seconds: 10 },
-        network: NetworkSettings { http_bind: bind.ip().to_string(), http_port: bind.port(), https_enabled: false, https_port: 8443 },
-        auth: AuthSettings { enabled: false, session_timeout_minutes: 720 },
+        network: network(bind),
+        auth: AuthSettings { session_timeout_minutes: 720 },
         notifications: NotificationSettings {
             camera_offline: true,
             person_detected: false,
@@ -64,15 +63,21 @@ pub async fn local_clock(db: &PgPool) -> sqlx::Result<(u8, u16)> {
     Ok((dow.clamp(0, 6) as u8, minute.clamp(0, 1439) as u16))
 }
 
+/// The listen address comes from the environment; always the real one.
+fn network(bind: std::net::SocketAddr) -> NetworkSettings {
+    NetworkSettings { http_bind: bind.ip().to_string(), http_port: bind.port() }
+}
+
 pub async fn load(db: &PgPool, bind: std::net::SocketAddr) -> ApiResult<Settings> {
+    // Fields of older versions (language, https…) are dropped when read.
     let mut s: Settings = store::load(db, KEY).await?.unwrap_or_else(|| defaults(bind));
-    // The listen address comes from the environment; show the real one.
-    s.network.http_bind = bind.ip().to_string();
-    s.network.http_port = bind.port();
+    s.network = network(bind);
     Ok(s)
 }
 
-pub async fn save(db: &PgPool, mut s: Settings) -> ApiResult<Settings> {
+/// Store `s`; the network part is read-only (whatever was sent is replaced).
+pub async fn save(db: &PgPool, bind: std::net::SocketAddr, mut s: Settings) -> ApiResult<Settings> {
+    s.network = network(bind);
     s.general.nvr_name = s.general.nvr_name.trim().to_string();
     s.notifications.webhook_url = s.notifications.webhook_url.map(|u| u.trim().to_string()).filter(|u| !u.is_empty());
     // Older settings may hold more pre-record than the recorder keeps.
@@ -98,15 +103,6 @@ fn validate(s: &Settings) -> ApiResult<()> {
     }
     if !timezone::valid(&s.general.timezone) {
         return bad("The time zone must be an IANA name like Europe/Bucharest");
-    }
-    if s.network.http_port == 0 || s.network.https_port == 0 {
-        return bad("HTTP port must be between 1 and 65535");
-    }
-    if s.network.https_enabled && s.network.https_port == s.network.http_port {
-        return bad("HTTP and HTTPS need different ports");
-    }
-    if s.network.http_bind.parse::<std::net::IpAddr>().is_err() {
-        return bad("The bind address must be an IP address, e.g. 0.0.0.0");
     }
     if s.recording.post_record_seconds > watchgrid_model::MAX_POST_RECORD_SECONDS {
         return bad("Post-record is limited to 300 s");

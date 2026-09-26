@@ -22,7 +22,7 @@ async fn update(State(s): State<AppState>, Json(input): Json<Settings>) -> ApiRe
     // Read what the runtime step needs first: a failure here changes nothing,
     // instead of leaving a new transport half applied.
     let cameras = crate::cameras::all_ids(&s).await?;
-    let saved = app::save(&s.db, input).await?;
+    let saved = app::save(&s.db, s.bind, input).await?;
     if applied::apply(&saved.advanced) {
         // New RTSP transport: reopen every camera stream with it.
         tracing::info!(transport = ?saved.advanced.rtsp_transport, "RTSP transport changed; reconnecting cameras");
