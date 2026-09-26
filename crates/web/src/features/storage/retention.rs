@@ -1,14 +1,35 @@
-//! Retention rules form, with a projection of how long footage is kept.
-//! Used on the Storage page and in Settings → Storage.
+//! Retention rules form (Storage page), with a projection of how long
+//! footage is kept and, before saving, what the new rules delete right away.
 
 use leptos::prelude::*;
 
-use crate::api::{self, RetentionPolicy, StorageStatus, Topic, invalidate};
+use crate::api::{self, RetentionPolicy, RetentionPreview, StorageStatus, Topic, invalidate};
 use crate::format;
 use crate::ui::form::{Field, NumberInput, Switch};
-use crate::ui::{SaveBar, SaveState};
+use crate::ui::{ConfirmDialog, SaveBar, SaveState};
 
 const GB: u64 = 1_000_000_000;
+
+/// The form edits whole GB; a stored limit that isn't (set through the API,
+/// e.g. 1.5 GB) is kept as it is unless its GB value was changed.
+fn bytes(stored: Option<u64>, gb: u32) -> u64 {
+    match stored {
+        Some(b) if b / GB == u64::from(gb) => b,
+        _ => u64::from(gb) * GB,
+    }
+}
+
+/// The confirmation text, or `None` when nothing would be deleted now.
+fn deletes_now(p: &RetentionPreview) -> Option<String> {
+    let mut parts = Vec::new();
+    if p.recordings > 0 {
+        parts.push(format!("{} recording{} ({})", p.recordings, if p.recordings == 1 { "" } else { "s" }, format::bytes(p.bytes)));
+    }
+    if p.events > 0 {
+        parts.push(format!("{} event{} from the history", p.events, if p.events == 1 { "" } else { "s" }));
+    }
+    (!parts.is_empty()).then(|| format!("These rules delete {} right away. Protected recordings are kept. This cannot be undone.", parts.join(" and ")))
+}
 
 /// Days of footage the rules allow at the current write rate.
 fn projection(status: &StorageStatus, days_of_history: f64, rules: (Option<u32>, Option<u64>, Option<u64>)) -> String {
@@ -46,10 +67,13 @@ pub fn RetentionForm(status: StorageStatus) -> impl IntoView {
     let saved = RwSignal::new(p);
     let state = SaveState::new();
 
-    let current = move || RetentionPolicy {
-        max_age_days: age_on.get().then(|| age.get()),
-        max_usage: max_on.get().then(|| max_gb.get() as u64 * GB),
-        min_free: free_on.get().then(|| free_gb.get() as u64 * GB),
+    let current = move || {
+        let was = saved.get();
+        RetentionPolicy {
+            max_age_days: age_on.get().then(|| age.get()),
+            max_usage: max_on.get().then(|| bytes(was.max_usage, max_gb.get())),
+            min_free: free_on.get().then(|| bytes(was.min_free, free_gb.get())),
+        }
     };
     let dirty = Signal::derive(move || current() != saved.get());
     let days_of_history = status
@@ -66,15 +90,42 @@ pub fn RetentionForm(status: StorageStatus) -> impl IntoView {
         }
     };
 
-    let on_save = Callback::new(move |_| {
-        let policy = current();
+    let store = move |policy: RetentionPolicy| {
         state.run(async move {
             api::update_retention(policy.clone()).await?;
             saved.set(policy);
             invalidate(Topic::Storage);
             Ok(())
         });
+    };
+    // Save asks first what the rules would delete now; if anything, confirm.
+    let confirm_open = RwSignal::new(false);
+    let pending = RwSignal::new(None::<(RetentionPolicy, String)>);
+    let on_save = Callback::new(move |_| {
+        let policy = current();
+        state.run(async move {
+            let preview = api::preview_retention(policy.clone()).await?;
+            match deletes_now(&preview) {
+                Some(text) => {
+                    pending.set(Some((policy, text)));
+                    confirm_open.set(true);
+                }
+                None => {
+                    api::update_retention(policy.clone()).await?;
+                    saved.set(policy);
+                    invalidate(Topic::Storage);
+                }
+            }
+            Ok(())
+        });
     });
+    let on_confirm = Callback::new(move |_| {
+        if let Some((policy, _)) = pending.get_untracked() {
+            confirm_open.set(false);
+            store(policy);
+        }
+    });
+    let confirm_text = Signal::derive(move || pending.get().map(|(_, t)| t).unwrap_or_default());
     let on_revert = Callback::new(move |_| {
         let p = saved.get_untracked();
         age_on.set(p.max_age_days.is_some());
@@ -102,6 +153,8 @@ pub fn RetentionForm(status: StorageStatus) -> impl IntoView {
             <Field label="Projection"><p class="retention__projection">{preview}</p></Field>
             <p class="note note--info">"Protected recordings are never deleted automatically, whatever these rules say. Oldest unprotected clips are removed first."</p>
             <SaveBar state dirty on_save on_revert />
+            <ConfirmDialog open=confirm_open title="Delete recordings now?" confirm_label="Save and delete" danger=true
+                message=confirm_text on_confirm />
         </div>
     }
 }

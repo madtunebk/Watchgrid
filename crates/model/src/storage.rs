@@ -49,3 +49,13 @@ pub struct StorageStatus {
 fn yes() -> bool {
     true
 }
+
+/// What a retention policy would delete right now (before saving it).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RetentionPreview {
+    pub recordings: u32,
+    pub bytes: u64,
+    /// Events removed from the history (by the age limit).
+    pub events: u64,
+}

@@ -24,7 +24,7 @@ pub async fn save(db: &PgPool, policy: &RetentionPolicy) -> ApiResult<()> {
     Ok(())
 }
 
-fn validate(p: &RetentionPolicy) -> ApiResult<()> {
+pub fn validate(p: &RetentionPolicy) -> ApiResult<()> {
     if p.max_age_days == Some(0) {
         return Err(ApiError::invalid("Keep recordings for at least 1 day"));
     }

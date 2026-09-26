@@ -14,3 +14,7 @@ pub async fn update_retention(policy: RetentionPolicy) -> ApiResult<()> {
 pub async fn set_path(path: &str) -> ApiResult<()> {
     client::put::<serde_json::Value>("/storage/path", &serde_json::json!({ "path": path })).await.map(|_| ())
 }
+
+pub async fn preview_retention(policy: RetentionPolicy) -> ApiResult<crate::api::RetentionPreview> {
+    client::post("/storage/retention/preview", Some(&policy)).await
+}

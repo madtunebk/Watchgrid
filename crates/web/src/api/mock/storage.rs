@@ -67,3 +67,14 @@ pub async fn set_path(path: &str) -> ApiResult<()> {
     }
     Ok(())
 }
+
+/// Age rule only (enough for the demo): unprotected clips older than it.
+pub async fn preview_retention(policy: RetentionPolicy) -> ApiResult<crate::api::RetentionPreview> {
+    latency().await;
+    Ok(with_db(|db| {
+        let cutoff = policy.max_age_days.map(|d| chrono::Utc::now() - chrono::Duration::days(i64::from(d)));
+        let old: Vec<_> = db.recordings.iter().filter(|r| !r.is_protected() && cutoff.is_some_and(|c| r.end_time.is_some_and(|e| e < c))).collect();
+        let events = cutoff.map_or(0, |c| db.events.iter().filter(|e| !e.protected && e.end_time.is_some_and(|t| t < c)).count()) as u64;
+        crate::api::RetentionPreview { recordings: old.len() as u32, bytes: old.iter().map(|r| r.file_size).sum(), events }
+    }))
+}

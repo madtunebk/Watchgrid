@@ -82,6 +82,24 @@ mod sweep {
     }
 
     #[sqlx::test(migrations = "./migrations")]
+    async fn the_preview_counts_what_the_pass_then_deletes(db: PgPool) {
+        let dir = std::env::temp_dir().join(format!("watchgrid-sweep-preview-{}", std::process::id()));
+        let files = Arc::new(RecordingFiles::new(dir.clone()));
+        add(&db, &files, "old-1", 30).await;
+        add(&db, &files, "old-2", 20).await;
+        add(&db, &files, "fresh", 1).await;
+        let sweeper = Sweeper::new(db.clone(), files, Bus::new());
+        let policy = RetentionPolicy { max_age_days: Some(7), max_usage: None, min_free: None };
+
+        let preview = sweeper.doomed(&policy).await.unwrap();
+        assert_eq!(preview.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>(), ["old-1", "old-2"]);
+        assert_eq!(sweeper.pass().await.unwrap(), 0, "the preview deleted nothing (no policy saved yet)");
+        retention::save(&db, &policy).await.unwrap();
+        assert_eq!(sweeper.pass().await.unwrap(), preview.len());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
     async fn a_camera_limit_works_without_a_global_policy(db: PgPool) {
         let dir = std::env::temp_dir().join(format!("watchgrid-sweep-cam-{}", std::process::id()));
         let files = Arc::new(RecordingFiles::new(dir.clone()));

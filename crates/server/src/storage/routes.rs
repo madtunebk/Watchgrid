@@ -1,9 +1,9 @@
 //! `/api/v1/storage` endpoints.
 
 use axum::extract::State;
-use axum::routing::{get, put};
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
-use watchgrid_model::{RetentionPolicy, StorageStatus};
+use watchgrid_model::{RetentionPolicy, RetentionPreview, StorageStatus};
 
 use super::{disk, location, retention};
 use crate::bus::BusEvent;
@@ -12,7 +12,8 @@ use crate::recordings;
 use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
-    Router::new().route("/", get(status)).route("/retention", put(update_retention)).route("/path", put(update_path))
+    Router::new().route("/", get(status)).route("/retention", put(update_retention))
+        .route("/retention/preview", post(preview_retention)).route("/path", put(update_path))
 }
 
 async fn status(State(s): State<AppState>) -> ApiResult<Json<StorageStatus>> {
@@ -50,6 +51,14 @@ async fn status(State(s): State<AppState>) -> ApiResult<Json<StorageStatus>> {
         per_camera,
         retention: retention::load(&s.db).await?,
     }))
+}
+
+/// What `policy` would delete right now; changes nothing.
+async fn preview_retention(State(s): State<AppState>, Json(policy): Json<RetentionPolicy>) -> ApiResult<Json<RetentionPreview>> {
+    retention::validate(&policy)?;
+    let doomed = s.retention.doomed(&policy).await.map_err(crate::error::ApiError::internal)?;
+    let events = s.retention.doomed_events(&policy).await.map_err(crate::error::ApiError::internal)?;
+    Ok(Json(RetentionPreview { recordings: doomed.len() as u32, bytes: doomed.iter().map(|(_, b)| b).sum(), events }))
 }
 
 async fn update_retention(State(s): State<AppState>, Json(policy): Json<RetentionPolicy>) -> ApiResult<Json<RetentionPolicy>> {

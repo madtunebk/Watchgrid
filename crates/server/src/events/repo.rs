@@ -189,6 +189,15 @@ pub async fn unlink_recording(db: &PgPool, recording_id: &str) -> sqlx::Result<(
 }
 
 /// Delete finished, unprotected events older than `days`. Returns how many.
+/// How many events `purge_older_than(days)` would delete.
+pub async fn count_older_than(db: &PgPool, days: u32) -> sqlx::Result<u64> {
+    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM events WHERE NOT protected AND end_time IS NOT NULL AND end_time < now() - make_interval(days => $1)")
+        .bind(days as i32)
+        .fetch_one(db)
+        .await?;
+    Ok(n.max(0) as u64)
+}
+
 pub async fn purge_older_than(db: &PgPool, days: u32) -> sqlx::Result<u64> {
     let r = sqlx::query("DELETE FROM events WHERE NOT protected AND end_time IS NOT NULL AND end_time < now() - make_interval(days => $1)")
         .bind(days as i32)
