@@ -96,6 +96,8 @@ async fn remove(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult<
     if s.recorder.live().get(&id).is_some() {
         return Err(ApiError::conflict("This clip is still being recorded. Stop the recording first."));
     }
+    // Its events go too: an event without its video says nothing more.
+    let events: Vec<String> = crate::events::events_of_recording(&s.db, &id).await?.into_iter().map(|e| e.id).collect();
     match super::delete_recording(&s.db, &s.recording_files, &id).await {
         Ok(true) => {}
         Ok(false) => return Err(ApiError::not_found("Recording")),
@@ -104,7 +106,8 @@ async fn remove(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult<
         }
         Err(super::DeleteError::Failed(e)) => return Err(ApiError::internal(e)),
     }
-    tracing::info!(recording = %id, "recording deleted");
+    let removed = crate::events::delete_events(&s.db, &events).await?.len();
+    tracing::info!(recording = %id, events = removed, "recording deleted");
     s.bus.publish(BusEvent::RecordingsChanged);
     s.bus.publish(BusEvent::EventsChanged);
     Ok(StatusCode::NO_CONTENT)

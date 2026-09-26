@@ -80,8 +80,8 @@ pub fn RecordingDrawer(recording: Recording, camera_name: String, on_close: Call
     let events_count = recording.event_ids.len();
     let delete_message = match events_count {
         0 => "The video file will be deleted permanently.".to_string(),
-        1 => "The video file will be deleted permanently. Its event stays in the history, without video.".to_string(),
-        n => format!("The video file will be deleted permanently. Its {n} events stay in the history, without video."),
+        1 => "The video file and its event will be deleted permanently.".to_string(),
+        n => format!("The video file and its {n} events will be deleted permanently."),
     };
     let toggle_protect = {
         let id = recording.id.clone();

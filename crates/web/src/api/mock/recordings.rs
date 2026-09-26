@@ -49,9 +49,7 @@ pub async fn delete(id: &str) -> ApiResult<()> {
             return Err(ApiError::conflict("This recording is protected, by hand or by one of its events. Remove the protection first."));
         }
         db.recordings.retain(|r| r.id != id);
-        for e in db.events.iter_mut().filter(|e| e.recording_id.as_deref() == Some(id)) {
-            e.recording_id = None;
-        }
+        db.events.retain(|e| e.recording_id.as_deref() != Some(id));
         Ok(())
     })
 }

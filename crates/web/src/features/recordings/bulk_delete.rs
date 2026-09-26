@@ -1,5 +1,5 @@
-//! Confirmation for deleting the selected clips: videos only, or videos and
-//! their events. Shows the server's preview of exactly what goes.
+//! Confirmation for deleting the selected clips, with their events. Shows
+//! the server's preview of exactly what goes.
 
 use leptos::ev;
 use leptos::prelude::*;
@@ -11,10 +11,10 @@ use crate::ui::{Tone, use_toaster};
 
 #[component]
 pub fn BulkDeleteDialog(open: RwSignal<bool>, ids: Signal<Vec<String>>, on_done: Callback<(RecordingBulkAction, RecordingBulkSummary)>) -> impl IntoView {
-    let with_events = RwSignal::new(false);
     let busy = RwSignal::new(false);
     let toaster = use_toaster();
-    let action = move || if with_events.get() { RecordingBulkAction::DeleteWithEvents } else { RecordingBulkAction::Delete };
+    // A recording's events go with it: an event without its video says nothing more.
+    let action = move || RecordingBulkAction::DeleteWithEvents;
     let preview = LocalResource::new(move || {
         let (open, req) = (open.get(), RecordingBulkRequest { ids: ids.get(), action: action() });
         async move {
@@ -27,7 +27,6 @@ pub fn BulkDeleteDialog(open: RwSignal<bool>, ids: Signal<Vec<String>>, on_done:
     let close = move || {
         if !busy.get_untracked() {
             open.set(false);
-            with_events.set(false);
         }
     };
     let esc = window_event_listener(ev::keydown, move |e| if e.key() == "Escape" { close() });
@@ -60,16 +59,6 @@ pub fn BulkDeleteDialog(open: RwSignal<bool>, ids: Signal<Vec<String>>, on_done:
             <div class="modal-backdrop" on:click=move |_| close()></div>
             <div class="modal" role="alertdialog" aria-modal="true" aria-label="Delete recordings">
                 <h2 class="modal__title">{move || { let n = ids.with(Vec::len); format!("Delete {n} recording{}?", if n == 1 { "" } else { "s" }) }}</h2>
-                <div class="bulk-choice">
-                    <label class="bulk-choice__option">
-                        <input type="radio" name="bulk-delete-rec" prop:checked=move || !with_events.get() on:change=move |_| with_events.set(false) />
-                        <span><strong>"Recordings only"</strong><small>"Delete the videos; their events stay in the history, without video."</small></span>
-                    </label>
-                    <label class="bulk-choice__option">
-                        <input type="radio" name="bulk-delete-rec" prop:checked=move || with_events.get() on:change=move |_| with_events.set(true) />
-                        <span><strong>"Recordings and their events"</strong><small>"Also remove the events of these recordings from the history."</small></span>
-                    </label>
-                </div>
                 <div class="modal__text bulk-preview">
                     {move || match preview.get().flatten() {
                         None => view! { <p>"Checking…"</p> }.into_any(),
@@ -88,7 +77,7 @@ pub fn BulkDeleteDialog(open: RwSignal<bool>, ids: Signal<Vec<String>>, on_done:
                 <div class="modal__actions">
                     <button class="btn btn--secondary" disabled=busy on:click=move |_| close()>"Cancel"</button>
                     <button class="btn btn--danger-solid" disabled=move || busy.get() || ready().is_none() on:click=confirm>
-                        {move || if busy.get() { "Deleting…" } else if with_events.get() { "Delete recordings and events" } else { "Delete recordings" }}
+                        {move || if busy.get() { "Deleting…" } else { "Delete recordings" }}
                     </button>
                 </div>
             </div>
