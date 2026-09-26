@@ -2,11 +2,11 @@
 
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::routing::{get, put};
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
-use watchgrid_model::{EventDetail, EventPage, EventQuery};
+use watchgrid_model::{EVENT_BULK_MAX, EventBulkRequest, EventBulkSummary, EventDetail, EventPage, EventQuery};
 
 use super::{kinds, repo};
 use crate::bus::BusEvent;
@@ -15,7 +15,35 @@ use crate::recordings;
 use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
-    Router::new().route("/", get(list)).route("/{id}", get(one).delete(remove)).route("/{id}/protected", put(protect))
+    Router::new()
+        .route("/", get(list))
+        .route("/bulk/preview", post(bulk_preview))
+        .route("/bulk", post(bulk_apply))
+        .route("/{id}", get(one).delete(remove))
+        .route("/{id}/protected", put(protect))
+}
+
+fn check_bulk(req: &EventBulkRequest) -> ApiResult<()> {
+    if req.ids.is_empty() || req.ids.len() > EVENT_BULK_MAX {
+        return Err(ApiError::invalid(format!("Select between 1 and {EVENT_BULK_MAX} events")));
+    }
+    Ok(())
+}
+
+/// What a bulk action would do; changes nothing.
+async fn bulk_preview(State(s): State<AppState>, Json(req): Json<EventBulkRequest>) -> ApiResult<Json<EventBulkSummary>> {
+    check_bulk(&req)?;
+    Ok(Json(super::bulk::preview(&s, req.action, &req.ids).await?))
+}
+
+/// Protect, unprotect or delete many events; the summary says what happened.
+async fn bulk_apply(State(s): State<AppState>, Json(req): Json<EventBulkRequest>) -> ApiResult<Json<EventBulkSummary>> {
+    check_bulk(&req)?;
+    let done = super::bulk::apply(&s, req.action, &req.ids).await?;
+    tracing::info!(action = ?req.action, events = done.events, recordings = done.recordings, "bulk event action");
+    s.bus.publish(BusEvent::EventsChanged);
+    s.bus.publish(BusEvent::RecordingsChanged);
+    Ok(Json(done))
 }
 
 #[derive(Deserialize)]

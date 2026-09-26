@@ -146,6 +146,20 @@ pub async fn set_protected(db: &PgPool, id: &str, protected: bool) -> sqlx::Resu
     sqlx::query("UPDATE recordings SET protected = $2 WHERE id = $1").bind(id).bind(protected).execute(db).await.map(|_| ())
 }
 
+/// Saved recordings with their size, protection and all their events.
+pub async fn clips_with_events(db: &PgPool, ids: &[String]) -> sqlx::Result<Vec<crate::events::ClipRow>> {
+    let rows: Vec<(String, i64, bool, Vec<String>)> = sqlx::query_as(&format!(
+        "SELECT r.id, r.file_size, {EFFECTIVELY_PROTECTED},
+                COALESCE(array_agg(e.id) FILTER (WHERE e.id IS NOT NULL), '{{}}')
+         FROM recordings r LEFT JOIN events e ON e.recording_id = r.id
+         WHERE r.id = ANY($1) GROUP BY r.id"
+    ))
+    .bind(ids)
+    .fetch_all(db)
+    .await?;
+    Ok(rows.into_iter().map(|(id, bytes, protected, event_ids)| crate::events::ClipRow { id, bytes: bytes.max(0) as u64, protected, event_ids }).collect())
+}
+
 /// Stored (root, relative path).
 pub async fn path(db: &PgPool, id: &str) -> sqlx::Result<Option<(Option<String>, String)>> {
     sqlx::query_as("SELECT root, path FROM recordings WHERE id = $1").bind(id).fetch_optional(db).await

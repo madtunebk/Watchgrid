@@ -4,7 +4,9 @@ use chrono::{Local, Timelike};
 
 use super::db::with_db;
 use super::sim::latency;
-use crate::api::{ApiError, ApiResult, Event, EventDetail, EventPage, EventQuery};
+use std::collections::HashSet;
+
+use crate::api::{ApiError, ApiResult, BulkSkip, BulkSkipReason, Event, EventBulkAction, EventBulkRequest, EventBulkSummary, EventDetail, EventPage, EventQuery};
 
 fn in_hours(e: &Event, (start, end): (u8, u8)) -> bool {
     // The browser's zone stands in for the server's configured zone.
@@ -74,4 +76,83 @@ pub async fn delete(id: &str) -> ApiResult<()> {
         }
         Ok(())
     })
+}
+
+/// Same rules as the server's `events/bulk.rs`: returns the summary and
+/// the recordings to delete.
+fn plan(db: &super::db::Db, req: &EventBulkRequest) -> (EventBulkSummary, Vec<String>, Vec<String>) {
+    let mut sum = EventBulkSummary::default();
+    let (mut events, mut seen) = (Vec::new(), HashSet::new());
+    let skip = |id: &str, reason| BulkSkip { id: id.to_string(), reason };
+    for id in req.ids.iter().filter(|id| seen.insert(id.as_str())) {
+        let Some(e) = db.events.iter().find(|e| &e.id == id) else {
+            sum.skipped_events.push(skip(id, BulkSkipReason::NotFound));
+            continue;
+        };
+        match req.action {
+            EventBulkAction::Protect if !e.protected => events.push(id.clone()),
+            EventBulkAction::Unprotect if e.protected => events.push(id.clone()),
+            EventBulkAction::Protect | EventBulkAction::Unprotect => {}
+            _ if e.protected => sum.skipped_events.push(skip(id, BulkSkipReason::Protected)),
+            _ if e.end_time.is_none() && e.recording_id.is_some() => sum.skipped_events.push(skip(id, BulkSkipReason::InProgress)),
+            _ => events.push(id.clone()),
+        }
+    }
+    let mut recordings = Vec::new();
+    if req.action == EventBulkAction::DeleteWithVideo {
+        let gone: HashSet<&str> = events.iter().map(String::as_str).collect();
+        let mut wanted: Vec<&str> = db.events.iter().filter(|e| gone.contains(e.id.as_str())).filter_map(|e| e.recording_id.as_deref()).collect();
+        wanted.sort_unstable();
+        wanted.dedup();
+        for rid in wanted {
+            let Some(r) = db.recordings.iter().find(|r| r.id == rid) else { continue };
+            let shared = db.events.iter().any(|e| e.recording_id.as_deref() == Some(rid) && !gone.contains(e.id.as_str()));
+            if r.end_time.is_none() {
+                sum.kept_recordings.push(skip(rid, BulkSkipReason::Recording));
+            } else if r.is_protected() {
+                sum.kept_recordings.push(skip(rid, BulkSkipReason::Protected));
+            } else if shared {
+                sum.kept_recordings.push(skip(rid, BulkSkipReason::Shared));
+            } else {
+                sum.recordings += 1;
+                sum.bytes += r.file_size;
+                recordings.push(rid.to_string());
+            }
+        }
+    }
+    sum.events = events.len() as u32;
+    (sum, events, recordings)
+}
+
+pub async fn bulk_preview(req: &EventBulkRequest) -> ApiResult<EventBulkSummary> {
+    latency().await;
+    Ok(with_db(|db| plan(db, req).0))
+}
+
+pub async fn bulk_apply(req: &EventBulkRequest) -> ApiResult<EventBulkSummary> {
+    latency().await;
+    Ok(with_db(|db| {
+        let (sum, events, recordings) = plan(db, req);
+        match req.action {
+            EventBulkAction::Protect | EventBulkAction::Unprotect => {
+                let protect = req.action == EventBulkAction::Protect;
+                let mut clips = Vec::new();
+                for e in db.events.iter_mut().filter(|e| events.contains(&e.id)) {
+                    e.protected = protect;
+                    clips.extend(e.recording_id.clone());
+                }
+                for c in clips {
+                    db.recount_protection(&c);
+                }
+            }
+            EventBulkAction::Delete | EventBulkAction::DeleteWithVideo => {
+                db.recordings.retain(|r| !recordings.contains(&r.id));
+                db.events.retain(|e| !events.contains(&e.id));
+                for r in db.recordings.iter_mut() {
+                    r.event_ids.retain(|e| !events.contains(e));
+                }
+            }
+        }
+        sum
+    }))
 }

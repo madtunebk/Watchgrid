@@ -272,3 +272,19 @@ pub async fn set_protected(db: impl sqlx::PgExecutor<'_>, id: &str, protected: b
 pub async fn delete(db: &PgPool, id: &str) -> sqlx::Result<()> {
     sqlx::query("DELETE FROM events WHERE id = $1 AND NOT protected").bind(id).execute(db).await.map(|_| ())
 }
+
+/// The selected events, as a bulk action plans them.
+pub(super) async fn bulk_rows(db: &PgPool, ids: &[String]) -> sqlx::Result<Vec<super::bulk::EventRow>> {
+    let rows: Vec<(String, Option<String>, bool, bool)> =
+        sqlx::query_as("SELECT id, recording_id, protected, end_time IS NOT NULL FROM events WHERE id = ANY($1)").bind(ids).fetch_all(db).await?;
+    Ok(rows.into_iter().map(|(id, recording_id, protected, ended)| super::bulk::EventRow { id, recording_id, protected, ended }).collect())
+}
+
+/// Delete these events unless protected or still going on (with a clip).
+/// Returns the ids actually deleted.
+pub(super) async fn delete_many(db: &PgPool, ids: &[String]) -> sqlx::Result<Vec<String>> {
+    sqlx::query_scalar("DELETE FROM events WHERE id = ANY($1) AND NOT protected AND NOT (end_time IS NULL AND recording_id IS NOT NULL) RETURNING id")
+        .bind(ids)
+        .fetch_all(db)
+        .await
+}

@@ -1,7 +1,7 @@
 //! Events over HTTP — same functions as the mock's `events` module.
 
 use super::client;
-use crate::api::{ApiResult, EventDetail, EventPage, EventQuery};
+use crate::api::{ApiResult, EventBulkRequest, EventBulkSummary, EventDetail, EventPage, EventQuery};
 
 pub async fn list(q: &EventQuery) -> ApiResult<EventPage> {
     let mut params = Vec::new();
@@ -49,4 +49,12 @@ pub async fn set_protected(id: &str, protected: bool) -> ApiResult<()> {
 
 pub async fn delete(id: &str) -> ApiResult<()> {
     client::delete(&format!("/events/{}", String::from(js_sys::encode_uri_component(id)))).await
+}
+
+pub async fn bulk_preview(req: &EventBulkRequest) -> ApiResult<EventBulkSummary> {
+    client::post("/events/bulk/preview", Some(req)).await
+}
+
+pub async fn bulk_apply(req: &EventBulkRequest) -> ApiResult<EventBulkSummary> {
+    client::post("/events/bulk", Some(req)).await
 }

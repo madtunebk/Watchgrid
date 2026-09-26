@@ -14,7 +14,7 @@ pub async fn file_of(db: &sqlx::PgPool, files: &RecordingFiles, id: &str) -> sql
     Ok(repo::path(db, id).await?.and_then(|(root, rel)| files.resolve(root.as_deref(), &rel)))
 }
 pub use delete::{DeleteError, delete_recording, lock_clip};
-pub use repo::{NewRecording, get, insert, protected_bytes, retention_candidates, usage_by_camera};
+pub use repo::{NewRecording, clips_with_events, get, insert, protected_bytes, retention_candidates, usage_by_camera};
 pub use routes::{live as live_recording, router};
 
 #[cfg(test)]

@@ -1,11 +1,14 @@
 //! Events page: the main way to find recordings, grouped by day.
 
+mod bulk_bar;
+mod bulk_delete;
+mod bulk_text;
 mod day_groups;
 mod filter_bar;
 mod filters;
 mod list_row;
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::time::Duration;
 
 use leptos::prelude::*;
@@ -14,6 +17,7 @@ use leptos_router::hooks::{use_navigate, use_query_map};
 use crate::api::{self, Topic, use_query};
 use crate::prefs;
 use crate::ui::{EmptyState, ErrorBox, I, Page, Skeleton};
+use bulk_bar::BulkBar;
 use filter_bar::FilterBar;
 use filters::Filters;
 use list_row::EventListRow;
@@ -29,18 +33,30 @@ pub fn EventsPage() -> impl IntoView {
     let navigate = use_navigate();
     let on_change = Callback::new(move |f: Filters| navigate(&f.to_url(), leptos_router::NavigateOptions { replace: true, ..Default::default() }));
 
-    // "Load more" grows the page; any filter change starts over.
+    // "Load more" grows the page; any filter change starts over (and
+    // drops the selection, so nothing hidden stays selected).
     let limit = RwSignal::new(PAGE);
+    let selected = RwSignal::new(BTreeSet::<String>::new());
     Effect::new(move || {
         let url = filters.with(Filters::to_url);
         prefs::set(BACK_KEY, &url);
         limit.set(PAGE);
+        selected.set(BTreeSet::new());
     });
 
     let cameras = use_query(Topic::Cameras, None, api::get_cameras);
     let camera_list = Signal::derive(move || cameras.get().and_then(Result::ok).unwrap_or_default());
     let names = Memo::new(move |_| camera_list.get().into_iter().map(|c| (c.id, c.name)).collect::<HashMap<_, _>>());
     let events = use_query(Topic::Events, Some(Duration::from_secs(30)), move || api::get_events(filters.get().to_query(limit.get())));
+
+    let shown = Signal::derive(move || events.get().and_then(Result::ok).map(|p| p.events.into_iter().map(|e| e.id).collect()).unwrap_or_default());
+    // Events that disappeared (deleted elsewhere, retention) leave the selection.
+    Effect::new(move || {
+        let ids: Vec<String> = shown.get();
+        if selected.with_untracked(|s| s.iter().any(|id| !ids.contains(id))) {
+            selected.update(|s| s.retain(|id| ids.contains(id)));
+        }
+    });
 
     let subtitle = Signal::derive(move || {
         events.get().and_then(Result::ok).map(|p| format!("{} event{}", p.total, if p.total == 1 { "" } else { "s" })).unwrap_or_default()
@@ -76,7 +92,7 @@ pub fn EventsPage() -> impl IntoView {
                                     <div class="evt-list">
                                         {list.into_iter().map(|event| {
                                             let camera_name = names.get(&event.camera_id).cloned().unwrap_or_else(|| event.camera_id.clone());
-                                            view! { <EventListRow event camera_name /> }
+                                            view! { <EventListRow event camera_name selected /> }
                                         }).collect_view()}
                                     </div>
                                 </section>
@@ -91,6 +107,7 @@ pub fn EventsPage() -> impl IntoView {
                     }.into_any()
                 }
             }}
+            <BulkBar selected shown />
         </Page>
     }
 }
