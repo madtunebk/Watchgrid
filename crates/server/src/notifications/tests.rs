@@ -54,3 +54,19 @@ async fn routine_ones_never_push_out_an_unread_error(db: PgPool) {
     assert!(page.items.iter().any(|n| n.title == "camera down"));
     assert!(!page.items.iter().any(|n| n.title == "info 0"), "the oldest routine one went");
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn the_running_notifier_stores_a_camera_offline(db: PgPool) {
+    use crate::bus::{Bus, BusEvent};
+    let bus = Bus::new();
+    let files = std::sync::Arc::new(crate::recordings::RecordingFiles::new(std::env::temp_dir().join("watchgrid-notifier-test")));
+    super::start(db.clone(), bus.clone(), "127.0.0.1:8090".parse().unwrap(), files);
+    bus.publish(BusEvent::CameraOffline { camera_id: "cam-a".into(), reason: "connection refused".into(), at: chrono::Utc::now() });
+    for _ in 0..50 {
+        if repo::page(&db, false, 10, 0).await.unwrap().total > 0 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert_eq!(titles(&db, false).await, ["cam-a is offline"]);
+}
