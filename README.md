@@ -137,3 +137,13 @@ progress        development log, one file per step
 
 Used daily on a Synology NAS with Tapo and EZVIZ cameras. Planned: AI
 object detection, Google Drive / Dropbox exports.
+
+## License
+
+[GNU Affero General Public License v3.0 or later](LICENSE). You may use,
+study, change and share Watchgrid; if you offer a modified version to others
+over a network, you must share its source too.
+
+Bundled and used components keep their own licenses (OpenH264 BSD-2,
+opus-pure BSD-3, retina MIT/Apache-2.0, and the crates in `Cargo.lock`).
+

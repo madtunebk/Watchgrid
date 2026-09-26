@@ -77,7 +77,7 @@ mod tests {
     #[test]
     fn refuses_relative_system_and_dotted_paths() {
         assert!(check_shape("/volume1/watchgrid").is_ok());
-        assert!(check_shape("/home/nobus/recordings").is_ok());
+        assert!(check_shape("/home/alice/recordings").is_ok());
         assert!(check_shape("recordings").is_err());
         assert!(check_shape("/").is_err());
         assert!(check_shape("/etc/watchgrid").is_err());

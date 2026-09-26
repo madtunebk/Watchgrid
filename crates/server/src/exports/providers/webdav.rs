@@ -119,9 +119,9 @@ mod tests {
 
     #[test]
     fn nextcloud_urls() {
-        let c = TargetConfig { kind: ExportKind::Nextcloud, endpoint: "https://cloud.example.com/", location: "/Cameras/Watch grid", username: "nobus", secret: "pw" };
+        let c = TargetConfig { kind: ExportKind::Nextcloud, endpoint: "https://cloud.example.com/", location: "/Cameras/Watch grid", username: "alice", secret: "pw" };
         let w = WebDav::new(&c).unwrap();
-        assert_eq!(w.folder.as_str(), "https://cloud.example.com/remote.php/dav/files/nobus/Cameras/Watch%20grid/");
+        assert_eq!(w.folder.as_str(), "https://cloud.example.com/remote.php/dav/files/alice/Cameras/Watch%20grid/");
         assert_eq!(w.web.as_deref(), Some("https://cloud.example.com/apps/files/?dir=/Cameras/Watch grid"));
         let generic = TargetConfig { endpoint: "https://nas.lan/webdav", ..c };
         let g = WebDav::new(&generic).unwrap();
