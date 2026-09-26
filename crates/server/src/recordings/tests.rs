@@ -165,3 +165,21 @@ mod protection_and_delete {
         std::fs::remove_dir_all(&file).unwrap();
     }
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn saved_clips_list_their_events(db: PgPool) {
+    repo::insert(&db, &rec("r1", "cam-a", "2026-09-24T10:00:00Z", 60)).await.unwrap();
+    repo::insert(&db, &rec("r2", "cam-a", "2026-09-24T11:00:00Z", 60)).await.unwrap();
+    for (id, secs) in [("b", 30), ("a", 10)] {
+        sqlx::query("INSERT INTO events (id, camera_id, kind, start_time, end_time, recording_id, source) VALUES ($1, 'cam-a', 'motion', $2, $2, 'r1', 'test')")
+            .bind(id)
+            .bind(at("2026-09-24T10:00:00Z") + Duration::seconds(secs))
+            .execute(&db)
+            .await
+            .unwrap();
+    }
+    let list = repo::list(&db, &[], None, None).await.unwrap();
+    assert_eq!(list[0].event_ids, ["a", "b"], "oldest first");
+    assert!(list[1].event_ids.is_empty());
+    assert_eq!(repo::get(&db, "r1").await.unwrap().unwrap().event_ids, ["a", "b"]);
+}

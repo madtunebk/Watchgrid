@@ -81,6 +81,27 @@ impl Row {
     }
 }
 
+/// Fill in each recording's events (oldest first), with one query.
+async fn with_events(db: &PgPool, mut list: Vec<Recording>) -> sqlx::Result<Vec<Recording>> {
+    let ids: Vec<&str> = list.iter().map(|r| r.id.as_str()).collect();
+    if ids.is_empty() {
+        return Ok(list);
+    }
+    let rows: Vec<(String, Vec<String>)> = sqlx::query_as(
+        "SELECT recording_id, array_agg(id ORDER BY start_time, id) FROM events WHERE recording_id = ANY($1) GROUP BY recording_id",
+    )
+    .bind(&ids)
+    .fetch_all(db)
+    .await?;
+    let by_clip: std::collections::HashMap<String, Vec<String>> = rows.into_iter().collect();
+    for r in &mut list {
+        if let Some(events) = by_clip.get(&r.id) {
+            r.event_ids = events.clone();
+        }
+    }
+    Ok(list)
+}
+
 /// Recordings overlapping `[from, to)`, oldest first. Empty `camera_ids` = all.
 pub async fn list(db: &PgPool, camera_ids: &[String], from: Option<DateTime<Utc>>, to: Option<DateTime<Utc>>) -> sqlx::Result<Vec<Recording>> {
     let sql = format!(
@@ -91,12 +112,12 @@ pub async fn list(db: &PgPool, camera_ids: &[String], from: Option<DateTime<Utc>
          ORDER BY start_time"
     );
     let rows: Vec<Row> = sqlx::query_as(&sql).bind(camera_ids).bind(from).bind(to).fetch_all(db).await?;
-    Ok(rows.into_iter().map(Row::into_model).collect())
+    with_events(db, rows.into_iter().map(Row::into_model).collect()).await
 }
 
 pub async fn get(db: &PgPool, id: &str) -> sqlx::Result<Option<Recording>> {
     let row: Option<Row> = sqlx::query_as(&format!("SELECT {COLUMNS} FROM recordings WHERE id = $1")).bind(id).fetch_optional(db).await?;
-    Ok(row.map(Row::into_model))
+    Ok(with_events(db, row.into_iter().map(Row::into_model).collect()).await?.pop())
 }
 
 /// Recordings per camera, largest first.

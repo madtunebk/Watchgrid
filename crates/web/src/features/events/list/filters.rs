@@ -102,7 +102,8 @@ impl Filters {
         Self { range: self.range, ..Default::default() } != *self
     }
 
-    pub fn to_query(&self, limit: u32) -> EventQuery {
+    /// The server query for one page of `per_page` events (`page` from 0).
+    pub fn to_query(&self, page: u32, per_page: u32) -> EventQuery {
         let today = start_of_today();
         let (from, to) = match self.range {
             Range::Today => (Some(today), None),
@@ -122,8 +123,8 @@ impl Filters {
             hours: self.hours.and_then(|k| HOURS.iter().find(|(key, ..)| *key == k)).map(|(.., h)| *h),
             min_duration: self.min_duration,
             protected_only: self.protected_only,
-            limit: Some(limit),
-            offset: None,
+            limit: Some(per_page),
+            offset: Some(page * per_page),
         }
     }
 }

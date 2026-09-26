@@ -33,24 +33,32 @@ pub fn EventsPage() -> impl IntoView {
     let navigate = use_navigate();
     let on_change = Callback::new(move |f: Filters| navigate(&f.to_url(), leptos_router::NavigateOptions { replace: true, ..Default::default() }));
 
-    // "Load more" grows the page; any filter change starts over (and
+    // Pages of PAGE events; any filter change goes back to the first (and
     // drops the selection, so nothing hidden stays selected).
-    let limit = RwSignal::new(PAGE);
+    let page_no = RwSignal::new(0u32);
     let selected = RwSignal::new(BTreeSet::<String>::new());
     Effect::new(move || {
         let url = filters.with(Filters::to_url);
         prefs::set(BACK_KEY, &url);
-        limit.set(PAGE);
+        page_no.set(0);
         selected.set(BTreeSet::new());
     });
 
     let cameras = use_query(Topic::Cameras, None, api::get_cameras);
     let camera_list = Signal::derive(move || cameras.get().and_then(Result::ok).unwrap_or_default());
     let names = Memo::new(move |_| camera_list.get().into_iter().map(|c| (c.id, c.name)).collect::<HashMap<_, _>>());
-    let events = use_query(Topic::Events, Some(Duration::from_secs(30)), move || api::get_events(filters.get().to_query(limit.get())));
+    let events = use_query(Topic::Events, Some(Duration::from_secs(30)), move || api::get_events(filters.get().to_query(page_no.get(), PAGE)));
 
     let shown = Signal::derive(move || events.get().and_then(Result::ok).map(|p| p.events.into_iter().map(|e| e.id).collect()).unwrap_or_default());
     keep_only_shown(selected, shown);
+    // Deleting the last events of the last page: go back to the new last page.
+    Effect::new(move || {
+        if let Some(Ok(p)) = events.get() {
+            if p.events.is_empty() && p.total > 0 && page_no.get_untracked() > 0 {
+                page_no.set((p.total - 1) / PAGE);
+            }
+        }
+    });
 
     let subtitle = Signal::derive(move || {
         events.get().and_then(Result::ok).map(|p| format!("{} event{}", p.total, if p.total == 1 { "" } else { "s" })).unwrap_or_default()
@@ -72,6 +80,7 @@ pub fn EventsPage() -> impl IntoView {
                     }
                 }
                 Some(Ok(page)) => {
+                    let first = page_no.get_untracked() * PAGE;
                     let shown = page.events.len() as u32;
                     let names = names.get();
                     view! {
@@ -92,11 +101,21 @@ pub fn EventsPage() -> impl IntoView {
                                 </section>
                             }
                         }).collect_view()}
-                        {(shown < page.total).then(|| view! {
-                            <div class="load-more">
-                                <span class="muted">{format!("Showing {shown} of {}", page.total)}</span>
-                                <button class="btn btn--secondary btn--sm" on:click=move |_| limit.update(|l| *l += PAGE)>"Load more"</button>
-                            </div>
+                        {(page.total > PAGE).then(|| {
+                            let (total, last) = (page.total, (page.total - 1) / PAGE);
+                            let at = page_no.get_untracked();
+                            let (on_first, on_last) = (at == 0, at >= last);
+                            let to_page = move |p: u32| {
+                                page_no.set(p);
+                                window().scroll_to_with_x_and_y(0.0, 0.0);
+                            };
+                            view! {
+                                <div class="load-more">
+                                    <button class="btn btn--secondary btn--sm" disabled=on_first on:click=move |_| to_page(at.saturating_sub(1))>"Previous"</button>
+                                    <span class="muted">{format!("{}–{} of {total}", first + 1, first + shown)}</span>
+                                    <button class="btn btn--secondary btn--sm" disabled=on_last on:click=move |_| to_page((at + 1).min(last))>"Next"</button>
+                                </div>
+                            }
                         })}
                     }.into_any()
                 }
