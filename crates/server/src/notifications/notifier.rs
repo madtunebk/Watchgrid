@@ -84,14 +84,15 @@ impl Notifier {
         if self.last_sent.get(&key).is_some_and(|t| t.elapsed() < draft.cooldown()) {
             return;
         }
-        self.last_sent.insert(key, Instant::now());
         let stored = match repo::insert(&self.db, &draft).await {
             Ok(n) => n,
+            // Not stored: the next one of this kind may try again.
             Err(e) => {
                 tracing::warn!("cannot store notification: {e}");
                 return;
             }
         };
+        self.last_sent.insert(key, Instant::now());
         self.bus.publish(BusEvent::NotificationsChanged);
         if let Some(url) = webhook_url {
             let (url, name) = (url.to_string(), nvr_name.to_string());

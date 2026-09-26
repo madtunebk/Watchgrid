@@ -24,6 +24,7 @@ mod events;
 mod exports;
 mod http;
 mod httpc;
+mod https;
 mod live;
 mod media;
 mod motion;

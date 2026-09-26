@@ -6,8 +6,6 @@ pub mod sigv4;
 mod webdav;
 
 use std::path::Path;
-use std::sync::OnceLock;
-use std::time::Duration;
 
 use futures::Stream;
 use tokio::io::AsyncReadExt;
@@ -54,18 +52,7 @@ impl Provider {
     }
 }
 
-/// Shared HTTPS client: rustls with bundled roots (never the system's).
-pub fn client() -> &'static reqwest::Client {
-    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
-    CLIENT.get_or_init(|| {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        reqwest::Client::builder()
-            .user_agent("Watchgrid")
-            .connect_timeout(Duration::from_secs(10))
-            .build()
-            .expect("HTTP client")
-    })
-}
+pub use crate::https::client;
 
 /// A file as a request body stream, reporting bytes read.
 async fn file_body(file: &Path, progress: impl Fn(u64) + Send + Sync + 'static) -> Result<(u64, reqwest::Body), String> {

@@ -1,4 +1,4 @@
-//! Minimal HTTP/1.1 POST client (ONVIF SOAP, webhooks): one request per
+//! Minimal HTTP/1.1 POST client (ONVIF SOAP): one request per
 //! connection, plain `http://` only (LAN devices and services), no redirects.
 
 use std::time::Duration;
