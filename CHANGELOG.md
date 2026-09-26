@@ -16,8 +16,9 @@ First public release.
   moment, clip after clip.
 - **Motion** — ONVIF events (motion, person, vehicle) or software detection
   on the substream, with sensitivity and drawn zones.
-- **Events** — timeline, filters, protection from retention, in-app and
-  webhook notifications.
+- **Events** — timeline, filters, in-app and webhook notifications.
+  Protecting an event also keeps its clip; deleting an event keeps the video,
+  which has its own delete in Recordings.
 - **Exports** — download, or upload to S3-compatible storage or
   Nextcloud/WebDAV, by hand or automatically.
 - **Operations** — static binary, PostgreSQL, daily one-file backups and
