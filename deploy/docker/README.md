@@ -3,11 +3,18 @@
 A ~7 MB image (static binary + web UI, no OS inside) next to your
 existing PostgreSQL.
 
-## Quick path: existing PostgreSQL container
+## Quick path
+
+1. On a Linux machine with Rust, from the source folder:
+   `sh deploy/docker/package.sh` → `target/watchgrid-docker.tar.gz`
+   (needs `rustup target add x86_64-unknown-linux-musl`, `musl-tools`, `clang`).
+2. On the NAS, in a folder of its own:
 
 ```sh
-head -c 24 /dev/urandom | base64 | tr -d '/+=\n' > db-password   # the watchgrid DB user's password
+tar -xzf watchgrid-docker.tar.gz --strip-components=1
+head -c 24 /dev/urandom | base64 | tr -d '/+=\n' > db-password   # the watchgrid DB user's password (first time only)
 sudo sh setup.sh
+sudo docker exec -it watchgrid watchgrid user create <username>
 ```
 
 `setup.sh` uses a running PostgreSQL container (or `PG_CONTAINER=<name>`) —

@@ -1,4 +1,4 @@
-# Watchgrid NVR — installed to /etc/systemd/system/watchgrid.service by deploy/install.sh
+# Watchgrid NVR — installed to /etc/systemd/system/watchgrid.service by deploy/systemd/install.sh
 [Unit]
 Description=Watchgrid NVR
 Documentation=file:///usr/share/doc/watchgrid/README.md
