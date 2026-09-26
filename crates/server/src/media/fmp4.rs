@@ -111,7 +111,7 @@ mod tests {
         let dops = find(&init, b"dOps");
         assert_eq!(&init[dops + 8..dops + 10], &[0, 1], "version 0, mono");
         assert_eq!(u16::from_be_bytes([init[dops + 10], init[dops + 11]]), 312);
-        assert_eq!(u32_at(&init, dops + 12), 8000);
+        assert_eq!(u32_at(&init, dops + 12), 48_000, "Chrome wants the sample entry's rate here");
         let seg = media_segment(3, 2, 960, 960, true, &[0xfc, 1]);
         let tfhd = find(&seg, b"tfhd");
         assert_eq!(u32_at(&seg, tfhd + 12), 2, "audio track id");

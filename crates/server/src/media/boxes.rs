@@ -199,8 +199,10 @@ fn stsd_opus(w: &mut Writer, a: &AudioTrack) {
         w.u32(1).boxed(b"Opus", |w| {
             w.zeros(6).u16(1); // reserved, data_reference_index
             w.zeros(8).u16(u16::from(a.channels)).u16(16).u16(0).u16(0).u32(OPUS_TIMESCALE << 16);
+            // InputSampleRate is informational, but Chrome rejects a value
+            // other than the sample entry's rate (48 kHz), so not 8000.
             w.boxed(b"dOps", |w| {
-                w.bytes(&[0, a.channels]).u16(a.pre_skip).u32(a.input_rate).u16(0).bytes(&[0]);
+                w.bytes(&[0, a.channels]).u16(a.pre_skip).u32(OPUS_TIMESCALE).u16(0).bytes(&[0]);
             });
         });
     });
