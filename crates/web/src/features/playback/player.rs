@@ -35,6 +35,8 @@ pub fn Player(
     let position = RwSignal::new(pre); // start at the moment of the event (or 0)
     let playing = RwSignal::new(false);
     let speed = RwSignal::new(1.0f32);
+    // Recordings play with sound (a click started them); this silences it.
+    let muted = RwSignal::new(false);
     let src = clip.src.clone();
     let real = src.is_some();
     let video = NodeRef::<Video>::new();
@@ -108,7 +110,7 @@ pub fn Player(
             <div class="player__stage" node_ref=stage on:click=move |_| playing.update(|p| *p = !*p)>
                 {match src {
                     Some(src) => view! {
-                        <video class="player__video" node_ref=video src=src preload="metadata" playsinline=true
+                        <video class="player__video" node_ref=video src=src preload="metadata" playsinline=true prop:muted=muted
                             on:timeupdate=on_time on:loadedmetadata=on_loaded on:ended=move |_| playing.set(false)></video>
                     }.into_any(),
                     None => view! {
@@ -156,6 +158,10 @@ pub fn Player(
                     {move || format!("{} / {}", format::duration(position.get() as u32), format::duration(total as u32))}
                 </span>
                 <span class="player__spacer"></span>
+                <button class="icon-btn" aria-label=move || if muted.get() { "Unmute" } else { "Mute" }
+                    title=move || if muted.get() { "Unmute" } else { "Mute" } on:click=move |_| muted.update(|m| *m = !*m)>
+                    {move || view! { <Icon icon=if muted.get() { I::VolumeOff } else { I::Volume } class="icon icon--sm" /> }}
+                </button>
                 <select class="select select--sm" aria-label="Playback speed"
                     on:change=move |ev| speed.set(event_target_value(&ev).parse().unwrap_or(1.0))>
                     {SPEEDS.iter().map(|s| view! { <option value=s.to_string() selected=*s == 1.0>{format!("{s}×")}</option> }).collect_view()}

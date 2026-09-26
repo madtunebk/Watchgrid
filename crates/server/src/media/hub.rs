@@ -83,6 +83,12 @@ impl MediaHub {
         feeds.get(&(camera_id.to_string(), kind)).map(|ch| ch.preroll.snapshot(secs)).unwrap_or_default()
     }
 
+    /// Pre-record audio from `from_pts` on (the clip's first video frame).
+    pub fn preroll_audio(&self, camera_id: &str, kind: StreamKind, from_pts: i64) -> Vec<AudioFrame> {
+        let feeds = self.feeds.lock().expect("media hub lock");
+        feeds.get(&(camera_id.to_string(), kind)).map(|ch| ch.preroll.audio_since(from_pts)).unwrap_or_default()
+    }
+
     /// Feeds currently open (live viewers and recordings).
     pub fn active_feeds(&self) -> usize {
         self.feeds.lock().expect("media hub lock").len()

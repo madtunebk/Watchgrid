@@ -3,7 +3,7 @@ use leptos::prelude::*;
 use super::save;
 use crate::api::{Camera, MotionSource, RecordingMode, ScheduleWindow};
 use crate::ui::{SaveBar, SaveState};
-use crate::ui::form::{Choice, Field, FormSection, NumberInput, RadioCards};
+use crate::ui::form::{Choice, Field, FormSection, NumberInput, RadioCards, Switch};
 
 #[component]
 pub fn RecordingTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
@@ -15,12 +15,13 @@ pub fn RecordingTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
     let max_clip = RwSignal::new(initial.max_clip_seconds);
     let merge = RwSignal::new(initial.event_merge_seconds);
     let schedule = RwSignal::new(initial.schedule.clone());
+    let sound = RwSignal::new(initial.record_audio);
     let state = SaveState::new();
 
-    let current = move || (mode.get(), pre.get(), post.get(), min_event.get(), max_clip.get(), merge.get(), schedule.get());
+    let current = move || (mode.get(), pre.get(), post.get(), min_event.get(), max_clip.get(), merge.get(), schedule.get(), sound.get());
     let saved = move || {
         let r = camera.get().recording;
-        (r.mode, r.pre_record_seconds, r.post_record_seconds, r.min_event_seconds, r.max_clip_seconds, r.event_merge_seconds, r.schedule)
+        (r.mode, r.pre_record_seconds, r.post_record_seconds, r.min_event_seconds, r.max_clip_seconds, r.event_merge_seconds, r.schedule, r.record_audio)
     };
     let dirty = Signal::derive(move || current() != saved());
     let event_based = move || mode.get() == RecordingMode::Events;
@@ -37,7 +38,7 @@ pub fn RecordingTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
     };
 
     let on_save = Callback::new(move |_| {
-        let (m, a, b, c, d, e, windows) = current();
+        let (m, a, b, c, d, e, windows, with_sound) = current();
         save::camera(state, &camera.get_untracked(), |i| {
             i.recording.mode = m;
             i.recording.pre_record_seconds = a;
@@ -46,6 +47,7 @@ pub fn RecordingTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
             i.recording.max_clip_seconds = d;
             i.recording.event_merge_seconds = e;
             i.recording.schedule = windows;
+            i.recording.record_audio = with_sound;
         });
     });
     let on_revert = Callback::new(move |_| {
@@ -57,6 +59,7 @@ pub fn RecordingTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
         max_clip.set(r.max_clip_seconds);
         merge.set(r.event_merge_seconds);
         schedule.set(r.schedule);
+        sound.set(r.record_audio);
     });
 
     let modes = vec![
@@ -90,6 +93,10 @@ pub fn RecordingTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
                 <p class="note">{move || format!("Recordings are cut into clips of {} minutes; each clip continues where the previous one ended.", max_clip.get() / 60)}</p>
             </Show>
 
+            <FormSection title="Sound">
+                <Switch checked=sound label="Record sound"
+                    description="Saved with the video when the camera has a microphone. Recordings of the substream have no sound." />
+            </FormSection>
             <FormSection title="Event recording" description="How clips are cut around each event.">
                 <BufferDiagram pre post />
                 <div class="form-grid form-grid--3">

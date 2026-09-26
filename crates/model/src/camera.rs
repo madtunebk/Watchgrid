@@ -126,6 +126,14 @@ pub struct RecordingSettings {
     /// global retention policy). `None`: only the global policy applies.
     #[serde(default)]
     pub retention_days: Option<u32>,
+    /// Save the camera's sound with the video (when it has any; main stream
+    /// only).
+    #[serde(default = "record_audio_default")]
+    pub record_audio: bool,
+}
+
+fn record_audio_default() -> bool {
+    true
 }
 
 /// A weekly recording window. `end` before `start` runs past midnight into
@@ -172,6 +180,7 @@ impl Default for RecordingSettings {
             event_merge_seconds: 10,
             schedule: Vec::new(),
             retention_days: None,
+            record_audio: true,
         }
     }
 }

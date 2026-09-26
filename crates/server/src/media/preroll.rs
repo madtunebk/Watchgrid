@@ -1,18 +1,25 @@
 //! Recent frames of a feed, kept only while someone asked for pre-record,
-//! so an event recording can start a few seconds before the event.
+//! so an event recording can start a few seconds before the event. Audio
+//! is kept alongside for the same time.
 
 use std::collections::VecDeque;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use super::Frame;
+use super::audio::AudioFrame;
 use super::boxes::TIMESCALE;
+
+/// Video pre-record starts at a keyframe up to one interval earlier than
+/// asked; audio keeps this much more so it covers that.
+const AUDIO_SLACK_SECS: u32 = 10;
 
 #[derive(Default)]
 pub struct Preroll {
     /// Seconds to keep; 0 = keep nothing.
     keep_secs: AtomicU32,
     frames: Mutex<VecDeque<Frame>>,
+    audio: Mutex<VecDeque<AudioFrame>>,
 }
 
 impl Preroll {
@@ -25,6 +32,26 @@ impl Preroll {
 
     pub fn clear(&self) {
         self.frames.lock().expect("preroll lock").clear();
+        self.audio.lock().expect("preroll lock").clear();
+    }
+
+    /// Keep audio for as long as video (plus slack for the keyframe start).
+    pub fn push_audio(&self, packet: &AudioFrame) {
+        let keep = self.keep_secs.load(Ordering::Relaxed);
+        if keep == 0 {
+            return;
+        }
+        let mut audio = self.audio.lock().expect("preroll lock");
+        audio.push_back(packet.clone());
+        let cutoff = packet.pts - i64::from(keep + AUDIO_SLACK_SECS) * i64::from(TIMESCALE);
+        while audio.front().is_some_and(|p| p.pts < cutoff) {
+            audio.pop_front();
+        }
+    }
+
+    /// Audio packets from `from_pts` on (the pre-record's first video frame).
+    pub fn audio_since(&self, from_pts: i64) -> Vec<AudioFrame> {
+        self.audio.lock().expect("preroll lock").iter().filter(|p| p.pts >= from_pts).cloned().collect()
     }
 
     /// Add a frame, dropping what is older than needed. Keeps one extra
@@ -84,5 +111,19 @@ mod tests {
         assert_eq!(snap.last().map(|f| f.pts / i64::from(TIMESCALE)), Some(19));
         p.set_keep(0);
         assert!(p.snapshot(5).is_empty());
+    }
+
+    #[test]
+    fn audio_is_kept_as_long_as_video_and_cut_at_the_clip_start() {
+        let p = Preroll::default();
+        p.set_keep(5);
+        for s in 0..30 {
+            p.push_audio(&AudioFrame { pts: s * i64::from(TIMESCALE), data: vec![1].into() });
+        }
+        // Newest 29 s; 5 + 10 s kept.
+        assert_eq!(p.audio_since(0).first().map(|a| a.pts / i64::from(TIMESCALE)), Some(14));
+        assert_eq!(p.audio_since(20 * i64::from(TIMESCALE)).len(), 10);
+        p.set_keep(0);
+        assert!(p.audio_since(0).is_empty());
     }
 }

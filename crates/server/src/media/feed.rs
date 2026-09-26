@@ -135,6 +135,7 @@ async fn pump(hub: &MediaHub, key: &Key, ch: &Channels, mut opened: Opened, idle
                     let Some((_, rate, transcoder)) = audio.as_mut() else { continue };
                     let pts = rescale(f.timestamp().elapsed(), *rate);
                     for packet in transcoder.push(pts, f.data()) {
+                        ch.preroll.push_audio(&packet);
                         let _ = ch.audio.send(packet);
                     }
                 }

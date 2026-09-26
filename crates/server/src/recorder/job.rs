@@ -55,11 +55,18 @@ async fn record(deps: &Deps, camera_id: &str, id: &str, spec: Spec, stop: &mut w
     // The folder is fixed for this recording even if Settings change it meanwhile.
     let root = deps.files.root();
     let partial = RecordingFiles::partial_path(&root, id);
-    let mut writer = Mp4Writer::create(partial.clone()).await.map_err(|e| format!("cannot create {}: {e}", partial.display()))?;
+    // Sound only comes with the main stream, and only if the camera wants it.
+    let record_audio = crate::cameras::repo_get(&deps.db, camera_id).await.ok().flatten().is_none_or(|c| c.recording.record_audio);
+    let audio = track.audio.filter(|_| record_audio);
+    let mut writer = Mp4Writer::create(partial.clone(), audio).await.map_err(|e| format!("cannot create {}: {e}", partial.display()))?;
 
     // Subscribed first, then snapshot: no gap; overlaps are skipped by pts.
     let preroll = if spec.preroll_secs > 0 { deps.hub.preroll(camera_id, spec.stream, spec.preroll_secs) } else { Vec::new() };
-    let (end, first_frame_at) = capture(deps, camera_id, id, spec.reason, preroll, &track, &mut sub, &mut writer, stop, phase).await;
+    let preroll_audio = match preroll.first() {
+        Some(first) if audio.is_some() => deps.hub.preroll_audio(camera_id, spec.stream, first.pts),
+        _ => Vec::new(),
+    };
+    let (end, first_frame_at) = capture(deps, camera_id, id, spec.reason, (preroll, preroll_audio), &track, &mut sub, &mut writer, stop, phase).await;
     drop(sub); // let the live feed close if nobody else watches
     phase.send_replace(Phase::Finalizing);
 
@@ -118,7 +125,7 @@ async fn capture(
     camera_id: &str,
     recording_id: &str,
     reason: RecordingReason,
-    preroll: Vec<crate::media::Frame>,
+    (preroll, preroll_audio): (Vec<crate::media::Frame>, Vec<crate::media::audio::AudioFrame>),
     track: &TrackInfo,
     sub: &mut Subscription,
     writer: &mut Mp4Writer,
@@ -144,6 +151,11 @@ async fn capture(
                 }
                 Ok(_) => {}
                 Err(e) => return (End::Failed(write_error(e)), first_frame_at),
+            }
+        }
+        for packet in &preroll_audio {
+            if let Err(e) = writer.push_audio(packet).await {
+                return (End::Failed(write_error(e)), first_frame_at);
             }
         }
         last_frame = Instant::now();
@@ -189,6 +201,12 @@ async fn capture(
                 }
                 Err(RecvError::Closed) => Some(End::Failed("live feed ended".into())),
             },
+            packet = sub.audio.recv() => match packet {
+                Ok(packet) => writer.push_audio(&packet).await.err().map(|e| End::Failed(write_error(e))),
+                // Lost packets become silence at the next one.
+                Err(RecvError::Lagged(_)) => None,
+                Err(RecvError::Closed) => Some(End::Failed("live feed ended".into())),
+            },
             _ = tokio::time::sleep_until(stall_at) => Some(End::Failed(
                 if recording_since.is_some() { "no video from the camera".into() } else { "no keyframe from the camera".into() }
             )),
@@ -225,7 +243,7 @@ async fn publish(deps: &Deps, root: &std::path::Path, camera_id: &str, id: &str,
         file_size: f.size as i64,
         path: relative,
         root: Some(root.to_string_lossy().into_owned()),
-        codec: track.codec.clone(),
+        codec: if f.audio_samples > 0 { format!("{},opus", track.codec) } else { track.codec.clone() },
         width: track.track.width as i32,
         height: track.track.height as i32,
     };
