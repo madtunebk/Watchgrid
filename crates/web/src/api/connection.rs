@@ -21,7 +21,10 @@ struct Connection(ReadSignal<ConnectionState>);
 #[cfg(feature = "live-api")]
 pub fn provide_connection() {
     let (state, set_state) = signal(ConnectionState::Connecting);
-    super::push::start(set_state);
+    // Signing out ends the session's view: close the socket with it, so
+    // a new sign-in never adds a second one.
+    let push = StoredValue::new_local(super::push::start(set_state));
+    on_cleanup(move || push.with_value(super::push::Push::stop));
     provide_context(Connection(state));
 }
 

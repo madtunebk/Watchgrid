@@ -2,10 +2,12 @@
 //!
 //! The server only says which data changed ("cameras", "system", …); the
 //! UI refetches those queries. The socket's state drives the connection
-//! indicator, and it reconnects with backoff.
+//! indicator, and it reconnects with backoff until the session ends
+//! ([`Push::stop`]).
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::time::Duration;
 
 use leptos::prelude::*;
@@ -62,11 +64,34 @@ struct Notice {
     topics: Vec<String>,
 }
 
-pub fn start(set_state: WriteSignal<ConnectionState>) {
-    connect(set_state, 0);
+/// The running connection of one signed-in session.
+#[derive(Clone, Default)]
+pub struct Push {
+    stopped: Rc<Cell<bool>>,
+    socket: Rc<RefCell<Option<WebSocket>>>,
 }
 
-fn connect(set_state: WriteSignal<ConnectionState>, attempt: u32) {
+impl Push {
+    /// Close the socket and stop reconnecting (sign-out).
+    pub fn stop(&self) {
+        self.stopped.set(true);
+        if let Some(ws) = self.socket.borrow_mut().take() {
+            ws.set_onclose(None);
+            let _ = ws.close();
+        }
+    }
+}
+
+pub fn start(set_state: WriteSignal<ConnectionState>) -> Push {
+    let push = Push::default();
+    connect(set_state, 0, push.clone());
+    push
+}
+
+fn connect(set_state: WriteSignal<ConnectionState>, attempt: u32, push: Push) {
+    if push.stopped.get() {
+        return;
+    }
     let Some(window) = web_sys::window() else { return };
     let loc = window.location();
     let scheme = if loc.protocol().as_deref() == Ok("https:") { "wss" } else { "ws" };
@@ -75,7 +100,7 @@ fn connect(set_state: WriteSignal<ConnectionState>, attempt: u32) {
         set_state.set(ConnectionState::Connecting);
     }
     let Ok(ws) = WebSocket::new(&url) else {
-        retry(set_state, attempt);
+        retry(set_state, attempt, push);
         return;
     };
 
@@ -96,10 +121,16 @@ fn connect(set_state: WriteSignal<ConnectionState>, attempt: u32) {
             }
         }
     });
-    let on_close = Closure::<dyn FnMut()>::new(move || {
-        set_state.set(ConnectionState::Disconnected);
-        retry(set_state, attempt + 1);
-    });
+    let on_close = {
+        let push = push.clone();
+        Closure::<dyn FnMut()>::new(move || {
+            if push.stopped.get() {
+                return;
+            }
+            set_state.set(ConnectionState::Disconnected);
+            retry(set_state, attempt + 1, push.clone());
+        })
+    };
     ws.set_onopen(Some(on_open.as_ref().unchecked_ref()));
     ws.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
     ws.set_onclose(Some(on_close.as_ref().unchecked_ref()));
@@ -107,9 +138,10 @@ fn connect(set_state: WriteSignal<ConnectionState>, attempt: u32) {
     on_open.forget();
     on_message.forget();
     on_close.forget();
+    *push.socket.borrow_mut() = Some(ws);
 }
 
-fn retry(set_state: WriteSignal<ConnectionState>, attempt: u32) {
+fn retry(set_state: WriteSignal<ConnectionState>, attempt: u32, push: Push) {
     let delay = Duration::from_millis(500 * 2u64.saturating_pow(attempt.min(5))).min(MAX_DELAY);
-    set_timeout(move || connect(set_state, attempt), delay);
+    set_timeout(move || connect(set_state, attempt, push), delay);
 }
