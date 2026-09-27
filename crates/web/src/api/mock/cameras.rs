@@ -65,6 +65,7 @@ pub async fn create(input: CameraInput) -> ApiResult<Camera> {
             recording_active: false,
             recording_reason: None,
             motion_active: false,
+            motion_fallback: false,
             last_event: None,
             storage_used: Some(0),
             connected_since: None,

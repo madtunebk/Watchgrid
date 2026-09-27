@@ -38,6 +38,7 @@ async fn status(State(s): State<AppState>) -> ApiResult<Json<SystemStatus>> {
     let targets = crate::exports::repo::targets(&s.db).await?;
     let failing: Vec<String> = targets.iter().filter(|t| t.problem.is_some()).map(|t| t.name.clone()).collect();
     let mut checks = vec![health::database(), health::recordings(&root, disk), health::cameras(&cams)];
+    checks.extend(health::motion(&cams));
     checks.extend(health::exports(&failing, targets.len()));
     Ok(Json(SystemStatus {
         health: ServerHealth::of(&checks),

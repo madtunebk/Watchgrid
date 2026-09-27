@@ -45,6 +45,7 @@ impl CameraRow {
             recording_active: false,
             recording_reason: None,
             motion_active: false,
+            motion_fallback: false,
             last_event: None,
             storage_used: None,
             connected_since: None,

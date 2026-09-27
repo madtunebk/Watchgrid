@@ -21,6 +21,8 @@ pub struct CameraLive {
     pub last_error: Option<String>,
     /// The camera reports motion right now (ONVIF).
     pub motion_active: bool,
+    /// ONVIF events don't work: software detection stands in.
+    pub motion_fallback: bool,
 }
 
 impl CameraLive {
@@ -36,6 +38,7 @@ impl CameraLive {
             audio_codec: None,
             last_error: None,
             motion_active: false,
+            motion_fallback: false,
         }
     }
 }
@@ -68,6 +71,7 @@ impl LiveRegistry {
         camera.status = live.status;
         camera.connected_since = live.connected_since;
         camera.motion_active = live.motion_active;
+        camera.motion_fallback = live.motion_fallback;
         let s = &mut camera.main_stream;
         s.status = match live.status {
             CameraStatus::Online => StreamStatus::Active,

@@ -20,6 +20,7 @@ use super::decoder::H264;
 use crate::bus::{Bus, BusEvent};
 use crate::live::LiveRegistry;
 use crate::media::{FeedState, Frame, MediaHub, StreamKind};
+use crate::onvif::OnvifLinks;
 
 /// Reported as the detection's topic (the events journal keeps it).
 pub const TOPIC: &str = "Watchgrid/SoftwareMotion";
@@ -34,6 +35,8 @@ const RETRY: Duration = Duration::from_secs(5);
 const STALL: Duration = Duration::from_secs(5);
 /// Diagnostics every this many analysed pictures (≈ 10 s).
 const STATS_EVERY: u32 = 50;
+/// How often a stand-in checks whether ONVIF events work (again).
+const CHECK: Duration = Duration::from_secs(10);
 
 #[derive(Clone)]
 pub struct Deps {
@@ -41,6 +44,8 @@ pub struct Deps {
     pub hub: Arc<MediaHub>,
     pub live: Arc<LiveRegistry>,
     pub bus: Bus,
+    /// Whether ONVIF cameras' events work (else detection stands in).
+    pub links: Arc<OnvifLinks>,
 }
 
 struct Running {
@@ -74,6 +79,7 @@ impl Detectors {
             if old.active.load(Ordering::Relaxed) {
                 end(&self.deps, id);
             }
+            self.deps.live.update(id, |l| l.motion_fallback = false);
         }
         if exists && self.enabled {
             let active = Arc::new(AtomicBool::new(false));
@@ -89,29 +95,82 @@ struct Settings {
     zones: Vec<MotionZone>,
 }
 
-async fn settings(db: &PgPool, id: &str) -> Result<Option<Settings>, String> {
+enum Mode {
+    /// Motion source "software": always detect.
+    Always,
+    /// Motion source "ONVIF": detect only while the camera's events don't work.
+    StandIn,
+}
+
+async fn settings(db: &PgPool, id: &str) -> Result<Option<(Settings, Mode)>, String> {
     let camera = crate::cameras::repo_get(db, id).await.map_err(|e| e.to_string())?;
-    Ok(camera.filter(|c| c.enabled && c.motion.enabled && c.motion.source == MotionSource::Software).map(|c| Settings { sensitivity: c.motion.sensitivity, zones: c.motion.zones }))
+    Ok(camera.filter(|c| c.enabled && c.motion.enabled).and_then(|c| {
+        let has_onvif = c.onvif.as_ref().is_some_and(|o| !o.url.trim().is_empty());
+        let mode = match c.motion.source {
+            MotionSource::Software => Mode::Always,
+            MotionSource::Onvif if has_onvif => Mode::StandIn,
+            _ => return None,
+        };
+        Some((Settings { sensitivity: c.motion.sensitivity, zones: c.motion.zones }, mode))
+    }))
 }
 
 async fn run(deps: Deps, id: String, active: Arc<AtomicBool>) {
-    let cfg = loop {
+    let (cfg, mode) = loop {
         match settings(&deps.db, &id).await {
-            Ok(Some(cfg)) => break cfg,
-            Ok(None) => return, // gone, disabled, or motion from elsewhere
+            Ok(Some(found)) => break found,
+            Ok(None) => return, // gone, disabled, or no motion to detect here
             Err(e) => {
                 tracing::warn!(camera = %id, "cannot load motion settings: {e}");
                 tokio::time::sleep(RETRY).await;
             }
         }
     };
-    tracing::info!(camera = %id, "software motion detection started");
-    loop {
-        follow(&deps, &id, &cfg, &active).await;
-        if active.swap(false, Ordering::Relaxed) {
-            end(&deps, &id);
+    match mode {
+        Mode::Always => {
+            tracing::info!(camera = %id, "software motion detection started");
+            loop {
+                follow(&deps, &id, &cfg, &active).await;
+                if active.swap(false, Ordering::Relaxed) {
+                    end(&deps, &id);
+                }
+                tokio::time::sleep(RETRY).await;
+            }
         }
-        tokio::time::sleep(RETRY).await;
+        Mode::StandIn => stand_in(&deps, &id, &cfg, &active).await,
+    }
+}
+
+/// For a camera whose motion should come from ONVIF: detect in software
+/// while its events don't work, stop once they have worked for a while.
+async fn stand_in(deps: &Deps, id: &str, cfg: &Settings, active: &AtomicBool) {
+    loop {
+        while !deps.links.failing(id) {
+            tokio::time::sleep(CHECK).await;
+        }
+        tracing::warn!(camera = %id, "ONVIF motion events are not working: software motion detection stands in");
+        deps.live.update(id, |l| l.motion_fallback = true);
+        loop {
+            let recovered = tokio::select! {
+                () = follow(deps, id, cfg, active) => false,
+                () = until_working(deps, id) => true,
+            };
+            if active.swap(false, Ordering::Relaxed) {
+                end(deps, id);
+            }
+            if recovered {
+                break;
+            }
+            tokio::time::sleep(RETRY).await;
+        }
+        deps.live.update(id, |l| l.motion_fallback = false);
+        tracing::info!(camera = %id, "ONVIF motion events work again: software motion detection stopped");
+    }
+}
+
+async fn until_working(deps: &Deps, id: &str) {
+    while deps.links.failing(id) {
+        tokio::time::sleep(CHECK).await;
     }
 }
 

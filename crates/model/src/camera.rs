@@ -251,6 +251,10 @@ pub struct Camera {
     pub recording_reason: Option<RecordingReason>,
     /// Live state: motion is being detected right now.
     pub motion_active: bool,
+    /// Live state: the camera's ONVIF events don't work, so Watchgrid
+    /// detects motion itself (software) until they do again.
+    #[serde(default)]
+    pub motion_fallback: bool,
 
     pub last_event: Option<LastEventSummary>,
     /// Bytes used by this camera's recordings.

@@ -39,6 +39,21 @@ pub fn cameras(cams: &[Camera]) -> HealthCheck {
     }
 }
 
+/// Cameras whose ONVIF motion events fail (software detection stands in);
+/// `None` when no enabled camera detects motion.
+pub fn motion(cams: &[Camera]) -> Option<HealthCheck> {
+    const NAME: &str = "Motion detection";
+    let detecting: Vec<&Camera> = cams.iter().filter(|c| c.enabled && c.motion.enabled).collect();
+    if detecting.is_empty() {
+        return None;
+    }
+    let standing_in: Vec<&str> = detecting.iter().filter(|c| c.motion_fallback).map(|c| c.name.as_str()).collect();
+    Some(match standing_in.as_slice() {
+        [] => check(NAME, CheckLevel::Ok, format!("Working on {}", detecting.len())),
+        names => check(NAME, CheckLevel::Warning, format!("{}: camera events fail, Watchgrid detects motion itself", names.join(", "))),
+    })
+}
+
 /// Destinations that can't take uploads (rejected credentials…); `None`
 /// when there are none configured.
 pub fn exports(names_with_problems: &[String], configured: usize) -> Option<HealthCheck> {

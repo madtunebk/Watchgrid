@@ -28,6 +28,8 @@ pub struct Deps {
     pub credentials: Arc<CredentialStore>,
     pub live: Arc<LiveRegistry>,
     pub bus: Bus,
+    /// Whether events flow (software motion stands in while they don't).
+    pub links: Arc<super::OnvifLinks>,
 }
 
 /// Detection types in progress per camera, shared with its task so a
@@ -51,11 +53,17 @@ impl Watchers {
         Self { enabled: false, ..Self::new(deps) }
     }
 
+    /// Shared with software motion detection (it stands in while failing).
+    pub fn links(&self) -> Arc<super::OnvifLinks> {
+        self.deps.links.clone()
+    }
+
     /// (Re)start watching after the camera was added or changed; the task
     /// itself decides from the settings whether there is anything to do.
     pub fn apply(&self, id: &str, exists: bool) {
         if let Some((old, open)) = self.tasks.lock().expect("watchers lock").remove(id) {
             old.abort();
+            self.deps.links.gone(id);
             // Stopped mid-detection (motion switched off, settings saved):
             // close what was open, or MOTION and the event stay on forever.
             let open = open.lock().expect("detections lock").clone();
@@ -105,10 +113,14 @@ async fn run(deps: Deps, id: String, open: Open) {
     tokio::time::sleep(START_DELAY).await;
     let mut attempt = 0u32;
     let mut state = Detections::default();
+    let mut registered = false;
     loop {
         let cfg = match cameras::onvif_watch(&deps.db, &deps.credentials, &id).await {
             Ok(Some(cfg)) if cfg.active => cfg,
-            Ok(_) => return, // gone, disabled, or without ONVIF
+            Ok(_) => {
+                deps.links.gone(&id);
+                return; // gone, disabled, or without ONVIF
+            }
             Err(e) => {
                 tracing::warn!(camera = %id, "cannot load ONVIF settings: {e}");
                 tokio::time::sleep(backoff::delay(attempt.max(1))).await;
@@ -116,6 +128,11 @@ async fn run(deps: Deps, id: String, open: Open) {
             }
         };
         state.motion = cfg.motion;
+        // Only cameras whose motion comes from ONVIF get a stand-in.
+        if cfg.motion && !registered {
+            deps.links.watching(&id);
+            registered = true;
+        }
         let reason = match Subscription::create(&cfg.url, &cfg.username, cfg.password).await {
             Err(e) => e,
             Ok(sub) => {
@@ -129,6 +146,7 @@ async fn run(deps: Deps, id: String, open: Open) {
                 reason
             }
         };
+        deps.links.lost(&id);
         // Without events we can't know when detections end: close them now.
         close_all(&deps, &id, &state.active_kinds());
         state = Detections { motion: state.motion, ..Detections::default() };
@@ -158,6 +176,7 @@ async fn pull_until_error(deps: &Deps, id: &str, sub: &Subscription, state: &mut
                     tracing::info!(camera = %id, "ONVIF events connected");
                 }
                 delivered = true;
+                deps.links.delivered(id);
                 for n in list {
                     apply(deps, id, state, &n);
                 }
@@ -221,6 +240,7 @@ mod tests {
             credentials: Arc::new(CredentialStore::from_key(&[1u8; 32])),
             live: live.clone(),
             bus,
+            links: Arc::default(),
         };
         let watchers = Watchers::inert(deps);
         let open: Open = Arc::new(Mutex::new(vec![EventType::Motion]));
@@ -240,6 +260,7 @@ mod tests {
             credentials: Arc::new(CredentialStore::from_key(&[1u8; 32])),
             live: Arc::new(LiveRegistry::default()),
             bus,
+            links: Arc::default(),
         };
         let mut s = Detections::default();
         apply(&deps, "cam", &mut s, &note("RuleEngine/CellMotionDetector/Motion", true));
@@ -262,6 +283,7 @@ mod tests {
             credentials: Arc::new(CredentialStore::from_key(&[1u8; 32])),
             live: Arc::new(LiveRegistry::default()),
             bus,
+            links: Arc::default(),
         };
         let mut s = Detections::default();
         apply(&deps, "cam", &mut s, &note("UserAlarm/IllegalAccess", true));
@@ -279,6 +301,7 @@ mod tests {
             credentials: Arc::new(CredentialStore::from_key(&[1u8; 32])),
             live: Arc::new(LiveRegistry::default()),
             bus,
+            links: Arc::default(),
         };
         let mut s = Detections { motion: false, ..Detections::default() };
         apply(&deps, "cam", &mut s, &note("RuleEngine/CellMotionDetector/Motion", true));

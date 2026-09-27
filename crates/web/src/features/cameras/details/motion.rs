@@ -44,7 +44,7 @@ pub fn MotionTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
     save::follow_server(move || (enabled.get(), source.get(), sensitivity.get(), zones.get(), notify.get()), saved, on_revert);
 
     let onvif = Choice::new(MotionSource::Onvif, "Camera / ONVIF").tag("Recommended")
-        .describe("The camera reports motion, people and vehicles itself. Lightest on the NAS.");
+        .describe("The camera reports motion, people and vehicles itself. Lightest on the NAS. If its events stop working, Watchgrid detects motion itself until they are back.");
     let sources = vec![
         if has_onvif { onvif } else { onvif.disabled_because("Add ONVIF details in Edit camera to use this") },
         Choice::new(MotionSource::Software, "Software detection")
@@ -69,6 +69,13 @@ pub fn MotionTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
                 <fieldset class="plain-fieldset" disabled=off>
                     <RadioCards value=source options=sources name="motion-source" />
                 </fieldset>
+                {move || (camera.get().motion_fallback && source.get() == MotionSource::Onvif).then(|| view! {
+                    <p class="note note--warning">
+                        <strong>"The camera's motion events aren't working right now"</strong>
+                        " (its ONVIF connection fails or keeps dropping). Watchgrid is detecting motion itself on the substream until they work again, "
+                        "with the sensitivity and zones below. Restarting the camera usually brings its events back."
+                    </p>
+                })}
             </FormSection>
 
             <div class="motion-layout">
