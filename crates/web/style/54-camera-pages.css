@@ -51,10 +51,12 @@
 .save-bar__status span { display: inline-flex; align-items: center; gap: 0.4rem; }
 
 /* Live tab */
-/* Video, controls and info strip share one width, sized so all three fit
-   in the viewport height (header, page title and tabs take ~25rem). */
-.live-tab { width: min(100%, 85.3333rem, calc((100dvh - 25rem) * 16 / 9)); min-width: min(100%, 30rem); }
-.live-stage { border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden; background: #000; }
+/* The video fills the space the page has left (full width, and the height
+   under the header, title and tabs minus the controls and facts below it);
+   the picture keeps its shape inside (contain, never cropped). */
+.live-tab { display: flex; flex-direction: column; width: 100%; height: calc(100dvh - var(--header-h) - 12.8rem); min-height: 30rem; }
+.live-stage { flex: 1; min-height: 14rem; border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden; background: #000; }
+.live-stage > .preview { aspect-ratio: auto; height: 100%; }
 .live-stage:fullscreen { border: 0; border-radius: 0; display: flex; align-items: center; }
 .live-stage:fullscreen .preview { width: 100%; }
 .live-stage .preview__osd { font-size: 0.9333rem; }
