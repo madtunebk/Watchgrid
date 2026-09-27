@@ -12,12 +12,13 @@ const WSN: &str = "http://docs.oasis-open.org/wsn/b-2";
 /// enough that renewals are rare; short enough that one left behind by a
 /// dropped connection frees its slot on the camera soon.
 pub const LIFETIME_SECS: u32 = 300;
-/// How long a PullMessages call may wait for events on the camera: long
-/// polls mean a couple of requests a minute when nothing happens (Tapo
-/// refuses clients that ask too often).
-const PULL_WAIT: &str = "PT30S";
+/// How long a PullMessages call may wait for events on the camera. Tapo
+/// (TC71, TC72) closes the connection without answering when asked to wait
+/// 30 s; 5 s has always worked. The request rate is kept down elsewhere
+/// (one subscription, paced pulls, slow reconnects).
+const PULL_WAIT: &str = "PT5S";
 /// The HTTP call must outlast that wait.
-const PULL_LIMIT: std::time::Duration = std::time::Duration::from_secs(40);
+const PULL_LIMIT: std::time::Duration = std::time::Duration::from_secs(15);
 
 pub struct Subscription {
     client: Client,
@@ -43,7 +44,7 @@ impl Subscription {
         Ok(Self { client, address })
     }
 
-    /// Wait (up to 30 s) for events.
+    /// Wait (up to 5 s) for events.
     pub async fn pull(&self) -> Result<Vec<Notification>, String> {
         let reply = self
             .client
