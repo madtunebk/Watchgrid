@@ -45,8 +45,11 @@ async fn session(s: &AppState, id: &str) -> ApiResult<Option<Arc<Ptz>>> {
     }
     let camera = service::get(s, id).await?;
     let Some(onvif) = camera.onvif.filter(|o| !o.url.trim().is_empty()) else { return Ok(None) };
-    let (user, password) = service::stored_onvif_login(s, &onvif.url).await?.unwrap_or_default();
-    let ptz = Ptz::connect(&onvif.url, &user, password)
+    // By camera, like the event watcher: looking the login up by address
+    // found nothing for some cameras, and PTZ then went out with no login
+    // (GetCapabilities passes without one, GetProfiles answers 401).
+    let password = crate::cameras::onvif_watch(&s.db, &s.credentials, id).await.map_err(ApiError::internal)?.and_then(|w| w.password);
+    let ptz = Ptz::connect(&onvif.url, &onvif.username, password)
         .await
         .map_err(|e| {
             tracing::warn!(camera = %id, "PTZ: cannot reach the camera: {e}");
