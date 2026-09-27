@@ -5,27 +5,34 @@ use std::time::Duration;
 use leptos::prelude::*;
 use leptos_router::components::A;
 
-use crate::api::{self, ConnectionState, ServerHealth, Topic, use_connection, use_query};
+use crate::api::{self, CheckLevel, ConnectionState, ServerHealth, Topic, use_connection, use_query};
 use crate::clock::use_now;
 use crate::format;
 use crate::ui::{Dot, I, Icon, Tone};
 
+/// The NVR's health from its checks (same poll as the recording count);
+/// the tooltip names what needs attention.
 #[component]
 pub fn ServerStatus() -> impl IntoView {
-    let server = use_query(Topic::Server, None, api::get_server_info);
+    let status = use_query(Topic::System, Some(Duration::from_secs(5)), api::get_system_status);
     move || {
-        server.get().and_then(Result::ok).map(|s| {
-            let (tone, label) = match s.health {
-                ServerHealth::Running => (Tone::Online, "NVR running"),
-                ServerHealth::Degraded => (Tone::Warning, "Degraded"),
-                ServerHealth::Stopped => (Tone::Danger, "Stopped"),
-            };
-            view! {
-                <A href="/system" attr:class="server-status">
-                    <Dot tone />
-                    {label}
-                </A>
+        let (tone, label, title) = match status.get()? {
+            Ok(s) => {
+                let (tone, label) = match s.health {
+                    ServerHealth::Running => (Tone::Online, "NVR running"),
+                    ServerHealth::Degraded => (Tone::Warning, "NVR: needs attention"),
+                    ServerHealth::Stopped => (Tone::Danger, "NVR problem"),
+                };
+                let problems: Vec<String> = s.checks.iter().filter(|c| c.level != CheckLevel::Ok).map(|c| format!("{}: {}", c.name, c.detail)).collect();
+                (tone, label, if problems.is_empty() { "Every check passes".to_string() } else { problems.join("\n") })
             }
+            Err(e) => (Tone::Offline, "NVR not responding", e.to_string()),
+        };
+        Some(view! {
+            <A href="/system" attr:class="server-status" attr:title=title>
+                <Dot tone />
+                {label}
+            </A>
         })
     }
 }

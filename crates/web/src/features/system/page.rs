@@ -5,9 +5,9 @@ use leptos::prelude::*;
 use super::capacity::CapacitySummary;
 use super::logs::LogViewer;
 use super::metrics::Metrics;
-use crate::api::{self, ServerHealth, Topic, use_query};
+use crate::api::{self, CheckLevel, Topic, use_query};
 use crate::format;
-use crate::ui::{Page, Panel, Skeleton, async_view};
+use crate::ui::{ErrorBox, Page, Panel, Skeleton, async_view};
 
 #[component]
 pub fn SystemPage() -> impl IntoView {
@@ -33,13 +33,26 @@ pub fn SystemPage() -> impl IntoView {
                 <Panel title="Capacity">
                     {async_view(capacity, || view! { <Skeleton lines=5 /> }.into_any(), |estimate| view! { <CapacitySummary estimate /> })}
                 </Panel>
+                <Panel title="Health">
+                    {move || match status.get() {
+                        None => view! { <Skeleton lines=4 /> }.into_any(),
+                        Some(Err(error)) => view! { <ErrorBox error /> }.into_any(),
+                        Some(Ok(s)) => view! {
+                            <dl class="facts">
+                                {s.checks.into_iter().map(|c| {
+                                    let class = match c.level {
+                                        CheckLevel::Ok => "text-online",
+                                        CheckLevel::Warning => "text-warning",
+                                        CheckLevel::Error => "text-danger",
+                                    };
+                                    view! { <div><dt>{c.name}</dt><dd class=class>{c.detail}</dd></div> }
+                                }).collect_view()}
+                            </dl>
+                        }.into_any(),
+                    }}
+                </Panel>
                 <Panel title="Server">
                     {async_view(server, || view! { <Skeleton lines=4 /> }.into_any(), move |s| {
-                        let health = match s.health {
-                            ServerHealth::Running => "Running",
-                            ServerHealth::Degraded => "Degraded",
-                            ServerHealth::Stopped => "Stopped",
-                        };
                         let started = s.started_at.with_timezone(&chrono::Local);
                         let started = format!("{}, {}", started.format("%a %-d %b %Y"), crate::format::time_hm(started));
                         let hw = capacity.get().and_then(Result::ok).map(|c| c.hardware);
@@ -47,7 +60,6 @@ pub fn SystemPage() -> impl IntoView {
                             <dl class="facts">
                                 <div><dt>"Name"</dt><dd>{s.name}</dd></div>
                                 <div><dt>"Version"</dt><dd class="mono">{s.version}</dd></div>
-                                <div><dt>"Status"</dt><dd class="text-online">{health}</dd></div>
                                 <div><dt>"Started"</dt><dd>{started}</dd></div>
                                 {hw.map(|h| view! {
                                     <div><dt>"CPU"</dt><dd>{format!("{} ({} cores)", h.cpu_model, h.cpu_cores)}</dd></div>

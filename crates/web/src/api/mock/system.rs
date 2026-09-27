@@ -4,7 +4,7 @@ use chrono::Utc;
 
 use super::db::with_db;
 use super::sim::{jitter, latency};
-use crate::api::{ApiResult, CameraStatus, ServerInfo, SystemStatus};
+use crate::api::{ApiResult, CameraStatus, CheckLevel, HealthCheck, ServerHealth, ServerInfo, SystemStatus};
 
 pub async fn server_info() -> ApiResult<ServerInfo> {
     latency().await;
@@ -17,6 +17,17 @@ pub async fn status() -> ApiResult<SystemStatus> {
     Ok(with_db(|db| {
         let online = db.cameras.iter().filter(|c| c.enabled && c.status == CameraStatus::Online).count() as u32;
         let recording = db.cameras.iter().filter(|c| c.recording_active).count() as u32;
+        // Same checks as the server, from the demo's cameras.
+        let down: Vec<String> = db.cameras.iter().filter(|c| c.enabled && matches!(c.status, CameraStatus::Offline | CameraStatus::Error)).map(|c| c.name.clone()).collect();
+        let check = |name: &str, level, detail: String| HealthCheck { name: name.into(), level, detail };
+        let checks = vec![
+            check("Database", CheckLevel::Ok, "Answering".into()),
+            check("Recordings folder", CheckLevel::Ok, "Writable, disk 41% used".into()),
+            match down.as_slice() {
+                [] => check("Cameras", CheckLevel::Ok, format!("{online} online")),
+                names => check("Cameras", CheckLevel::Warning, format!("{} offline", names.join(", "))),
+            },
+        ];
         SystemStatus {
             uptime: (Utc::now() - db.server.started_at).num_seconds().max(0) as u64,
             cpu_usage: jitter(6.0 + online as f64 * 2.5, 6.0).max(1.0) as f32,
@@ -30,6 +41,8 @@ pub async fn status() -> ApiResult<SystemStatus> {
             connected_cameras: online,
             total_cameras: db.cameras.len() as u32,
             disk_usage: 41.0,
+            health: ServerHealth::of(&checks),
+            checks,
         }
     }))
 }

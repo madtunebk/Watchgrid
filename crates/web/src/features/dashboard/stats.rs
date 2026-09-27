@@ -1,6 +1,6 @@
 use leptos::prelude::*;
 
-use crate::api::{ApiResult, Camera, CameraStatus, EventPage, RecordingReason, StorageStatus, SystemStatus};
+use crate::api::{ApiResult, Camera, CameraStatus, CheckLevel, EventPage, RecordingReason, ServerHealth, StorageStatus, SystemStatus};
 use crate::format;
 use crate::ui::{Meter, Stat, Tone};
 
@@ -46,7 +46,15 @@ pub fn StatsRow(cameras: Res<Vec<Camera>>, events: Res<EventPage>, storage: Res<
     // The server as this page last heard from it — never an invented "Running".
     let server = move || match system.get() {
         None => (PENDING.to_string(), Tone::Offline, String::new()),
-        Some(Ok(s)) => ("Running".to_string(), Tone::Online, format!("Up {}", format::uptime(s.uptime))),
+        Some(Ok(s)) => {
+            let first_problem = s.checks.iter().filter(|c| c.level != CheckLevel::Ok).max_by_key(|c| c.level).map(|c| c.detail.clone());
+            let up = format!("Up {}", format::uptime(s.uptime));
+            match s.health {
+                ServerHealth::Running => ("Running".to_string(), Tone::Online, up),
+                ServerHealth::Degraded => ("Needs attention".to_string(), Tone::Warning, first_problem.unwrap_or(up)),
+                ServerHealth::Stopped => ("Problem".to_string(), Tone::Danger, first_problem.unwrap_or(up)),
+            }
+        }
         Some(Err(e)) => ("Not responding".to_string(), Tone::Danger, e.to_string()),
     };
 

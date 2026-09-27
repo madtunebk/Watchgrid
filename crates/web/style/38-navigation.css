@@ -67,6 +67,7 @@
 .rtsp__item--none { color: var(--faint); }
 
 .text-online { color: var(--online); }
+.text-warning { color: var(--warning); }
 .text-danger { color: var(--danger); display: inline-flex; align-items: center; gap: 0.4rem; }
 .link { color: var(--accent); }
 .link:hover { color: var(--accent-strong); text-decoration: underline; }

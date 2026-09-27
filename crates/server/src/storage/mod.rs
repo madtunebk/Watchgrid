@@ -2,7 +2,7 @@
 //! policy, which the sweeper enforces.
 
 pub mod cli;
-mod disk;
+pub(crate) mod disk;
 pub mod location;
 pub mod plan;
 mod retention;

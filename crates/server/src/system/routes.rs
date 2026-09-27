@@ -6,6 +6,8 @@ use axum::{Json, Router};
 use serde::Deserialize;
 use watchgrid_model::{CameraStatus, LogEntry, LogLevel, LogQuery, ServerHealth, ServerInfo, SystemStatus};
 
+use super::health;
+
 use crate::cameras;
 use crate::error::ApiResult;
 use crate::state::AppState;
@@ -20,7 +22,7 @@ pub fn router() -> Router<AppState> {
 
 async fn info(State(s): State<AppState>) -> ApiResult<Json<ServerInfo>> {
     let name = crate::settings::load_app(&s.db, s.bind).await?.general.nvr_name;
-    Ok(Json(ServerInfo { name, version: env!("CARGO_PKG_VERSION").into(), health: ServerHealth::Running,
+    Ok(Json(ServerInfo { name, version: env!("CARGO_PKG_VERSION").into(),
         started_at: s.started_at,
         log_level_from_env: crate::settings::applied::log_level_from_env(),
     }))
@@ -31,8 +33,15 @@ async fn status(State(s): State<AppState>) -> ApiResult<Json<SystemStatus>> {
     // Counts only: no storage totals or event lookups on this 5 s poll.
     let cams = cameras::list_live(&s).await?;
     let enabled = cams.iter().filter(|c| c.enabled);
-    let disk = crate::storage::disk_usage_percent(&s.recording_files.root());
+    let root = s.recording_files.root();
+    let disk = crate::storage::disk_usage_percent(&root);
+    let targets = crate::exports::repo::targets(&s.db).await?;
+    let failing: Vec<String> = targets.iter().filter(|t| t.problem.is_some()).map(|t| t.name.clone()).collect();
+    let mut checks = vec![health::database(), health::recordings(&root, disk), health::cameras(&cams)];
+    checks.extend(health::exports(&failing, targets.len()));
     Ok(Json(SystemStatus {
+        health: ServerHealth::of(&checks),
+        checks,
         uptime: (chrono::Utc::now() - s.started_at).num_seconds().max(0) as u64,
         cpu_usage: host.cpu,
         memory_used: host.memory_used,
