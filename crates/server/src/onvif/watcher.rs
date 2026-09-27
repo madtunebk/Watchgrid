@@ -108,6 +108,23 @@ impl Watchers {
             self.tasks.lock().expect("watchers lock").insert(id.to_string(), (stop, open));
         }
     }
+
+    /// The service is stopping: every watcher unsubscribes, all at once and
+    /// for a few seconds at most. Otherwise each restart or upgrade left a
+    /// dead subscription on every camera until its lease ran out, and Tapo
+    /// has so few slots that events stopped until the cameras were powered off.
+    pub async fn shutdown(&self) {
+        let stops: Vec<watch::Sender<bool>> = self.tasks.lock().expect("watchers lock").drain().map(|(_, (stop, _))| stop).collect();
+        for stop in &stops {
+            let _ = stop.send(true);
+        }
+        // A watcher has ended when it dropped its end of the channel.
+        let ended = futures::future::join_all(stops.iter().map(watch::Sender::closed));
+        let in_time = tokio::time::timeout(UNSUBSCRIBE_LIMIT + Duration::from_secs(1), ended).await.is_ok();
+        if !stops.is_empty() {
+            tracing::info!(watchers = stops.len(), in_time, "ONVIF watchers stopped (subscriptions released)");
+        }
+    }
 }
 
 /// Current state of each property (topic + source, see
@@ -288,6 +305,32 @@ fn close_all(deps: &Deps, id: &str, kinds: &[EventType]) {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn shutdown_waits_for_the_watchers_to_unsubscribe() {
+        use std::sync::Arc;
+        let deps = super::Deps {
+            db: sqlx::postgres::PgPoolOptions::new().connect_lazy("postgres://unused").unwrap(),
+            credentials: Arc::new(crate::credentials::CredentialStore::from_key(&[1u8; 32])),
+            bus: crate::bus::Bus::new(),
+            links: Arc::default(),
+            detections: Arc::new(crate::motion::Detections::new(crate::bus::Bus::new(), Arc::new(crate::live::LiveRegistry::default()))),
+        };
+        let watchers = super::Watchers::inert(deps);
+        let (stop, mut stopped) = tokio::sync::watch::channel(false);
+        let unsubscribed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = unsubscribed.clone();
+        // Stands in for a watcher: on stop, "unsubscribes" (takes a moment), then ends.
+        tokio::spawn(async move {
+            let _ = stopped.wait_for(|s| *s).await;
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            flag.store(true, std::sync::atomic::Ordering::SeqCst);
+        });
+        watchers.tasks.lock().unwrap().insert("cam".into(), (stop, Default::default()));
+        watchers.shutdown().await;
+        assert!(unsubscribed.load(std::sync::atomic::Ordering::SeqCst), "shutdown returned before the watcher was done");
+        assert!(watchers.tasks.lock().unwrap().is_empty());
+    }
+
     #[tokio::test]
     async fn a_stop_interrupts_whatever_the_watcher_waits_on() {
         let (stop, mut stopped) = tokio::sync::watch::channel(false);

@@ -308,6 +308,7 @@ async fn serve(logs: system::logs::LogBuffer) -> Result<(), String> {
     state.exports.start().await;
     exports_auto_upload(&state);
     let recorder = state.recorder.clone();
+    let onvif = state.onvif.clone();
     let app = http::router(state, &config.ui_dir);
 
     let listener = tokio::net::TcpListener::bind(config.bind).await.map_err(|e| format!("cannot listen on {}: {e}", config.bind))?;
@@ -316,8 +317,9 @@ async fn serve(logs: system::logs::LogBuffer) -> Result<(), String> {
         .with_graceful_shutdown(async move {
             shutdown_signal().await;
             tracing::info!("shutting down");
-            // Never leave half-written recordings behind on a clean stop.
-            recorder.shutdown().await;
+            // Never leave half-written recordings behind on a clean stop,
+            // nor event subscriptions holding the cameras' few slots.
+            tokio::join!(recorder.shutdown(), onvif.shutdown());
         })
         .await
         .map_err(|e| e.to_string())
