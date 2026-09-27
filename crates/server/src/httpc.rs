@@ -89,6 +89,12 @@ fn parse_response(raw: &[u8]) -> Result<Reply, String> {
     let status = head.split_whitespace().nth(1).and_then(|s| s.parse().ok()).ok_or("malformed HTTP status")?;
     if head.lines().any(|l| l.to_ascii_lowercase().starts_with("transfer-encoding:") && l.to_ascii_lowercase().contains("chunked")) {
         body = dechunk(&body)?;
+    } else if let Some(len) = head.lines().find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").and_then(|v| v.trim().parse::<usize>().ok())) {
+        // The connection closed early: never pass a half reply on as whole.
+        if body.len() < len {
+            return Err(format!("the reply was cut short ({} of {len} bytes)", body.len()));
+        }
+        body.truncate(len);
     }
     Ok(Reply { status, body: String::from_utf8_lossy(&body).into_owned() })
 }
@@ -121,6 +127,12 @@ mod tests {
         assert!(complete(b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello"));
         assert!(complete(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n1\r\na\r\n0\r\n\r\n"));
         assert!(!complete(b"HTTP/1.1 200 OK\r\n"));
+    }
+
+    #[test]
+    fn a_reply_cut_short_is_an_error() {
+        let err = parse_response(b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nhello").err().unwrap();
+        assert!(err.contains("cut short (5 of 10 bytes)"), "{err}");
     }
 
     #[test]

@@ -55,7 +55,13 @@ impl Subscription {
                 PULL_LIMIT,
             )
             .await?;
-        Ok(xml::notifications(&reply))
+        // Anything but a PullMessagesResponse (an error page, a stray
+        // reply) must not pass as "no events".
+        if xml::has_element(&reply, "PullMessagesResponse") != Some(true) {
+            let start: String = reply.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(120).collect();
+            return Err(format!("PullMessages: unexpected reply ({start})"));
+        }
+        xml::notifications(&reply).map_err(|e| format!("PullMessages: {e}"))
     }
 
     pub async fn renew(&self) -> Result<(), String> {

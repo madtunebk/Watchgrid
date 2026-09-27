@@ -76,6 +76,11 @@ impl Client {
         }
         .map_err(|e| format!("{op}: {e}"))?;
         if reply.status == 200 {
+            // A fault is a refusal whatever the HTTP status says.
+            if xml::is_fault(&reply.body) {
+                let reason = xml::fault_reason(&reply.body).unwrap_or_else(|| "no reason given".into());
+                return Err(format!("{op}: the camera answered with a SOAP fault: {reason}"));
+            }
             return Ok(reply.body);
         }
         let reason = xml::fault_reason(&reply.body).unwrap_or_default();

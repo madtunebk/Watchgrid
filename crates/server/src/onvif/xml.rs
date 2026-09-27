@@ -119,6 +119,33 @@ pub fn topics(xml: &str) -> Vec<String> {
     out
 }
 
+/// Does the reply contain this element (by local name)? `None`: not XML.
+pub fn has_element(xml: &str, name: &str) -> Option<bool> {
+    let mut r = Reader::from_str(xml);
+    loop {
+        match r.read_event().ok()? {
+            Event::Start(e) | Event::Empty(e) if local(e.name().as_ref()) == name.as_bytes() => return Some(true),
+            Event::Eof => return Some(false),
+            _ => {}
+        }
+    }
+}
+
+/// Is the reply a SOAP fault: `<Fault>` as the first element in `<Body>`?
+/// (Not just any element named Fault: event topics can be called that.)
+pub fn is_fault(xml: &str) -> bool {
+    let mut r = Reader::from_str(xml);
+    let mut in_body = false;
+    loop {
+        match r.read_event() {
+            Ok(Event::Start(e)) if !in_body && local(e.name().as_ref()) == b"Body" => in_body = true,
+            Ok(Event::Start(e) | Event::Empty(e)) if in_body => return local(e.name().as_ref()) == b"Fault",
+            Ok(Event::Eof) | Err(_) => return false,
+            _ => {}
+        }
+    }
+}
+
 /// SOAP fault text, if any.
 pub fn fault_reason(xml: &str) -> Option<String> {
     text(xml, "Text").or_else(|| text(xml, "Value")).filter(|s| !s.is_empty())
@@ -145,14 +172,32 @@ pub struct Notification {
     pub data: Vec<(String, String)>,
 }
 
+/// Data items that carry a detection's on/off state.
+const STATE_ITEMS: [&str; 7] = ["State", "IsMotion", "IsPeople", "IsVehicle", "IsInside", "Active", "Alarm"];
+
+fn boolean(v: &str) -> Option<bool> {
+    match v.to_ascii_lowercase().as_str() {
+        "true" | "1" => Some(true),
+        "false" | "0" => Some(false),
+        _ => None,
+    }
+}
+
 impl Notification {
-    /// The first boolean data value (IsMotion, IsPeople, State, …).
+    /// The detection's on/off state, from an item named like one
+    /// (`State`, `IsMotion`, …). Only when there is none, a single
+    /// boolean-looking item is trusted; a number such as `ObjectId=1`
+    /// next to others never decides.
     pub fn active(&self) -> Option<bool> {
-        self.data.iter().find_map(|(_, v)| match v.to_ascii_lowercase().as_str() {
-            "true" | "1" => Some(true),
-            "false" | "0" => Some(false),
+        let named = self.data.iter().find(|(k, _)| STATE_ITEMS.iter().any(|s| k.eq_ignore_ascii_case(s)));
+        if let Some((_, v)) = named {
+            return boolean(v);
+        }
+        let mut booleans = self.data.iter().filter_map(|(_, v)| boolean(v));
+        match (booleans.next(), booleans.next()) {
+            (Some(b), None) => Some(b),
             _ => None,
-        })
+        }
     }
 }
 
@@ -164,14 +209,15 @@ fn attr(e: &quick_xml::events::BytesStart<'_>, name: &[u8]) -> Option<String> {
     e.attributes().flatten().find(|a| local(a.key.as_ref()) == name).and_then(|a| a.unescape_value().ok()).map(|v| v.into_owned())
 }
 
-/// All NotificationMessages in a PullMessages reply.
-pub fn notifications(xml: &str) -> Vec<Notification> {
+/// All NotificationMessages in a PullMessages reply; an error when the
+/// reply isn't readable XML (never a silent "no events").
+pub fn notifications(xml: &str) -> Result<Vec<Notification>, String> {
     let mut r = Reader::from_str(xml);
     let mut out = Vec::new();
     let mut current: Option<Notification> = None;
     let mut in_data = false;
     loop {
-        let Ok(ev) = r.read_event() else { break };
+        let ev = r.read_event().map_err(|e| format!("unreadable reply: {e}"))?;
         match ev {
             // The whole topic text (entities included).
             Event::Start(e) if local(e.name().as_ref()) == b"Topic" => {
@@ -211,7 +257,7 @@ pub fn notifications(xml: &str) -> Vec<Notification> {
             _ => {}
         }
     }
-    out
+    Ok(out)
 }
 
 pub fn escape(s: &str) -> String {
@@ -220,6 +266,18 @@ pub fn escape(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn state_comes_from_its_named_item_and_bad_xml_is_an_error() {
+        let n = |data: &[(&str, &str)]| super::Notification { topic: "t".into(), time: None, operation: "Changed".into(), data: data.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect() };
+        assert_eq!(n(&[("ObjectId", "1"), ("State", "false")]).active(), Some(false), "a number never decides");
+        assert_eq!(n(&[("IsMotion", "true")]).active(), Some(true));
+        assert_eq!(n(&[("Anything", "true")]).active(), Some(true), "a single boolean is trusted");
+        assert_eq!(n(&[("ObjectId", "1"), ("Rule", "0")]).active(), None, "two unnamed booleans: undecided");
+        assert!(super::notifications("<a><b></a>").is_err(), "mismatched tags: an error, not zero events");
+        assert!(super::is_fault("<s:Envelope><s:Body><s:Fault><s:Reason><s:Text>no</s:Text></s:Reason></s:Fault></s:Body></s:Envelope>"));
+        assert!(!super::is_fault("<s:Envelope><s:Body><tev:GetEventPropertiesResponse><tns1:Fault topic=\"true\"/></tev:GetEventPropertiesResponse></s:Body></s:Envelope>"), "a topic named Fault is not a fault");
+    }
 
     #[test]
     fn text_keeps_everything_after_an_entity() {
@@ -251,7 +309,7 @@ mod tests {
             <wsnt:Message><tt:Message UtcTime="2026-09-24T21:00:07Z" PropertyOperation="Initialized">
               <tt:Data><tt:SimpleItem Name="IsPeople" Value="false"/></tt:Data></tt:Message></wsnt:Message></wsnt:NotificationMessage>
           </tev:PullMessagesResponse></env:Body>"#;
-        let n = notifications(reply);
+        let n = notifications(reply).unwrap();
         assert_eq!(n.len(), 2);
         assert_eq!((n[0].topic.as_str(), n[0].active(), n[0].operation.as_str()), ("RuleEngine/CellMotionDetector/Motion", Some(true), "Changed"));
         assert_eq!(n[0].time, Some("2026-09-24T21:00:05Z".parse().unwrap()));
