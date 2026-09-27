@@ -25,6 +25,18 @@ pub struct OnvifProbe {
     pub event_topics: Vec<String>,
     /// Detection kinds the NVR can map from those topics.
     pub detections: Vec<EventType>,
+    /// Whether events really arrive (a subscription and a couple of pulls),
+    /// not just whether the camera lists them. `None`: not tried (no event
+    /// service, or the device couldn't be reached).
+    #[serde(default)]
+    pub delivery: Option<EventDelivery>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EventDelivery {
+    pub ok: bool,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

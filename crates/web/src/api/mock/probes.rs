@@ -5,7 +5,7 @@
 
 use gloo_timers::future::TimeoutFuture;
 
-use crate::api::{ApiResult, ConnectionProbe, ConnectionTest, EventType, OnvifConfig, OnvifProbe, StreamProbe, StreamTest};
+use crate::api::{ApiResult, ConnectionProbe, ConnectionTest, EventType, OnvifConfig, OnvifProbe, StreamProbe, StreamTest, EventDelivery};
 
 fn unreachable(host: &str) -> bool {
     host.ends_with(".31") || host.contains("fail")
@@ -65,7 +65,7 @@ pub async fn stream(req: StreamTest) -> ApiResult<StreamProbe> {
 
 pub async fn onvif(config: &OnvifConfig) -> ApiResult<OnvifProbe> {
     TimeoutFuture::new(1100).await;
-    let fail = |message: String| Ok(OnvifProbe { ok: false, message, event_topics: vec![], detections: vec![] });
+    let fail = |message: String| Ok(OnvifProbe { ok: false, message, event_topics: vec![], detections: vec![], delivery: None });
     let url = config.url.trim();
     if !(url.starts_with("http://") || url.starts_with("https://")) {
         return fail("ONVIF URL must start with http:// or https://".into());
@@ -83,5 +83,6 @@ pub async fn onvif(config: &OnvifConfig) -> ApiResult<OnvifProbe> {
             "tns1:VideoSource/MotionAlarm".into(),
         ],
         detections: vec![EventType::Motion, EventType::Person, EventType::Vehicle],
+        delivery: Some(EventDelivery { ok: true, message: "Events arrive (subscribed and pulled; nothing happened meanwhile)".into() }),
     })
 }

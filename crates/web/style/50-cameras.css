@@ -111,3 +111,4 @@
 @container (max-width: 15rem) {
   .preview__osd span:last-child { display: none; }
 }
+.probe__delivery { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5333rem; margin: 0.4rem 0; font-size: 0.9333rem; }

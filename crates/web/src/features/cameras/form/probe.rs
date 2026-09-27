@@ -111,13 +111,19 @@ pub fn stream_view(p: Probe<StreamProbe>) -> AnyView {
 pub fn onvif_view(p: Probe<OnvifProbe>) -> AnyView {
     match p {
         Probe::Idle => ().into_any(),
-        Probe::Running => running("Querying ONVIF event service…"),
+        Probe::Running => running("Querying ONVIF and trying event delivery (up to ~10 s)…"),
         Probe::Failed(e) => frame(false, e, ().into_any()),
         Probe::Done(r) if !r.ok => frame(false, r.message, ().into_any()),
         Probe::Done(r) => frame(
             true,
             r.message,
             view! {
+                {r.delivery.map(|d| view! {
+                    <p class=if d.ok { "probe__delivery text-online" } else { "probe__delivery text-danger" }>
+                        <span class="probe__label">"Event delivery"</span>
+                        {d.message}
+                    </p>
+                })}
                 <div class="probe__detections">
                     <span class="probe__label">"Detections"</span>
                     {r.detections.into_iter().map(|kind| view! { <EventChip kind /> }).collect_view()}
