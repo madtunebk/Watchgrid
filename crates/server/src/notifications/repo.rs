@@ -1,4 +1,5 @@
-//! SQL for notifications.
+//! SQL for notifications. Read / unread is per user (`notification_reads`);
+//! the notifications themselves (and deleting them) are shared.
 
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
@@ -49,11 +50,15 @@ pub async fn insert(db: &PgPool, d: &Draft) -> sqlx::Result<Notification> {
 /// id, level, title, message, created_at, read, link
 type Row = (String, String, String, String, DateTime<Utc>, bool, Option<String>);
 
+/// SQL: `$u` has read notification `n`.
+const READ_BY: &str = "EXISTS (SELECT 1 FROM notification_reads r WHERE r.notification_id = n.id AND r.user_id = $1)";
+
 async fn prune(db: &PgPool) -> sqlx::Result<()> {
+    // Warnings and errors nobody has read yet stay beyond KEEP.
     sqlx::query(
-        "DELETE FROM notifications WHERE id IN (
+        "DELETE FROM notifications n WHERE id IN (
              SELECT id FROM notifications ORDER BY created_at DESC, id DESC OFFSET $1
-         ) AND (read OR level NOT IN ('warning', 'error'))",
+         ) AND (level NOT IN ('warning', 'error') OR EXISTS (SELECT 1 FROM notification_reads r WHERE r.notification_id = n.id))",
     )
     .bind(KEEP)
     .execute(db)
@@ -65,19 +70,25 @@ async fn prune(db: &PgPool) -> sqlx::Result<()> {
         .map(|_| ())
 }
 
-/// A page, newest first; `unread_only` filters.
-pub async fn page(db: &PgPool, unread_only: bool, limit: i64, offset: i64) -> sqlx::Result<NotificationPage> {
-    let rows: Vec<Row> = sqlx::query_as(
-        "SELECT id, level, title, message, created_at, read, link FROM notifications
-         WHERE NOT ($1 AND read) ORDER BY created_at DESC, id DESC LIMIT $2 OFFSET $3",
-    )
+/// A page for `user`, newest first; `unread_only` filters.
+pub async fn page(db: &PgPool, user: i64, unread_only: bool, limit: i64, offset: i64) -> sqlx::Result<NotificationPage> {
+    let rows: Vec<Row> = sqlx::query_as(&format!(
+        "SELECT id, level, title, message, created_at, {READ_BY} AS read, link FROM notifications n
+         WHERE NOT ($2 AND {READ_BY}) ORDER BY created_at DESC, id DESC LIMIT $3 OFFSET $4"
+    ))
+    .bind(user)
     .bind(unread_only)
     .bind(limit)
     .bind(offset)
     .fetch_all(db)
     .await?;
-    let (total, unread): (i64, i64) =
-        sqlx::query_as("SELECT COUNT(*) FILTER (WHERE NOT ($1 AND read)), COUNT(*) FILTER (WHERE NOT read) FROM notifications").bind(unread_only).fetch_one(db).await?;
+    let (total, unread): (i64, i64) = sqlx::query_as(&format!(
+        "SELECT COUNT(*) FILTER (WHERE NOT ($2 AND {READ_BY})), COUNT(*) FILTER (WHERE NOT {READ_BY}) FROM notifications n"
+    ))
+    .bind(user)
+    .bind(unread_only)
+    .fetch_one(db)
+    .await?;
     Ok(NotificationPage {
         items: rows
             .into_iter()
@@ -88,21 +99,34 @@ pub async fn page(db: &PgPool, unread_only: bool, limit: i64, offset: i64) -> sq
     })
 }
 
-/// Mark read / unread, or delete; returns how many changed.
-pub async fn bulk(db: &PgPool, ids: &[String], action: NotificationBulkAction) -> sqlx::Result<u32> {
-    let sql = match action {
-        NotificationBulkAction::Read => "UPDATE notifications SET read = TRUE WHERE id = ANY($1) AND NOT read",
-        NotificationBulkAction::Unread => "UPDATE notifications SET read = FALSE WHERE id = ANY($1) AND read",
-        NotificationBulkAction::Delete => "DELETE FROM notifications WHERE id = ANY($1)",
+/// Mark read / unread for `user`, or delete (for everyone); returns how
+/// many changed.
+pub async fn bulk(db: &PgPool, user: i64, ids: &[String], action: NotificationBulkAction) -> sqlx::Result<u32> {
+    let done = match action {
+        NotificationBulkAction::Read => {
+            sqlx::query("INSERT INTO notification_reads (notification_id, user_id) SELECT id, $2 FROM notifications WHERE id = ANY($1) ON CONFLICT DO NOTHING")
+                .bind(ids)
+                .bind(user)
+                .execute(db)
+                .await?
+        }
+        NotificationBulkAction::Unread => {
+            sqlx::query("DELETE FROM notification_reads WHERE notification_id = ANY($1) AND user_id = $2").bind(ids).bind(user).execute(db).await?
+        }
+        NotificationBulkAction::Delete => sqlx::query("DELETE FROM notifications WHERE id = ANY($1)").bind(ids).execute(db).await?,
     };
-    Ok(sqlx::query(sql).bind(ids).execute(db).await?.rows_affected() as u32)
+    Ok(done.rows_affected() as u32)
 }
 
-/// Mark some (or, with `None`, all) as read.
-pub async fn mark_read(db: &PgPool, ids: Option<&[String]>) -> sqlx::Result<()> {
-    match ids {
-        Some(ids) => sqlx::query("UPDATE notifications SET read = TRUE WHERE id = ANY($1)").bind(ids).execute(db).await,
-        None => sqlx::query("UPDATE notifications SET read = TRUE WHERE NOT read").execute(db).await,
-    }
+/// Mark some (or, with `None`, all) as read for `user`.
+pub async fn mark_read(db: &PgPool, user: i64, ids: Option<&[String]>) -> sqlx::Result<()> {
+    sqlx::query(
+        "INSERT INTO notification_reads (notification_id, user_id)
+         SELECT id, $1 FROM notifications WHERE $2::text[] IS NULL OR id = ANY($2) ON CONFLICT DO NOTHING",
+    )
+    .bind(user)
+    .bind(ids)
+    .execute(db)
+    .await
     .map(|_| ())
 }

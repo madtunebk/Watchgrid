@@ -3,12 +3,13 @@
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
-use axum::{Json, Router};
+use axum::{Extension, Json, Router};
 use serde::Deserialize;
-use watchgrid_model::{NOTIFICATION_BULK_MAX, NotificationBulkRequest, NotificationBulkResult, NotificationLevel, NotificationPage, TestNotificationResult};
+use watchgrid_model::{NOTIFICATION_BULK_MAX, NotificationBulkAction, NotificationBulkRequest, NotificationBulkResult, NotificationLevel, NotificationPage, Role, TestNotificationResult};
 
 use super::rules::Draft;
 use super::{repo, webhook};
+use crate::auth::CurrentUser;
 use crate::bus::BusEvent;
 use crate::error::{ApiError, ApiResult};
 use crate::state::AppState;
@@ -26,16 +27,22 @@ struct ListQuery {
     offset: Option<i64>,
 }
 
-async fn list(State(s): State<AppState>, Query(q): Query<ListQuery>) -> ApiResult<Json<NotificationPage>> {
+/// Read / unread are the signed-in user's own.
+async fn list(State(s): State<AppState>, Extension(me): Extension<CurrentUser>, Query(q): Query<ListQuery>) -> ApiResult<Json<NotificationPage>> {
     let limit = q.limit.unwrap_or(50).clamp(1, 200);
-    Ok(Json(repo::page(&s.db, q.unread, limit, q.offset.unwrap_or(0).max(0)).await?))
+    Ok(Json(repo::page(&s.db, me.user_id, q.unread, limit, q.offset.unwrap_or(0).max(0)).await?))
 }
 
-async fn bulk(State(s): State<AppState>, Json(req): Json<NotificationBulkRequest>) -> ApiResult<Json<NotificationBulkResult>> {
+/// Read / unread change only the caller's state; deleting removes a
+/// notification for everyone, so only administrators may.
+async fn bulk(State(s): State<AppState>, Extension(me): Extension<CurrentUser>, Json(req): Json<NotificationBulkRequest>) -> ApiResult<Json<NotificationBulkResult>> {
     if req.ids.is_empty() || req.ids.len() > NOTIFICATION_BULK_MAX {
         return Err(ApiError::invalid(format!("Select between 1 and {NOTIFICATION_BULK_MAX} notifications")));
     }
-    let changed = repo::bulk(&s.db, &req.ids, req.action).await?;
+    if req.action == NotificationBulkAction::Delete && me.role != Role::Admin {
+        return Err(ApiError::forbidden("Only administrators can delete notifications (they are gone for everyone)"));
+    }
+    let changed = repo::bulk(&s.db, me.user_id, &req.ids, req.action).await?;
     s.bus.publish(BusEvent::NotificationsChanged);
     Ok(Json(NotificationBulkResult { changed }))
 }
@@ -46,8 +53,8 @@ struct Read {
     ids: Option<Vec<String>>,
 }
 
-async fn mark_read(State(s): State<AppState>, Json(body): Json<Read>) -> ApiResult<StatusCode> {
-    repo::mark_read(&s.db, body.ids.as_deref()).await?;
+async fn mark_read(State(s): State<AppState>, Extension(me): Extension<CurrentUser>, Json(body): Json<Read>) -> ApiResult<StatusCode> {
+    repo::mark_read(&s.db, me.user_id, body.ids.as_deref()).await?;
     s.bus.publish(BusEvent::NotificationsChanged);
     Ok(StatusCode::NO_CONTENT)
 }

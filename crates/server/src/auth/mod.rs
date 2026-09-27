@@ -16,7 +16,7 @@ mod sessions;
 mod tokens;
 mod users;
 
-pub use guard::require_session;
+pub use guard::{CurrentUser, require_session};
 pub use limiter::LoginLimiter;
 pub use routes::router;
 
