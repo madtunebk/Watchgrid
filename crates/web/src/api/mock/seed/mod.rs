@@ -21,7 +21,7 @@ pub fn build(scenario: Scenario) -> Db {
         server.name = "Watchgrid".into(); // a fresh install keeps the default name
     }
     let (settings, users, sessions) = (settings::defaults(&server.name), people::users(), people::sessions());
-    let retention = RetentionPolicy { max_age_days: Some(14), max_usage: Some(500 * GB), min_free: Some(50 * GB) };
+    let retention = RetentionPolicy { max_age_days: Some(14), max_usage: Some(500 * GB), min_free: Some(50 * GB), event_history_days: None };
 
     if scenario == Scenario::Empty {
         return Db { scenario, server, cameras: vec![], events: vec![], recordings: vec![], notifications: vec![], retention, export_targets: vec![], export_jobs: vec![], settings, users, sessions, logs: logs::boot() };

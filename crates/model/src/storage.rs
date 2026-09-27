@@ -21,6 +21,21 @@ pub struct RetentionPolicy {
     pub max_usage: Option<u64>,
     /// Bytes
     pub min_free: Option<u64>,
+    /// How long events stay in the history; `None`: as long as recordings
+    /// ([`Self::event_days`]).
+    #[serde(default)]
+    pub event_history_days: Option<u32>,
+}
+
+/// Event history without any age rule: a year.
+pub const DEFAULT_EVENT_DAYS: u32 = 365;
+
+impl RetentionPolicy {
+    /// Days events stay in the history: their own rule, else the recordings'
+    /// age limit, else a year.
+    pub fn event_days(&self) -> u32 {
+        self.event_history_days.or(self.max_age_days).unwrap_or(DEFAULT_EVENT_DAYS)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

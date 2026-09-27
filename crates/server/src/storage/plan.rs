@@ -103,7 +103,7 @@ mod tests {
     }
 
     fn policy(days: Option<u32>, max: Option<u64>, free: Option<u64>) -> RetentionPolicy {
-        RetentionPolicy { max_age_days: days, max_usage: max, min_free: free }
+        RetentionPolicy { max_age_days: days, max_usage: max, min_free: free, event_history_days: None }
     }
 
     fn usage(recordings_bytes: u64, free: u64) -> Usage {

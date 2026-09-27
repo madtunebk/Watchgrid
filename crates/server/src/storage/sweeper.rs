@@ -20,7 +20,6 @@ use crate::recordings::{self, RecordingFiles};
 
 const INTERVAL: Duration = Duration::from_secs(600);
 /// Event history kept when no age limit is set.
-const DEFAULT_EVENT_DAYS: u32 = 365;
 
 pub struct Sweeper {
     db: PgPool,
@@ -59,8 +58,8 @@ impl Sweeper {
 
     pub(super) async fn pass(&self) -> Result<usize, String> {
         let policy = retention::load(&self.db).await.map_err(|e| format!("{e:?}"))?;
-        // Event history follows the recordings' age limit (a year without one).
-        let event_days = policy.max_age_days.unwrap_or(DEFAULT_EVENT_DAYS);
+        // Its own rule, else the recordings' age limit, else a year.
+        let event_days = policy.event_days();
         match crate::events::purge_events_older_than(&self.db, event_days).await {
             Ok(0) => {}
             Ok(n) => {
@@ -100,7 +99,7 @@ impl Sweeper {
 
     /// Events a pass with `policy` removes from the history now.
     pub async fn doomed_events(&self, policy: &RetentionPolicy) -> Result<u64, String> {
-        let days = policy.max_age_days.unwrap_or(DEFAULT_EVENT_DAYS);
+        let days = policy.event_days();
         crate::events::count_events_older_than(&self.db, days).await.map_err(|e| e.to_string())
     }
 

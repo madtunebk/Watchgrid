@@ -10,7 +10,7 @@ const KEY: &str = "retention";
 
 /// Until the administrator sets rules, nothing is ever deleted.
 pub fn default_policy() -> RetentionPolicy {
-    RetentionPolicy { max_age_days: None, max_usage: None, min_free: None }
+    RetentionPolicy { max_age_days: None, max_usage: None, min_free: None, event_history_days: None }
 }
 
 pub async fn load(db: &PgPool) -> ApiResult<RetentionPolicy> {
@@ -27,6 +27,9 @@ pub async fn save(db: &PgPool, policy: &RetentionPolicy) -> ApiResult<()> {
 pub fn validate(p: &RetentionPolicy) -> ApiResult<()> {
     if p.max_age_days == Some(0) {
         return Err(ApiError::invalid("Keep recordings for at least 1 day"));
+    }
+    if p.event_history_days == Some(0) {
+        return Err(ApiError::invalid("Keep event history for at least 1 day"));
     }
     if p.max_usage == Some(0) {
         return Err(ApiError::invalid("The storage limit must be larger than zero"));

@@ -3,7 +3,7 @@
 
 use leptos::prelude::*;
 
-use crate::api::{self, RetentionPolicy, RetentionPreview, StorageStatus, Topic, invalidate};
+use crate::api::{self, DEFAULT_EVENT_DAYS, RetentionPolicy, RetentionPreview, StorageStatus, Topic, invalidate};
 use crate::format;
 use crate::ui::form::{Field, NumberInput, Switch};
 use crate::ui::{ConfirmDialog, SaveBar, SaveState};
@@ -64,6 +64,8 @@ pub fn RetentionForm(status: StorageStatus) -> impl IntoView {
     let max_gb = RwSignal::new(p.max_usage.map_or(500, |b| (b / GB) as u32));
     let free_on = RwSignal::new(p.min_free.is_some());
     let free_gb = RwSignal::new(p.min_free.map_or(50, |b| (b / GB) as u32));
+    let events_on = RwSignal::new(p.event_history_days.is_some());
+    let events_days = RwSignal::new(p.event_history_days.unwrap_or(365));
     let saved = RwSignal::new(p);
     let state = SaveState::new();
 
@@ -73,7 +75,13 @@ pub fn RetentionForm(status: StorageStatus) -> impl IntoView {
             max_age_days: age_on.get().then(|| age.get()),
             max_usage: max_on.get().then(|| bytes(was.max_usage, max_gb.get())),
             min_free: free_on.get().then(|| bytes(was.min_free, free_gb.get())),
+            event_history_days: events_on.get().then(|| events_days.get()),
         }
+    };
+    // What the history keeps while it has no rule of its own.
+    let events_default = move || match age_on.get() {
+        true => format!("Same as recordings: {} days", age.get()),
+        false => format!("Same as recordings: without an age rule, {DEFAULT_EVENT_DAYS} days"),
     };
     let dirty = Signal::derive(move || current() != saved.get());
     let days_of_history = status
@@ -134,6 +142,8 @@ pub fn RetentionForm(status: StorageStatus) -> impl IntoView {
         max_gb.set(p.max_usage.map_or(500, |b| (b / GB) as u32));
         free_on.set(p.min_free.is_some());
         free_gb.set(p.min_free.map_or(50, |b| (b / GB) as u32));
+        events_on.set(p.event_history_days.is_some());
+        events_days.set(p.event_history_days.unwrap_or(365));
     });
 
     view! {
@@ -150,6 +160,15 @@ pub fn RetentionForm(status: StorageStatus) -> impl IntoView {
                 <Switch checked=free_on label="Always keep free on the volume" />
                 <NumberInput value=free_gb min=1 max=100_000 suffix="GB" disabled=Signal::derive(move || !free_on.get()) />
             </div>
+            <div class="retention__rule">
+                <Switch checked=events_on label="Keep event history for" />
+                <NumberInput value=events_days min=1 max=3650 suffix="days" disabled=Signal::derive(move || !events_on.get()) />
+            </div>
+            <p class="note">{move || if events_on.get() {
+                "Events older than this leave the history, even when their video is still kept.".to_string()
+            } else {
+                events_default()
+            }}</p>
             <Field label="Projection"><p class="retention__projection">{preview}</p></Field>
             <p class="note note--info">"Protected recordings are never deleted automatically, whatever these rules say. Oldest unprotected clips are removed first."</p>
             <SaveBar state dirty on_save on_revert />

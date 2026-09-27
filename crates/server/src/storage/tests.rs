@@ -8,7 +8,7 @@ use super::retention;
 #[sqlx::test(migrations = "./migrations")]
 async fn policy_defaults_to_keeping_everything_then_round_trips(db: PgPool) {
     assert_eq!(retention::load(&db).await.unwrap(), retention::default_policy());
-    let p = RetentionPolicy { max_age_days: Some(14), max_usage: Some(500_000_000_000), min_free: Some(50_000_000_000) };
+    let p = RetentionPolicy { max_age_days: Some(14), max_usage: Some(500_000_000_000), min_free: Some(50_000_000_000), event_history_days: None };
     retention::save(&db, &p).await.unwrap();
     assert_eq!(retention::load(&db).await.unwrap(), p);
     let p2 = RetentionPolicy { max_age_days: None, ..p };
@@ -18,9 +18,9 @@ async fn policy_defaults_to_keeping_everything_then_round_trips(db: PgPool) {
 
 #[sqlx::test(migrations = "./migrations")]
 async fn zero_limits_are_rejected(db: PgPool) {
-    let zero_days = RetentionPolicy { max_age_days: Some(0), max_usage: None, min_free: None };
+    let zero_days = RetentionPolicy { max_age_days: Some(0), max_usage: None, min_free: None, event_history_days: None };
     assert_eq!(retention::save(&db, &zero_days).await.unwrap_err().status(), axum::http::StatusCode::UNPROCESSABLE_ENTITY);
-    let zero_bytes = RetentionPolicy { max_age_days: None, max_usage: Some(0), min_free: None };
+    let zero_bytes = RetentionPolicy { max_age_days: None, max_usage: Some(0), min_free: None, event_history_days: None };
     assert!(retention::save(&db, &zero_bytes).await.is_err());
     assert_eq!(retention::load(&db).await.unwrap(), retention::default_policy(), "nothing was stored");
 }
@@ -73,7 +73,7 @@ mod sweep {
         // No policy: nothing happens.
         assert_eq!(sweeper.pass().await.unwrap(), 0);
 
-        retention::save(&db, &RetentionPolicy { max_age_days: Some(7), max_usage: None, min_free: None }).await.unwrap();
+        retention::save(&db, &RetentionPolicy { max_age_days: Some(7), max_usage: None, min_free: None, event_history_days: None }).await.unwrap();
         assert_eq!(sweeper.pass().await.unwrap(), 1);
         assert!(!old.exists() && kept.exists() && fresh.exists());
         let left: Vec<String> = sqlx::query_scalar("SELECT id FROM recordings ORDER BY id").fetch_all(&db).await.unwrap();
@@ -89,7 +89,7 @@ mod sweep {
         add(&db, &files, "old-2", 20).await;
         add(&db, &files, "fresh", 1).await;
         let sweeper = Sweeper::new(db.clone(), files, Bus::new());
-        let policy = RetentionPolicy { max_age_days: Some(7), max_usage: None, min_free: None };
+        let policy = RetentionPolicy { max_age_days: Some(7), max_usage: None, min_free: None, event_history_days: None };
 
         let preview = sweeper.doomed(&policy).await.unwrap();
         assert_eq!(preview.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>(), ["old-1", "old-2"]);
@@ -142,4 +142,16 @@ mod folder_switch {
         assert!(now.join(".partial").is_dir(), "prepared before use");
         let _ = std::fs::remove_dir_all(base);
     }
+}
+
+#[test]
+fn event_history_has_its_own_rule_else_follows_recordings() {
+    let p = |age: Option<u32>, events: Option<u32>| RetentionPolicy { max_age_days: age, max_usage: None, min_free: None, event_history_days: events };
+    assert_eq!(p(None, None).event_days(), 365, "a year without any rule");
+    assert_eq!(p(Some(14), None).event_days(), 14, "as long as the recordings");
+    assert_eq!(p(Some(14), Some(90)).event_days(), 90, "its own rule wins");
+    assert!(retention::validate(&p(None, Some(0))).is_err());
+    // Stored before the rule existed: loads as "follow the recordings".
+    let old: RetentionPolicy = serde_json::from_str(r#"{"maxAgeDays":30,"maxUsage":null,"minFree":null}"#).unwrap();
+    assert_eq!((old.event_history_days, old.event_days()), (None, 30));
 }
