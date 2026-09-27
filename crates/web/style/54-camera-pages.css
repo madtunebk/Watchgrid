@@ -56,12 +56,13 @@
    the picture keeps its shape inside (contain, never cropped). */
 .live-tab { display: flex; flex-direction: column; width: 100%; height: calc(100dvh - var(--header-h) - 12.8rem); min-height: 30rem; }
 .live-stage { flex: 1; min-height: 14rem; border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden; background: #000; }
+.live-stage.tile { aspect-ratio: auto; }
 .live-stage > .preview { aspect-ratio: auto; height: 100%; }
+.live-tab > .ptz { margin: 0.8rem 0 0; }
+.live-tab > .info-strip { margin-top: 0.8rem; }
 .live-stage:fullscreen { border: 0; border-radius: 0; display: flex; align-items: center; }
 .live-stage:fullscreen .preview { width: 100%; }
 .live-stage .preview__osd { font-size: 0.9333rem; }
-.live-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5333rem; margin: 0.8rem 0; }
-.live-controls__note { font-size: 0.8667rem; color: var(--muted); }
 .info-strip {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(6.5rem, 1fr)); gap: 1px;
   margin: 0;

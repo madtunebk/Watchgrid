@@ -34,10 +34,11 @@ impl Dir {
     }
 }
 
-/// Arrows (and, unless `compact`, presets). Renders nothing for cameras
-/// that can't move.
+/// Arrows (and, unless `compact`, presets; with `presets_only`, just the
+/// presets, for when the arrows sit over the video). Renders nothing for
+/// cameras that can't move.
 #[component]
-pub fn PtzPad(camera_id: String, #[prop(optional)] compact: bool) -> impl IntoView {
+pub fn PtzPad(camera_id: String, #[prop(optional)] compact: bool, #[prop(optional)] presets_only: bool) -> impl IntoView {
     let state = LocalResource::new({
         let id = camera_id.clone();
         move || api::get_ptz(id.clone())
@@ -113,12 +114,14 @@ pub fn PtzPad(camera_id: String, #[prop(optional)] compact: bool) -> impl IntoVi
     view! {
         <Show when=move || available.get()>
             <div class="ptz" class:ptz--compact=compact on:dblclick=|ev| ev.stop_propagation()>
-                <div class="ptz__pad">
-                    {arrow(Dir::Up, I::ChevronUp, "Tilt up", "ptz__btn--up")}
-                    {arrow(Dir::Left, I::ChevronLeft, "Pan left", "ptz__btn--left")}
-                    {arrow(Dir::Right, I::ChevronRight, "Pan right", "ptz__btn--right")}
-                    {arrow(Dir::Down, I::ChevronDown, "Tilt down", "ptz__btn--down")}
-                </div>
+                {(!presets_only).then(|| view! {
+                    <div class="ptz__pad">
+                        {arrow(Dir::Up, I::ChevronUp, "Tilt up", "ptz__btn--up")}
+                        {arrow(Dir::Left, I::ChevronLeft, "Pan left", "ptz__btn--left")}
+                        {arrow(Dir::Right, I::ChevronRight, "Pan right", "ptz__btn--right")}
+                        {arrow(Dir::Down, I::ChevronDown, "Tilt down", "ptz__btn--down")}
+                    </div>
+                })}
                 {(!compact).then(|| view! { <Presets camera_id=camera_id.clone() presets error /> })}
                 {move || error.get().map(|e| view! { <p class="ptz__error">{e}</p> })}
             </div>

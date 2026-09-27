@@ -4,7 +4,7 @@ use leptos::prelude::*;
 use crate::api::{Camera, CameraStatus};
 use crate::features::cameras::widgets::{CameraPreview, PtzPad, RecordButton};
 use crate::format;
-use crate::ui::{I, Icon, fullscreen, snapshot as snap};
+use crate::ui::{I, Icon, Tone, fullscreen, snapshot as snap, use_toaster};
 
 #[component]
 pub fn LiveTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
@@ -12,7 +12,7 @@ pub fn LiveTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
     let muted = RwSignal::new(true);
     // Only streams with sound get the mute button.
     let has_audio = RwSignal::new(false);
-    let snapshot = RwSignal::new(None::<String>);
+    let toaster = use_toaster();
 
     let fullscreen = move |_| {
         if let Some(el) = stage.get() {
@@ -22,44 +22,43 @@ pub fn LiveTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
     let take_snapshot = move |_| {
         let Some(el) = stage.get_untracked() else { return };
         let name = snap::file_name(&camera.get_untracked().name);
-        let at = crate::format::time_hms(chrono::Local::now());
-        snapshot.set(Some(match snap::save_frame(&el, &name) {
-            Ok(()) => format!("Snapshot saved at {at} ({name}.jpg)"),
-            Err(e) => e.to_string(),
-        }));
+        match snap::save_frame(&el, &name) {
+            Ok(()) => toaster.show(Tone::Online, format!("Snapshot saved ({name}.jpg)")),
+            Err(e) => toaster.show(Tone::Danger, e.to_string()),
+        }
     };
 
+    // The same controls as a camera opened in Live View: a bar over the
+    // bottom of the picture and the pan / tilt arrows (shown on hover, and
+    // always on touch screens); saved positions stay under the video.
     view! {
         <div class="live-tab">
-            <div class="live-stage" node_ref=stage>
+            <div class="live-stage tile" node_ref=stage>
                 {move || view! { <CameraPreview camera=camera.get() muted=muted has_audio /> }}
-            </div>
-
-            <div class="live-controls">
-                {move || {
-                    let c = camera.get();
-                    let available = c.enabled && c.status == CameraStatus::Online;
-                    view! { <RecordButton camera_id=c.id.clone() recording=c.recording_active reason=c.recording_reason available /> }
-                }}
-                <button class="btn btn--secondary btn--sm" on:click=fullscreen>
-                    <Icon icon=I::Maximize class="icon icon--sm" />"Fullscreen"
-                </button>
-                <Show when=move || has_audio.get()>
-                    <button class="btn btn--secondary btn--sm" aria-pressed=move || (!muted.get()).to_string()
-                        on:click=move |_| muted.update(|m| *m = !*m)>
-                        {move || if muted.get() {
-                            view! { <Icon icon=I::VolumeOff class="icon icon--sm" />"Unmute" }.into_any()
-                        } else {
-                            view! { <Icon icon=I::Volume class="icon icon--sm" />"Mute" }.into_any()
-                        }}
+                <div class="tile__ptz"><PtzPad camera_id=camera.get_untracked().id compact=true /></div>
+                <div class="tile__controls">
+                    {move || {
+                        let c = camera.get();
+                        let available = c.enabled && c.status == CameraStatus::Online;
+                        view! { <RecordButton camera_id=c.id.clone() recording=c.recording_active reason=c.recording_reason available compact=true /> }
+                    }}
+                    <button class="tile__btn" title="Snapshot" aria-label="Snapshot" on:click=take_snapshot>
+                        <Icon icon=I::Camera class="icon icon--sm" />
                     </button>
-                </Show>
-                <button class="btn btn--secondary btn--sm" on:click=take_snapshot>
-                    <Icon icon=I::Camera class="icon icon--sm" />"Snapshot"
-                </button>
-                {move || snapshot.get().map(|s| view! { <span class="live-controls__note">{s}</span> })}
+                    <Show when=move || has_audio.get()>
+                        <button class="tile__btn" aria-label=move || if muted.get() { "Unmute" } else { "Mute" }
+                            title=move || if muted.get() { "Unmute" } else { "Mute" }
+                            on:click=move |_| muted.update(|m| *m = !*m)>
+                            {move || view! { <Icon icon=if muted.get() { I::VolumeOff } else { I::Volume } class="icon icon--sm" /> }}
+                        </button>
+                    </Show>
+                    <span class="tile__spacer"></span>
+                    <button class="tile__btn" title="Fullscreen" aria-label="Fullscreen" on:click=fullscreen>
+                        <Icon icon=I::Maximize class="icon icon--sm" />
+                    </button>
+                </div>
             </div>
-            <PtzPad camera_id=camera.get_untracked().id />
+            <PtzPad camera_id=camera.get_untracked().id presets_only=true />
 
             {move || {
                 let c = camera.get();
