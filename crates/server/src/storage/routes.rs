@@ -5,7 +5,7 @@ use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use watchgrid_model::{RetentionPolicy, RetentionPreview, StorageStatus};
 
-use super::{disk, location, retention};
+use super::{disk, location, rate, retention};
 use crate::bus::BusEvent;
 use crate::error::ApiResult;
 use crate::recordings;
@@ -50,6 +50,7 @@ async fn status(State(s): State<AppState>) -> ApiResult<Json<StorageStatus>> {
         protected_size: recordings::protected_bytes(&s.db).await?,
         per_camera,
         retention: retention::load(&s.db).await?,
+        write_rate: rate::measure(&s.db).await?,
     }))
 }
 

@@ -5,6 +5,7 @@ pub mod cli;
 pub(crate) mod disk;
 pub mod location;
 pub mod plan;
+mod rate;
 mod retention;
 mod routes;
 mod sweeper;

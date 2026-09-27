@@ -59,6 +59,21 @@ pub struct StorageStatus {
     pub protected_size: u64,
     pub per_camera: Vec<CameraStorageUsage>,
     pub retention: RetentionPolicy,
+    /// How fast recordings were written lately; `None` until there is
+    /// enough to measure.
+    #[serde(default)]
+    pub write_rate: Option<WriteRate>,
+}
+
+/// Recording bytes per day over a recent window (the last week, or since
+/// the first recording if that is more recent). Clips deleted meanwhile
+/// (by hand or retention) aren't counted.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WriteRate {
+    pub bytes_per_day: u64,
+    /// How long the window is.
+    pub window_hours: u32,
 }
 
 fn yes() -> bool {

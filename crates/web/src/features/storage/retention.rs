@@ -31,12 +31,20 @@ fn deletes_now(p: &RetentionPreview) -> Option<String> {
     (!parts.is_empty()).then(|| format!("These rules delete {} right away. Protected recordings are kept. This cannot be undone.", parts.join(" and ")))
 }
 
-/// Days of footage the rules allow at the current write rate.
-fn projection(status: &StorageStatus, days_of_history: f64, rules: (Option<u32>, Option<u64>, Option<u64>)) -> String {
-    if status.recordings_size == 0 || days_of_history <= 0.0 {
-        return "No recordings yet — the projection appears once cameras record.".into();
+/// "the last 7 days", "the last 5 hours"
+fn window(hours: u32) -> String {
+    match hours {
+        h if h >= 48 => format!("the last {} days", (h as f32 / 24.0).round()),
+        h => format!("the last {h} hour{}", if h == 1 { "" } else { "s" }),
     }
-    let per_day = status.recordings_size as f64 / days_of_history;
+}
+
+/// Days of footage the rules allow at the rate measured lately.
+fn projection(status: &StorageStatus, rules: (Option<u32>, Option<u64>, Option<u64>)) -> String {
+    let Some(rate) = status.write_rate.filter(|r| r.bytes_per_day > 0) else {
+        return "Not enough recent recordings yet — the projection appears after about an hour of recording.".into();
+    };
+    let per_day = rate.bytes_per_day as f64;
     let mut limits: Vec<(f64, &str)> = Vec::new();
     if let Some(d) = rules.0 {
         limits.push((d as f64, "age"));
@@ -48,7 +56,8 @@ fn projection(status: &StorageStatus, days_of_history: f64, rules: (Option<u32>,
         let room = (status.free + status.recordings_size).saturating_sub(min_free);
         limits.push((room as f64 / per_day, "free-space reserve"));
     }
-    let head = format!("Recordings grow by about {} per day.", format::bytes(per_day as u64));
+    let settle = if rate.window_hours < 24 { " The estimate settles after a full day." } else { "" };
+    let head = format!("Recordings grow by about {} per day (measured over {}).{settle}", format::bytes(per_day as u64), window(rate.window_hours));
     match limits.into_iter().min_by(|a, b| a.0.total_cmp(&b.0)) {
         Some((days, why)) => format!("{head} With these rules footage is kept for about {:.0} days (limited by {why}).", days.floor()),
         None => format!("{head} Without limits the disk fills in about {:.0} days, then recording stops.", status.free as f64 / per_day),
@@ -84,17 +93,11 @@ pub fn RetentionForm(status: StorageStatus) -> impl IntoView {
         false => format!("Same as recordings: without an age rule, {DEFAULT_EVENT_DAYS} days"),
     };
     let dirty = Signal::derive(move || current() != saved.get());
-    let days_of_history = status
-        .per_camera
-        .iter()
-        .filter_map(|u| u.oldest)
-        .min()
-        .map_or(0.0, |oldest| (chrono::Utc::now() - oldest).num_seconds() as f64 / 86_400.0);
     let preview = {
         let status = status.clone();
         move || {
             let c = current();
-            projection(&status, days_of_history, (c.max_age_days, c.max_usage, c.min_free))
+            projection(&status, (c.max_age_days, c.max_usage, c.min_free))
         }
     };
 

@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use super::db::with_db;
 use super::scenario::Scenario;
 use super::sim::latency;
-use crate::api::{ApiResult, CameraStorageUsage, RetentionPolicy, StorageStatus};
+use crate::api::{ApiResult, WriteRate, CameraStorageUsage, RetentionPolicy, StorageStatus};
 
 const TB: u64 = 1_000_000_000_000;
 /// Non-NVR data on the same volume (other NAS shares).
@@ -47,6 +47,16 @@ pub async fn status() -> ApiResult<StorageStatus> {
             protected_size,
             per_camera,
             retention: db.retention.clone(),
+            // Same measure as the server: the last week of recordings.
+            write_rate: {
+                let since = chrono::Utc::now() - chrono::Duration::days(7);
+                let first = db.recordings.iter().map(|r| r.start_time).min();
+                first.map(|f| f.max(since)).and_then(|from| {
+                    let hours = (chrono::Utc::now() - from).num_seconds() as f64 / 3600.0;
+                    let bytes: u64 = db.recordings.iter().filter(|r| r.start_time >= from).map(|r| r.file_size).sum();
+                    (hours >= 1.0).then(|| WriteRate { bytes_per_day: (bytes as f64 / hours * 24.0) as u64, window_hours: hours.round() as u32 })
+                })
+            },
         }
     }))
 }
