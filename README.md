@@ -205,9 +205,14 @@ focus is on polishing the Linux version until it is stable. After that:
 
 ## License
 
+Copyright © 2026 Valentin Cornea.
+
 [GNU Affero General Public License v3.0 or later](LICENSE). You may use,
 study, change and share Watchgrid; if you offer a modified version to others
 over a network, you must share its source too.
 
 Bundled and used components keep their own licenses (OpenH264 BSD-2,
 opus-pure BSD-3, retina MIT/Apache-2.0, and the crates in `Cargo.lock`).
+
+Watchgrid was built with the help of Claude (Anthropic) as a coding
+assistant, through Claude Code.
