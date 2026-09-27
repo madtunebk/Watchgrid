@@ -24,6 +24,14 @@ pub async fn job(id: &str) -> ApiResult<ExportJob> {
     client::get(&format!("/exports/jobs/{}", enc(id))).await
 }
 
+pub async fn pending() -> ApiResult<Vec<ExportJob>> {
+    client::get("/exports/jobs").await
+}
+
+pub async fn cancel(id: &str) -> ApiResult<ExportJob> {
+    client::post(&format!("/exports/jobs/{}/cancel", enc(id)), None::<&()>).await
+}
+
 pub async fn test(input: &ExportTargetInput) -> ApiResult<ConnectionProbe> {
     client::post("/exports/targets/test", Some(input)).await
 }

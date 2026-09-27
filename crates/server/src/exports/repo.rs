@@ -173,7 +173,36 @@ fn job(r: JobRow) -> ExportJob {
         link: None,
         message: r.7,
         created_at: r.8,
+        camera_id: None,
+        clip_start: None,
     }
+}
+
+/// Uploads not finished yet (queued, waiting for a retry, running), oldest
+/// first, with their clip's camera and start.
+pub async fn active_jobs(db: &PgPool) -> sqlx::Result<Vec<ExportJob>> {
+    type Active = (String, Option<String>, String, String, i64, i64, Option<String>, Option<String>, DateTime<Utc>, Option<String>, Option<DateTime<Utc>>);
+    let rows: Vec<Active> = sqlx::query_as(&format!(
+        "SELECT {JOB_COLUMNS},
+                (SELECT r.camera_id FROM recordings r WHERE r.id = export_jobs.recording_id),
+                (SELECT r.start_time FROM recordings r WHERE r.id = export_jobs.recording_id)
+         FROM export_jobs WHERE state IN ('queued', 'uploading') ORDER BY created_at, id"
+    ))
+    .fetch_all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| ExportJob { camera_id: r.9, clip_start: r.10, ..job((r.0, r.1, r.2, r.3, r.4, r.5, r.6, r.7, r.8)) })
+        .collect())
+}
+
+/// Cancel a job that hasn't started (queued, or waiting for a retry).
+pub async fn cancel_queued(db: &PgPool, id: &str) -> sqlx::Result<bool> {
+    let done = sqlx::query("UPDATE export_jobs SET state = 'failed', message = 'Cancelled', retry_at = NULL, updated_at = now() WHERE id = $1 AND state = 'queued'")
+        .bind(id)
+        .execute(db)
+        .await?;
+    Ok(done.rows_affected() > 0)
 }
 
 const JOB_COLUMNS: &str = "id, event_id, target_id, state, bytes_total, bytes_done, link, message, created_at";
@@ -215,13 +244,14 @@ pub async fn job_parts(db: &PgPool, id: &str) -> sqlx::Result<Option<(Option<Str
     sqlx::query_as("SELECT event_id, recording_id, target_id FROM export_jobs WHERE id = $1").bind(id).fetch_optional(db).await
 }
 
-pub async fn job_started(db: &PgPool, id: &str, total: i64) -> sqlx::Result<()> {
-    sqlx::query("UPDATE export_jobs SET state = 'uploading', bytes_total = $2, bytes_done = 0, retry_at = NULL, message = NULL, updated_at = now() WHERE id = $1")
+/// `false`: the job isn't queued any more (cancelled meanwhile).
+pub async fn job_started(db: &PgPool, id: &str, total: i64) -> sqlx::Result<bool> {
+    let done = sqlx::query("UPDATE export_jobs SET state = 'uploading', bytes_total = $2, bytes_done = 0, retry_at = NULL, message = NULL, updated_at = now() WHERE id = $1 AND state = 'queued'")
         .bind(id)
         .bind(total)
         .execute(db)
-        .await
-        .map(|_| ())
+        .await?;
+    Ok(done.rows_affected() > 0)
 }
 
 pub async fn job_progress(db: &PgPool, id: &str, done: i64) -> sqlx::Result<()> {

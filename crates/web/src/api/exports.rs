@@ -20,6 +20,17 @@ pub async fn get_export_job(id: Id) -> ApiResult<ExportJob> {
     backend::exports::job(&id).await
 }
 
+/// GET /api/v1/exports/jobs — uploads not finished yet (queued, waiting
+/// for a retry, running), oldest first.
+pub async fn get_pending_exports() -> ApiResult<Vec<ExportJob>> {
+    backend::exports::pending().await
+}
+
+/// POST /api/v1/exports/jobs/{id}/cancel — stop an upload that hasn't finished.
+pub async fn cancel_export(id: Id) -> ApiResult<ExportJob> {
+    backend::exports::cancel(&id).await
+}
+
 /// POST /api/v1/exports/targets/test — check credentials before saving.
 pub async fn test_export_target(input: ExportTargetInput) -> ApiResult<ConnectionProbe> {
     backend::exports::test(&input).await

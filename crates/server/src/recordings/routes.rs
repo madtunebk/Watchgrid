@@ -105,7 +105,7 @@ async fn remove(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult<
             return Err(ApiError::conflict("This recording is protected, by hand or by one of its events. Remove the protection first."));
         }
         Err(super::DeleteError::Exporting) => {
-            return Err(ApiError::conflict("An upload of this recording is still queued or running. Delete it once the upload is done (a failing upload gives up within about 1.5 hours)."));
+            return Err(ApiError::conflict("An upload of this recording is still queued or running. Delete it once the upload is done, or cancel the upload in Settings → Exports → Pending uploads."));
         }
         Err(super::DeleteError::Failed(e)) => return Err(ApiError::internal(e)),
     }

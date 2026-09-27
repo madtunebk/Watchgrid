@@ -190,14 +190,29 @@ pub fn ExportMenu(subject: ExportSubject) -> impl IntoView {
 
             {move || note.get().map(|n| view! { <p class="export__note">{n}</p> })}
             <ul class="export__jobs">
-                {move || jobs.get().into_iter().map(|(job, name)| view! { <JobRow job name /> }).collect_view()}
+                {move || jobs.get().into_iter().map(|(job, name)| {
+                    let (id, target) = (job.id.clone(), name.clone());
+                    let on_cancel = Callback::new(move |_| {
+                        let (id, target) = (id.clone(), target.clone());
+                        spawn_local(async move {
+                            match api::cancel_export(id.clone()).await {
+                                Ok(_) => {
+                                    jobs.update(|l| l.retain(|(j, _)| j.id != id));
+                                    toaster.show(Tone::Online, format!("Upload to {target} cancelled"));
+                                }
+                                Err(e) => toaster.show(Tone::Danger, e.to_string()),
+                            }
+                        });
+                    });
+                    view! { <JobRow job name on_cancel /> }
+                }).collect_view()}
             </ul>
         </div>
     }
 }
 
 #[component]
-fn JobRow(job: ExportJob, name: String) -> impl IntoView {
+fn JobRow(job: ExportJob, name: String, on_cancel: Callback<()>) -> impl IntoView {
     let (text, class) = match job.state {
         ExportState::Queued => (format!("{name}: queued"), "job"),
         ExportState::Uploading => (format!("{name}: uploading {:.0}%", job.progress), "job"),
@@ -209,6 +224,9 @@ fn JobRow(job: ExportJob, name: String) -> impl IntoView {
             <span class="job__text">{text}</span>
             {(job.state == ExportState::Uploading || job.state == ExportState::Queued).then(|| view! {
                 <span class="job__bar"><span style:width=format!("{:.0}%", job.progress)></span></span>
+                <button class="icon-btn icon-btn--sm" title="Cancel upload" aria-label="Cancel upload" on:click=move |_| on_cancel.run(())>
+                    <Icon icon=I::X class="icon icon--sm" />
+                </button>
             })}
         </li>
     }

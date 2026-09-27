@@ -24,7 +24,9 @@ pub fn router() -> Router<AppState> {
         .route("/targets/{id}/test", post(test_saved))
         .route("/targets/{id}/auto-upload", put(set_auto))
         .route("/targets/{id}/reconnect", post(reconnect))
+        .route("/jobs", get(active_jobs))
         .route("/jobs/{id}", get(job))
+        .route("/jobs/{id}/cancel", post(cancel_job))
 }
 
 async fn list(State(s): State<AppState>) -> ApiResult<Json<Vec<ExportTarget>>> {
@@ -177,6 +179,15 @@ async fn remove(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult<
         return Err(ApiError::not_found("Export destination"));
     }
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Uploads not finished yet (queued, waiting for a retry, running).
+async fn active_jobs(State(s): State<AppState>) -> ApiResult<Json<Vec<ExportJob>>> {
+    Ok(Json(repo::active_jobs(&s.db).await?))
+}
+
+async fn cancel_job(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult<Json<ExportJob>> {
+    s.exports.cancel(&id).await.map(Json)
 }
 
 async fn job(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult<Json<ExportJob>> {

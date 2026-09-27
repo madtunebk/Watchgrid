@@ -99,4 +99,9 @@ pub struct ExportJob {
     pub link: Option<String>,
     pub message: Option<String>,
     pub created_at: Timestamp,
+    /// The clip's camera and start (in the pending uploads list).
+    #[serde(default)]
+    pub camera_id: Option<Id>,
+    #[serde(default)]
+    pub clip_start: Option<Timestamp>,
 }

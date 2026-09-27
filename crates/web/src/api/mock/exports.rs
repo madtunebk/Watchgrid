@@ -47,6 +47,8 @@ fn queue(event_id: Option<&str>, target_id: &str) -> ApiResult<ExportJob> {
             link: None,
             message: None,
             created_at: Utc::now(),
+            camera_id: None,
+            clip_start: None,
         };
         db.export_jobs.push(job.clone());
         Ok(job)
@@ -58,6 +60,9 @@ pub async fn job(id: &str) -> ApiResult<ExportJob> {
     with_db(|db| {
         let job = db.export_jobs.iter_mut().find(|j| j.id == id).ok_or_else(|| ApiError::not_found("Export"))?;
         let elapsed = (Utc::now() - job.created_at).num_milliseconds();
+        if job.state == ExportState::Failed {
+            return Ok(job.clone()); // cancelled
+        }
         (job.state, job.progress) = match elapsed {
             e if e < 500 => (ExportState::Queued, 0.0),
             e if e < UPLOAD_MS => (ExportState::Uploading, (e as f32 / UPLOAD_MS as f32 * 100.0).min(99.0)),
@@ -66,6 +71,27 @@ pub async fn job(id: &str) -> ApiResult<ExportJob> {
         if job.state == ExportState::Done && job.link.is_none() {
             job.link = (job.target_id == "gdrive").then(|| "https://drive.google.com/".to_string());
         }
+        Ok(job.clone())
+    })
+}
+
+/// Demo uploads finish within seconds: the ones still running.
+pub async fn pending() -> ApiResult<Vec<ExportJob>> {
+    latency().await;
+    Ok(with_db(|db| {
+        db.export_jobs.iter().filter(|j| (Utc::now() - j.created_at).num_milliseconds() < UPLOAD_MS && j.message.is_none()).cloned().collect()
+    }))
+}
+
+pub async fn cancel(id: &str) -> ApiResult<ExportJob> {
+    latency().await;
+    with_db(|db| {
+        let job = db.export_jobs.iter_mut().find(|j| j.id == id).ok_or_else(|| ApiError::not_found("Export"))?;
+        if job.state == ExportState::Done {
+            return Err(ApiError::conflict("This upload has already finished"));
+        }
+        job.state = ExportState::Failed;
+        job.message = Some("Cancelled".into());
         Ok(job.clone())
     })
 }

@@ -25,6 +25,10 @@ const RETRY_AFTER: [Duration; 4] = [Duration::from_secs(60), Duration::from_secs
 enum Failure {
     Final(String),
     Transient(String),
+    /// Stopped on request while running.
+    Cancelled,
+    /// Not started: cancelled while it was queued (already recorded).
+    Skipped,
 }
 
 impl Failure {
@@ -45,6 +49,8 @@ pub struct Exports {
     files: Arc<RecordingFiles>,
     queue: mpsc::UnboundedSender<String>,
     receiver: Mutex<Option<mpsc::UnboundedReceiver<String>>>,
+    /// Running uploads, each with its stop signal.
+    running: std::sync::Mutex<std::collections::HashMap<String, Arc<tokio::sync::Notify>>>,
 }
 
 pub fn secret_aad(target_id: &str) -> String {
@@ -54,7 +60,7 @@ pub fn secret_aad(target_id: &str) -> String {
 impl Exports {
     pub fn new(db: PgPool, credentials: Arc<CredentialStore>, files: Arc<RecordingFiles>) -> Self {
         let (queue, rx) = mpsc::unbounded_channel();
-        Self { db, credentials, files, queue, receiver: Mutex::new(Some(rx)) }
+        Self { db, credentials, files, queue, receiver: Mutex::new(Some(rx)), running: Default::default() }
     }
 
     /// Start the workers and put back jobs interrupted by a restart.
@@ -206,8 +212,24 @@ impl Exports {
         }
     }
 
+    /// Stop an upload: a queued one (or one waiting for a retry) is marked
+    /// cancelled, a running one is stopped. Finished ones are left alone.
+    pub async fn cancel(&self, id: &str) -> ApiResult<ExportJob> {
+        if !repo::cancel_queued(&self.db, id).await? {
+            let signal = self.running.lock().expect("running uploads lock").get(id).cloned();
+            match signal {
+                Some(stop) => stop.notify_one(),
+                None => return Err(ApiError::conflict("This upload has already finished")),
+            }
+        }
+        tracing::info!(job = %id, "export cancelled");
+        repo::job_by_id(&self.db, id).await?.ok_or_else(|| ApiError::not_found("Export"))
+    }
+
     async fn run_job(&self, id: &str) {
         let result = match self.upload(id).await {
+            Err(Failure::Skipped) => return,
+            Err(Failure::Cancelled) => Err("Cancelled".to_string()),
             Ok(link) => {
                 tracing::info!(job = %id, "export done");
                 Ok(link)
@@ -252,7 +274,9 @@ impl Exports {
             .map_err(|e| Failure::Transient(e.to_string()))?
             .ok_or_else(|| gone("the clip file is missing"))?;
         let size = tokio::fs::metadata(&file).await.map_err(|e| Failure::Final(format!("the clip file is missing: {e}")))?.len();
-        repo::job_started(&self.db, id, size as i64).await.map_err(db)?;
+        if !repo::job_started(&self.db, id, size as i64).await.map_err(db)? {
+            return Err(Failure::Skipped);
+        }
 
         // `<camera>/<day>/<camera>_<time>Z[_<event>].mp4` (UTC).
         let t = recording.start_time;
@@ -271,8 +295,15 @@ impl Exports {
         };
         let counter = sent.clone();
         let upload = provider.upload(&file, &name, move |n| counter.store(n, Ordering::Relaxed));
-        let result = watch_progress(upload, &sent).await;
+        let stop = Arc::new(tokio::sync::Notify::new());
+        self.running.lock().expect("running uploads lock").insert(id.to_string(), stop.clone());
+        let result = tokio::select! {
+            r = watch_progress(upload, &sent) => Some(r),
+            () = stop.notified() => None,
+        };
+        self.running.lock().expect("running uploads lock").remove(id);
         reporter.abort();
+        let Some(result) = result else { return Err(Failure::Cancelled) };
         // Credentials rejected: mark the destination so the UI says so.
         if let Err(e) = &result
             && (e.contains("HTTP 401") || e.contains("HTTP 403"))

@@ -98,3 +98,24 @@ async fn a_failed_upload_waits_for_its_retry(db: PgPool) {
     assert!(repo::take_due_retries(&db).await.unwrap().is_empty(), "handed out once");
     assert_eq!(repo::job_attempts(&db, &job.id).await.unwrap(), 2);
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn a_cancelled_job_never_starts_and_leaves_the_pending_list(db: PgPool) {
+    let id = repo::new_target_id(&db).await.unwrap();
+    repo::insert_target(&db, &target(&id)).await.unwrap();
+    let waiting = repo::insert_job(&db, None, "rec-1", &id).await.unwrap().unwrap();
+    let other = repo::insert_job(&db, None, "rec-2", &id).await.unwrap().unwrap();
+    assert_eq!(repo::active_jobs(&db).await.unwrap().len(), 2);
+
+    assert!(repo::cancel_queued(&db, &waiting.id).await.unwrap());
+    assert!(!repo::job_started(&db, &waiting.id, 100).await.unwrap(), "a worker skips it");
+    let cancelled = repo::job_by_id(&db, &waiting.id).await.unwrap().unwrap();
+    assert_eq!((cancelled.state, cancelled.message.as_deref()), (ExportState::Failed, Some("Cancelled")));
+    assert!(repo::insert_job(&db, None, "rec-1", &id).await.unwrap().is_some(), "it can be exported again");
+
+    assert!(repo::job_started(&db, &other.id, 100).await.unwrap());
+    assert!(!repo::cancel_queued(&db, &other.id).await.unwrap(), "a running one is stopped by the service, not here");
+    let active: Vec<String> = repo::active_jobs(&db).await.unwrap().into_iter().map(|j| j.id).collect();
+    assert_eq!(active.len(), 2, "the running one and the new one");
+    assert!(!active.contains(&waiting.id));
+}

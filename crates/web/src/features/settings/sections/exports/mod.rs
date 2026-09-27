@@ -2,6 +2,7 @@
 
 mod form;
 mod labels;
+mod pending;
 mod target_card;
 
 use leptos::prelude::*;
@@ -10,6 +11,7 @@ use crate::api::{self, Topic, use_query};
 use crate::ui::form::FormSection;
 use crate::ui::{EmptyState, I, Icon, Skeleton, async_view};
 use form::{AddDestination, EditDestination};
+use pending::PendingUploads;
 use target_card::TargetCard;
 
 #[component]
@@ -40,6 +42,7 @@ pub fn ExportsSection() -> impl IntoView {
                     </button>
                 </Show>
             </FormSection>
+            <PendingUploads targets=Signal::derive(move || targets.get().and_then(Result::ok).unwrap_or_default().into_iter().map(|t| (t.id, t.name)).collect::<std::collections::HashMap<_, _>>()) />
             <Show when=move || adding.get()>
                 <AddDestination on_done=close />
             </Show>

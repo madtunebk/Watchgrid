@@ -37,7 +37,7 @@ pub fn left_alone(action: RecordingBulkAction, s: &RecordingBulkSummary) -> Vec<
             BulkSkipReason::Recording => format!("{} skipped: still recording.", recordings(n)),
             BulkSkipReason::NotFound => format!("{} skipped: already gone.", recordings(n)),
             BulkSkipReason::Failed => format!("{} kept: the file could not be deleted (see the log).", recordings(n)),
-            BulkSkipReason::Exporting => format!("{} kept: an upload is still pending.", recordings(n)),
+            BulkSkipReason::Exporting => format!("{} kept: an upload is still pending (Settings → Exports can cancel it).", recordings(n)),
             BulkSkipReason::Shared | BulkSkipReason::InProgress => format!("{} skipped.", recordings(n)),
         })
         .collect()
