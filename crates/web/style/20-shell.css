@@ -125,3 +125,12 @@
 .conn--disconnected { color: var(--danger); }
 
 .clock { font: 0.9333rem var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* Immersive pages (Live View): no header, the sidebar is a drawer on every
+   screen size, opened from the page's own menu button. */
+.shell--immersive .header { display: none; }
+@media (min-width: 1024px) {
+  .shell--immersive .sidebar { position: fixed; z-index: 50; transform: translateX(-100%); }
+  .shell--immersive .sidebar--open { transform: none; }
+  .shell--immersive .scrim { display: block !important; }
+}
