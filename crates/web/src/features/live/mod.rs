@@ -1,6 +1,5 @@
 //! Live View: surveillance-style grid of live cameras.
 
-mod auto_hide;
 mod budget;
 mod empty_slot;
 mod focus;

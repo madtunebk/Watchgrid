@@ -5,7 +5,6 @@ use leptos::ev;
 use leptos::html::Div;
 use leptos::prelude::*;
 
-use super::auto_hide::AutoHide;
 use super::budget::page_load;
 use super::focus::CameraOverlay;
 use super::footer::WallFooter;
@@ -18,8 +17,7 @@ use crate::clock::use_interval;
 use crate::features::cameras::NoCameras;
 use crate::prefs;
 use crate::ui::form::Segmented;
-use crate::shell::OpenMenu;
-use crate::ui::{I, Icon, Skeleton};
+use crate::ui::{I, Icon, Page, Skeleton};
 
 const LAYOUT_KEY: &str = "ui.live.layout";
 const CYCLE_EVERY: Duration = Duration::from_secs(15);
@@ -84,9 +82,7 @@ pub fn LiveViewPage() -> impl IntoView {
         }
     });
 
-    let bars = AutoHide::new();
     let keys = window_event_listener(ev::keydown, move |e| {
-        bars.wake();
         let typing = e.target().and_then(|t| wasm_bindgen::JsCast::dyn_into::<web_sys::HtmlElement>(t).ok())
             .is_some_and(|el| matches!(el.tag_name().as_str(), "INPUT" | "SELECT" | "TEXTAREA"));
         if typing || e.ctrl_key() || e.meta_key() || e.alt_key() {
@@ -115,13 +111,26 @@ pub fn LiveViewPage() -> impl IntoView {
         }).unwrap_or_default()
     });
 
-    let open_menu = use_context::<OpenMenu>();
-
-    // The whole window is the wall; its controls float over it and step
-    // aside when nobody uses them (they never move or resize the grid).
     view! {
-        <div class="live-page" class:live-page--idle=move || !bars.shown.get()
-            on:pointermove=move |_| bars.wake() on:pointerdown=move |_| bars.wake() on:wheel=move |_| bars.wake()>
+        <Page
+            title="Live View"
+            subtitle
+            flush=true
+            actions=move || view! {
+                <Segmented value=layout label="Grid layout"
+                    options=GridLayout::ALL.into_iter().map(|l| (l, view! {
+                        <Icon icon=l.icon() class="icon icon--sm" /><span>{l.label()}</span>
+                    }.into_any())).collect() />
+                <button class="btn btn--secondary btn--sm" title="Place all cameras in order"
+                    on:click=move |_| if let Some(l) = list.get_untracked() { view.close(); page.set(0); slots.arrange(&l); }>
+                    <Icon icon=I::RotateCcw class="icon icon--sm" />"Auto-arrange"
+                </button>
+                <button class="btn btn--secondary btn--sm" title="Show the whole grid fullscreen"
+                    on:click=move |_| view.toggle_wall_fullscreen()>
+                    <Icon icon=I::Maximize class="icon icon--sm" />"Fullscreen"
+                </button>
+            }
+        >
             <div class="live-wall" node_ref=wall>
                 {move || match list.get() {
                     None => view! { <div class="live-wall__loading"><Skeleton lines=1 height="60vh" /></div> }.into_any(),
@@ -129,34 +138,8 @@ pub fn LiveViewPage() -> impl IntoView {
                     Some(_) => view! { <Grid layout page slots cameras=by_id view /> }.into_any(),
                 }}
                 <CameraOverlay view cameras=by_id />
-                <div class="live-bar live-bar--top" on:mouseenter=move |_| bars.hold(true) on:mouseleave=move |_| bars.hold(false)
-                    on:focusin=move |_| bars.hold(true) on:focusout=move |_| bars.hold(false)>
-                    {open_menu.map(|OpenMenu(open)| view! {
-                        <button class="icon-btn" aria-label="Menu" title="Menu" on:click=move |_| open.run(())><Icon icon=I::Menu /></button>
-                    })}
-                    <div class="live-bar__titles">
-                        <h1 class="live-bar__title">"Live View"</h1>
-                        <span class="live-bar__subtitle">{subtitle}</span>
-                    </div>
-                    <span class="live-bar__spacer"></span>
-                    <Segmented value=layout label="Grid layout"
-                        options=GridLayout::ALL.into_iter().map(|l| (l, view! {
-                            <Icon icon=l.icon() class="icon icon--sm" /><span>{l.label()}</span>
-                        }.into_any())).collect() />
-                    <button class="btn btn--secondary btn--sm" title="Place all cameras in order"
-                        on:click=move |_| if let Some(l) = list.get_untracked() { view.close(); page.set(0); slots.arrange(&l); }>
-                        <Icon icon=I::RotateCcw class="icon icon--sm" />"Auto-arrange"
-                    </button>
-                    <button class="btn btn--secondary btn--sm" title="Show the whole grid fullscreen"
-                        on:click=move |_| view.toggle_wall_fullscreen()>
-                        <Icon icon=I::Maximize class="icon icon--sm" />"Fullscreen"
-                    </button>
-                </div>
-                <div class="live-bar live-bar--bottom" on:mouseenter=move |_| bars.hold(true) on:mouseleave=move |_| bars.hold(false)
-                    on:focusin=move |_| bars.hold(true) on:focusout=move |_| bars.hold(false)>
-                    <WallFooter page pages cycle load />
-                </div>
+                <WallFooter page pages cycle load />
             </div>
-        </div>
+        </Page>
     }
 }

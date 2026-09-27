@@ -8,12 +8,6 @@ use crate::api::{self, Topic, use_query};
 use crate::{format, prefs};
 
 const COLLAPSED_KEY: &str = "ui.sidebarCollapsed";
-/// Pages that take the whole window: no header, the sidebar as a drawer.
-const IMMERSIVE: [&str; 1] = ["/live"];
-
-/// Opens the navigation drawer (for pages without the header's menu button).
-#[derive(Clone, Copy)]
-pub struct OpenMenu(pub Callback<()>);
 
 #[component]
 pub fn Shell() -> impl IntoView {
@@ -28,8 +22,6 @@ pub fn Shell() -> impl IntoView {
     let pathname = use_location().pathname;
     let drawer_path = RwSignal::new(None::<String>);
     let mobile_open = Signal::derive(move || drawer_path.get().is_some_and(|p| p == pathname.get()));
-    let immersive = Signal::derive(move || IMMERSIVE.contains(&pathname.get().as_str()));
-    provide_context(OpenMenu(Callback::new(move |_| drawer_path.set(Some(pathname.get_untracked())))));
 
     // Dates and times everywhere follow Settings → General.
     let settings = use_query(Topic::Settings, None, api::get_settings);
@@ -40,7 +32,7 @@ pub fn Shell() -> impl IntoView {
     });
 
     view! {
-        <div class="shell" class:shell--immersive=immersive>
+        <div class="shell">
             <Sidebar collapsed mobile_open on_close=move || drawer_path.set(None) />
             <div class="shell__main">
                 <Header on_open_menu=move || drawer_path.set(Some(pathname.get_untracked())) />
