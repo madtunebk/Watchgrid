@@ -47,6 +47,11 @@ impl TrackInfo {
     pub fn is_h264(&self) -> bool {
         self.codec.starts_with("avc1")
     }
+
+    /// For people: "H264", "HEVC"…
+    pub fn codec_label(&self) -> String {
+        if self.is_h264() { "H264".to_string() } else { self.codec.split('.').next().unwrap_or(&self.codec).to_uppercase() }
+    }
 }
 
 /// One encoded video frame (an H.264 access unit, length-prefixed NALs).

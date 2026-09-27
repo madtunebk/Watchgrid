@@ -89,6 +89,30 @@ impl MediaHub {
         feeds.get(&(camera_id.to_string(), kind)).map(|ch| ch.preroll.audio_since(from_pts)).unwrap_or_default()
     }
 
+    /// A running feed's state; `None` when nobody uses that stream.
+    pub fn feed_state(&self, camera_id: &str, kind: StreamKind) -> Option<FeedState> {
+        let feeds = self.feeds.lock().expect("media hub lock");
+        feeds.get(&(camera_id.to_string(), kind)).map(|ch| ch.state.borrow().clone())
+    }
+
+    /// Put the substream's state on a camera's `sub`: active while motion
+    /// detection or a live preview uses it (the main stream's state comes
+    /// from the camera's supervisor).
+    pub fn overlay_sub(&self, camera_id: &str, sub: Option<&mut watchgrid_model::Stream>) {
+        let Some(sub) = sub else { return };
+        match self.feed_state(camera_id, StreamKind::Sub) {
+            Some(FeedState::Streaming(info)) => {
+                sub.status = watchgrid_model::StreamStatus::Active;
+                sub.codec = Some(info.codec_label());
+                sub.width = Some(info.track.width);
+                sub.height = Some(info.track.height);
+                sub.audio_codec = info.audio_codec.clone();
+            }
+            Some(FeedState::Failed(_)) => sub.status = watchgrid_model::StreamStatus::Error,
+            Some(FeedState::Connecting) | None => {}
+        }
+    }
+
     /// Feeds currently open (live viewers and recordings).
     pub fn active_feeds(&self) -> usize {
         self.feeds.lock().expect("media hub lock").len()
@@ -114,5 +138,45 @@ impl MediaHub {
             feeds.remove(key);
         }
         idle
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use watchgrid_model::{Stream, StreamStatus};
+
+    use super::*;
+    use crate::media::{TrackInfo, VideoTrack};
+
+    fn hub_with_sub(state: FeedState) -> MediaHub {
+        let db = sqlx::postgres::PgPoolOptions::new().connect_lazy("postgres://unused").unwrap();
+        let hub = MediaHub::new(db, Arc::new(CredentialStore::from_key(&[1u8; 32])));
+        let channels = Arc::new(Channels {
+            frames: broadcast::channel(1).0,
+            audio: broadcast::channel(1).0,
+            state: watch::channel(state).0,
+            reload: Notify::new(),
+            preroll: Preroll::default(),
+        });
+        hub.feeds.lock().unwrap().insert(("cam".into(), StreamKind::Sub), channels);
+        hub
+    }
+
+    #[tokio::test]
+    async fn the_substream_shows_what_its_feed_is_doing() {
+        let info = TrackInfo { codec: "avc1.4d001e".into(), track: VideoTrack { width: 768, height: 432, avcc: vec![] }, audio_codec: None, audio: None };
+        let mut sub = Stream::unprobed("rtsp://h/2");
+        hub_with_sub(FeedState::Streaming(Arc::new(info))).overlay_sub("cam", Some(&mut sub));
+        assert_eq!((sub.status, sub.codec.as_deref(), sub.width, sub.height), (StreamStatus::Active, Some("H264"), Some(768), Some(432)));
+
+        let mut sub = Stream::unprobed("rtsp://h/2");
+        hub_with_sub(FeedState::Failed("no".into())).overlay_sub("cam", Some(&mut sub));
+        assert_eq!(sub.status, StreamStatus::Error);
+
+        let mut sub = Stream::unprobed("rtsp://h/2");
+        let hub = hub_with_sub(FeedState::Connecting);
+        hub.feeds.lock().unwrap().clear();
+        hub.overlay_sub("cam", Some(&mut sub));
+        assert_eq!(sub.status, StreamStatus::Idle, "no feed: idle, opened on demand");
     }
 }

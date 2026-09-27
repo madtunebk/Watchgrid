@@ -100,7 +100,7 @@ fn on_online(deps: &Deps, id: &str, info: &TrackInfo) {
 }
 
 fn update_facts(deps: &Deps, id: &str, info: &TrackInfo) {
-    let codec = if info.is_h264() { "H264".to_string() } else { info.codec.split('.').next().unwrap_or(&info.codec).to_uppercase() };
+    let codec = info.codec_label();
     deps.live.update(id, |l| {
         l.codec = Some(codec);
         l.width = Some(info.track.width);

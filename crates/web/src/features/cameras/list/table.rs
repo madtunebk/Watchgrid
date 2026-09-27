@@ -44,13 +44,25 @@ fn stream_tone(s: StreamStatus) -> Tone {
     }
 }
 
+/// What a stream's dot means; an idle substream is normal (opened on demand).
+fn stream_title(name: &str, s: StreamStatus) -> String {
+    let state = match s {
+        StreamStatus::Active => "in use",
+        StreamStatus::Idle => "idle, opened only when something needs it",
+        StreamStatus::Unconfigured => "not set up",
+        StreamStatus::Error => "error",
+    };
+    format!("{name}: {state}")
+}
+
 #[component]
 fn Row(camera: Camera) -> impl IntoView {
     let (tone, status) = labels::connection(&camera);
     let href = format!("/cameras/{}", camera.id);
     let can_record = camera.enabled && camera.status == CameraStatus::Online;
     let main_tone = stream_tone(camera.main_stream.status);
-    let sub = camera.sub_stream.as_ref().map(|s| stream_tone(s.status));
+    let main_title = stream_title("Main stream", camera.main_stream.status);
+    let sub = camera.sub_stream.as_ref().map(|s| (stream_tone(s.status), stream_title("Substream", s.status)));
     let (id, name, menu_name) = (camera.id.clone(), camera.name.clone(), camera.name.clone());
     let edit_href = format!("/cameras/{}/edit", camera.id);
     let last = camera.last_event.as_ref().map(|e| (events::title(e.kind), format::relative(e.time)));
@@ -65,9 +77,9 @@ fn Row(camera: Camera) -> impl IntoView {
             <td class="mono col-host">{camera.host.clone()}</td>
             <td class="col-rtsp">
                 <span class="rtsp">
-                    <span class="rtsp__item" title="Main stream"><Dot tone=main_tone />"Main"</span>
+                    <span class="rtsp__item" title=main_title><Dot tone=main_tone />"Main"</span>
                     {match sub {
-                        Some(t) => view! { <span class="rtsp__item" title="Substream"><Dot tone=t />"Sub"</span> }.into_any(),
+                        Some((t, title)) => view! { <span class="rtsp__item" title=title><Dot tone=t />"Sub"</span> }.into_any(),
                         None => view! { <span class="rtsp__item rtsp__item--none" title="No substream configured">"—"</span> }.into_any(),
                     }}
                 </span>

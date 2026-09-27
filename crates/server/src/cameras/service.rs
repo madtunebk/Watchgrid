@@ -98,6 +98,7 @@ fn with_live(state: &AppState, row: repo::CameraRow, extras: &Extras) -> Camera 
     camera.last_event = extras.last_events.get(&camera.id).cloned();
     state.live.overlay(&mut camera);
     state.recorder.overlay(&mut camera);
+    state.media.overlay_sub(&camera.id, camera.sub_stream.as_mut());
     camera
 }
 
