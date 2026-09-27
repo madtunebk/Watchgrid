@@ -29,13 +29,14 @@ pub fn LiveTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
     };
 
     // The same controls as a camera opened in Live View: a bar over the
-    // bottom of the picture and the pan / tilt arrows (shown on hover, and
-    // always on touch screens); saved positions stay under the video.
+    // bottom of the picture and the pan / tilt arrows; saved positions sit
+    // on the right, over the picture too (shown on hover, like the bar).
     view! {
         <div class="live-tab">
             <div class="live-stage tile" node_ref=stage>
                 {move || view! { <CameraPreview camera=camera.get() muted=muted has_audio /> }}
                 <div class="tile__ptz"><PtzPad camera_id=camera.get_untracked().id compact=true /></div>
+                <div class="tile__presets"><PtzPad camera_id=camera.get_untracked().id presets_only=true /></div>
                 <div class="tile__controls">
                     {move || {
                         let c = camera.get();
@@ -58,7 +59,6 @@ pub fn LiveTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
                     </button>
                 </div>
             </div>
-            <PtzPad camera_id=camera.get_untracked().id presets_only=true />
 
             {move || {
                 let c = camera.get();
