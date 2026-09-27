@@ -3,9 +3,11 @@
 //! subscriptions (PullPoint) feed motion/person events via the watchers.
 
 mod client;
+mod digest;
 mod endpoint;
 mod link;
 mod probe;
+mod refusal;
 pub mod ptz;
 pub mod pullpoint;
 pub mod topics;

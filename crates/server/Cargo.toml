@@ -32,6 +32,8 @@ blake2 = "0.10"
 zeroize = { version = "1", features = ["serde"] }
 quick-xml = "0.38"
 sha1 = "0.10"
+# HTTP Digest login for ONVIF cameras that ask for it.
+md-5 = "0.10"
 base64 = "0.22"
 # HTTPS for cloud export targets: pure-Rust TLS with bundled root certificates
 # (never the system's OpenSSL or CA store, which differ on every NAS).

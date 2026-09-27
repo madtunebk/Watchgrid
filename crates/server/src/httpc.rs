@@ -14,29 +14,34 @@ const MAX_BODY: usize = 4 << 20;
 pub struct Reply {
     pub status: u16,
     pub body: String,
+    /// `WWW-Authenticate` values (a 401 says how to log in).
+    pub challenges: Vec<String>,
 }
 
-pub async fn post_soap(url: &Url, action: &str, body: &str) -> Result<Reply, String> {
-    post_soap_within(url, action, body, TIMEOUT).await
+/// POST a SOAP envelope; `authorization` is an HTTP `Authorization` value
+/// (Digest) for cameras that asked for one; `limit` defaults to 8 s.
+pub async fn post_soap(url: &Url, action: &str, body: &str, authorization: Option<&str>, limit: Option<Duration>) -> Result<Reply, String> {
+    post_within(url, &format!("application/soap+xml; charset=utf-8; action=\"{action}\""), body, authorization, limit.unwrap_or(TIMEOUT)).await
 }
 
-/// For calls the device may hold open (event pulls that wait for events).
-pub async fn post_soap_within(url: &Url, action: &str, body: &str, limit: Duration) -> Result<Reply, String> {
-    post_within(url, &format!("application/soap+xml; charset=utf-8; action=\"{action}\""), body, limit).await
+/// The request path (with query) as sent, which Digest signs.
+pub fn request_uri(url: &Url) -> String {
+    match url.query() {
+        Some(q) => format!("{}?{q}", url.path()),
+        None => url.path().to_string(),
+    }
 }
 
-async fn post_within(url: &Url, content_type: &str, body: &str, limit: Duration) -> Result<Reply, String> {
+async fn post_within(url: &Url, content_type: &str, body: &str, authorization: Option<&str>, limit: Duration) -> Result<Reply, String> {
     if url.scheme() != "http" {
         return Err("only http:// addresses are supported".into());
     }
     let host = url.host_str().ok_or("the ONVIF URL has no host")?;
     let port = url.port().unwrap_or(80);
-    let path = match url.query() {
-        Some(q) => format!("{}?{q}", url.path()),
-        None => url.path().to_string(),
-    };
+    let path = request_uri(url);
+    let authorization = authorization.map(|a| format!("Authorization: {a}\r\n")).unwrap_or_default();
     let request = format!(
-        "POST {path} HTTP/1.1\r\nHost: {host}:{port}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\nUser-Agent: Watchgrid\r\n\r\n{body}",
+        "POST {path} HTTP/1.1\r\nHost: {host}:{port}\r\n{authorization}Content-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\nUser-Agent: Watchgrid\r\n\r\n{body}",
         body.len()
     );
     let exchange = async {
@@ -96,7 +101,14 @@ fn parse_response(raw: &[u8]) -> Result<Reply, String> {
         }
         body.truncate(len);
     }
-    Ok(Reply { status, body: String::from_utf8_lossy(&body).into_owned() })
+    let challenges = head
+        .lines()
+        .filter_map(|l| {
+            let (name, value) = l.split_once(':')?;
+            name.trim().eq_ignore_ascii_case("www-authenticate").then(|| value.trim().to_string())
+        })
+        .collect();
+    Ok(Reply { status, body: String::from_utf8_lossy(&body).into_owned(), challenges })
 }
 
 fn dechunk(mut data: &[u8]) -> Result<Vec<u8>, String> {
@@ -127,6 +139,12 @@ mod tests {
         assert!(complete(b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello"));
         assert!(complete(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n1\r\na\r\n0\r\n\r\n"));
         assert!(!complete(b"HTTP/1.1 200 OK\r\n"));
+    }
+
+    #[test]
+    fn a_401_brings_its_login_challenges() {
+        let r = parse_response(b"HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Digest realm=\"cam\", nonce=\"n\"\r\nwww-authenticate: Basic realm=\"cam\"\r\nContent-Length: 0\r\n\r\n").unwrap();
+        assert_eq!(r.challenges, vec![r#"Digest realm="cam", nonce="n""#.to_string(), r#"Basic realm="cam""#.to_string()]);
     }
 
     #[test]

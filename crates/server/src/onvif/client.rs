@@ -1,5 +1,8 @@
 //! SOAP requests with WS-Security UsernameToken (password digest), timed
-//! against the camera's own clock so skewed devices still accept them.
+//! against the camera's own clock so skewed devices still accept them, and
+//! HTTP Digest for cameras that ask for it.
+
+use std::sync::Mutex;
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as B64;
@@ -7,6 +10,8 @@ use chrono::{DateTime, Duration, Utc};
 use sha1::{Digest, Sha1};
 use url::Url;
 
+use super::digest::{self, Challenge};
+use super::refusal::{self, Refusal};
 use super::xml;
 use crate::httpc as http;
 
@@ -16,19 +21,35 @@ pub struct Client {
     password: Option<String>,
     /// Camera time minus our time.
     clock_offset: Duration,
+    clock: Clock,
+    /// The camera's Digest challenge and how many requests answered it
+    /// (sent with every request once the camera asked for it).
+    digest: Mutex<Option<(Challenge, u32)>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Clock {
+    NotAsked,
+    Read,
+    Unreadable,
 }
 
 impl Client {
     pub fn new(url: Url, username: String, password: Option<String>) -> Self {
-        Self { url, username, password, clock_offset: Duration::zero() }
+        Self { url, username, password, clock_offset: Duration::zero(), clock: Clock::NotAsked, digest: Mutex::new(None) }
     }
 
-    /// Read the device clock (no authentication needed) to sign requests in its time.
+    /// Read the device clock (no authentication needed) to sign requests in
+    /// its time. If that fails, a later refusal says so.
     pub async fn sync_clock(&mut self) {
         let body = r#"<tds:GetSystemDateAndTime xmlns:tds="http://www.onvif.org/ver10/device/wsdl"/>"#;
-        let Ok(reply) = self.raw(&self.url.clone(), "http://www.onvif.org/ver10/device/wsdl/GetSystemDateAndTime", body, false).await else { return };
-        if let Some(t) = xml::device_utc_time(&reply) {
-            self.clock_offset = t - Utc::now();
+        let reply = self.raw(&self.url.clone(), "http://www.onvif.org/ver10/device/wsdl/GetSystemDateAndTime", body, false).await;
+        match reply.ok().as_deref().and_then(xml::device_utc_time) {
+            Some(t) => {
+                self.clock_offset = t - Utc::now();
+                self.clock = Clock::Read;
+            }
+            None => self.clock = Clock::Unreadable,
         }
     }
 
@@ -67,11 +88,19 @@ impl Client {
         // Errors name the call and carry the HTTP status: they end up in
         // the log, where "which request, what answer" is what helps.
         let op = operation(action);
-        let reply = match limit {
-            Some(l) => http::post_soap_within(url, action, &envelope, l).await,
-            None => http::post_soap(url, action, &envelope).await,
+        let envelope = envelope.as_str();
+        let send = |authorization: Option<String>| async move { http::post_soap(url, action, envelope, authorization.as_deref(), limit).await.map_err(|e| format!("{op}: {e}")) };
+        let mut reply = send(self.digest_answer(url, auth)).await?;
+        // A camera that wants HTTP Digest says so in its 401 (also when the
+        // nonce we answered went stale): answer that challenge, once.
+        if reply.status == 401
+            && auth
+            && self.password.is_some()
+            && let Some(challenge) = reply.challenges.iter().find_map(|c| digest::parse(c))
+        {
+            *self.digest.lock().expect("digest lock") = Some((challenge, 0));
+            reply = send(self.digest_answer(url, auth)).await?;
         }
-        .map_err(|e| format!("{op}: {e}"))?;
         if reply.status == 200 {
             // A fault is a refusal whatever the HTTP status says.
             if xml::is_fault(&reply.body) {
@@ -82,10 +111,29 @@ impl Client {
         }
         let reason = xml::fault_reason(&reply.body).unwrap_or_default();
         if reply.status == 401 || reason.to_ascii_lowercase().contains("not authorized") || reason.contains("NotAuthorized") {
-            return Err(format!("{op}: the camera rejected the ONVIF username or password (HTTP {})", reply.status));
+            let why = refusal::explain(&Refusal {
+                status: reply.status,
+                challenges: &reply.challenges,
+                body: &reply.body,
+                has_password: self.password.is_some(),
+                clock_unreadable: self.clock == Clock::Unreadable,
+            });
+            return Err(format!("{op}: {why}"));
         }
         let detail = if reason.is_empty() { snippet(&reply.body) } else { reason };
         Err(if detail.is_empty() { format!("{op}: the camera answered HTTP {}", reply.status) } else { format!("{op}: the camera answered HTTP {}: {detail}", reply.status) })
+    }
+}
+
+impl Client {
+    /// The Digest `Authorization` for the next request, once the camera asked.
+    fn digest_answer(&self, url: &Url, auth: bool) -> Option<String> {
+        let password = self.password.as_deref().filter(|_| auth)?;
+        let mut guard = self.digest.lock().expect("digest lock");
+        let (challenge, count) = guard.as_mut()?;
+        *count += 1;
+        let cnonce: String = nonce().iter().map(|b| format!("{b:02x}")).collect();
+        Some(challenge.authorization(&self.username, password, "POST", &http::request_uri(url), *count, &cnonce))
     }
 }
 
@@ -136,6 +184,54 @@ mod tests {
     }
 
     use super::*;
+
+    /// A camera that wants HTTP Digest: 401 with a challenge unless the
+    /// request carries a Digest answer. Counts the connections it gets.
+    async fn digest_camera() -> (Url, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = Url::parse(&format!("http://{}/onvif/device_service", listener.local_addr().unwrap())).unwrap();
+        let hits = std::sync::Arc::new(AtomicUsize::new(0));
+        let counter = hits.clone();
+        tokio::spawn(async move {
+            loop {
+                let (mut sock, _) = listener.accept().await.unwrap();
+                counter.fetch_add(1, Ordering::SeqCst);
+                let mut buf = vec![0u8; 16 * 1024];
+                let n = sock.read(&mut buf).await.unwrap();
+                let request = String::from_utf8_lossy(&buf[..n]).to_string();
+                let answered = request.contains(r#"Authorization: Digest username="admin", realm="cam""#) && request.contains(r#"uri="/onvif/device_service""#);
+                let reply = if answered {
+                    "HTTP/1.1 200 OK\r\nContent-Length: 38\r\n\r\n<Envelope><Body><Ok/></Body></Envelope>".to_string()
+                } else {
+                    "HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Digest realm=\"cam\", nonce=\"abc\", qop=\"auth\"\r\nContent-Length: 0\r\n\r\n".to_string()
+                };
+                sock.write_all(reply.as_bytes()).await.unwrap();
+            }
+        });
+        (url, hits)
+    }
+
+    #[tokio::test]
+    async fn a_digest_camera_is_answered_and_then_asked_straight_away() {
+        use std::sync::atomic::Ordering;
+        let (url, hits) = digest_camera().await;
+        let client = Client::new(url.clone(), "admin".into(), Some("pw".into()));
+        let body = client.call(&url, "http://www.onvif.org/ver10/device/wsdl/GetDeviceInformation", "<x/>").await.unwrap();
+        assert!(body.contains("<Ok/>"));
+        assert_eq!(hits.load(Ordering::SeqCst), 2, "challenged once, then answered");
+        client.call(&url, "http://www.onvif.org/ver10/device/wsdl/GetDeviceInformation", "<x/>").await.unwrap();
+        assert_eq!(hits.load(Ordering::SeqCst), 3, "the next call answers at once");
+    }
+
+    #[tokio::test]
+    async fn without_a_password_a_digest_camera_says_so() {
+        let (url, _) = digest_camera().await;
+        let client = Client::new(url.clone(), "admin".into(), None);
+        let err = client.call(&url, "http://www.onvif.org/ver10/media/wsdl/GetProfiles", "<x/>").await.unwrap_err();
+        assert_eq!(err, "GetProfiles: the camera wants a login, and no ONVIF password is saved for this camera");
+    }
 
     #[test]
     fn digest_matches_the_ws_security_example() {

@@ -4116,6 +4116,7 @@ dependencies = [
  "hmac",
  "jpeg-encoder",
  "libc",
+ "md-5",
  "openh264",
  "opus-pure",
  "quick-xml",
