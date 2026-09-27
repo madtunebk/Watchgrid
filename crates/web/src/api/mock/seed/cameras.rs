@@ -103,6 +103,7 @@ fn build(index: usize, s: &Spec) -> Camera {
         recording_reason: s.recording,
         motion_active: s.motion_active,
         motion_fallback: false,
+        software_motion: None,
         last_event: None,
         storage_used: None,
         connected_since: s.online.then(|| now - Duration::hours(26 + index as i64 * 7)),

@@ -58,6 +58,24 @@ pub enum StreamRole {
     Sub,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DetectorState {
+    /// Waiting for video.
+    Starting,
+    /// Pictures are decoded and analysed.
+    Working,
+    /// Can't detect: `detail` says why.
+    Failing,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SoftwareMotionStatus {
+    pub state: DetectorState,
+    pub detail: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Stream {
@@ -255,6 +273,10 @@ pub struct Camera {
     /// detects motion itself (software) until they do again.
     #[serde(default)]
     pub motion_fallback: bool,
+    /// Live state of Watchgrid's own motion detection on this camera, while
+    /// it runs (software source, or standing in for ONVIF).
+    #[serde(default)]
+    pub software_motion: Option<SoftwareMotionStatus>,
 
     pub last_event: Option<LastEventSummary>,
     /// Bytes used by this camera's recordings.

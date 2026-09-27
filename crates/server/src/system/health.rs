@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use watchgrid_model::{Camera, CameraStatus, CheckLevel, HealthCheck};
+use watchgrid_model::{Camera, CameraStatus, CheckLevel, DetectorState, HealthCheck};
 
 /// Disk use from which the recordings folder is reported as nearly full.
 const DISK_WARNING: f32 = 95.0;
@@ -39,13 +39,21 @@ pub fn cameras(cams: &[Camera]) -> HealthCheck {
     }
 }
 
-/// Cameras whose ONVIF motion events fail (software detection stands in);
-/// `None` when no enabled camera detects motion.
+/// Motion detection per camera: camera events that fail (software detection
+/// stands in), and Watchgrid's own detection when it can't work (no video,
+/// wrong codec). `None` when no enabled online camera detects motion.
 pub fn motion(cams: &[Camera]) -> Option<HealthCheck> {
     const NAME: &str = "Motion detection";
-    let detecting: Vec<&Camera> = cams.iter().filter(|c| c.enabled && c.motion.enabled).collect();
+    // An offline camera is reported by the Cameras check.
+    let detecting: Vec<&Camera> = cams.iter().filter(|c| c.enabled && c.motion.enabled && c.status == CameraStatus::Online).collect();
     if detecting.is_empty() {
         return None;
+    }
+    let failing = |c: &&&Camera| c.software_motion.as_ref().is_some_and(|s| s.state == DetectorState::Failing);
+    let why = |c: &Camera| c.software_motion.as_ref().and_then(|s| s.detail.clone()).unwrap_or_default();
+    let blind: Vec<String> = detecting.iter().filter(failing).map(|c| format!("{} ({})", c.name, why(c))).collect();
+    if !blind.is_empty() {
+        return Some(check(NAME, CheckLevel::Error, format!("Not detecting on {}", blind.join(", "))));
     }
     let standing_in: Vec<&str> = detecting.iter().filter(|c| c.motion_fallback).map(|c| c.name.as_str()).collect();
     Some(match standing_in.as_slice() {

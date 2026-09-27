@@ -2,7 +2,7 @@ use leptos::prelude::*;
 
 use super::save;
 use super::zones::ZoneEditor;
-use crate::api::{Camera, MotionSource};
+use crate::api::{Camera, DetectorState, MotionSource};
 use crate::ui::{SaveBar, SaveState};
 use crate::ui::form::{Choice, Field, FormSection, RadioCards, Slider, Switch};
 
@@ -69,13 +69,39 @@ pub fn MotionTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
                 <fieldset class="plain-fieldset" disabled=off>
                     <RadioCards value=source options=sources name="motion-source" />
                 </fieldset>
-                {move || (camera.get().motion_fallback && source.get() == MotionSource::Onvif).then(|| view! {
-                    <p class="note note--warning">
-                        <strong>"The camera's motion events aren't working right now"</strong>
-                        " (its ONVIF connection fails or keeps dropping). Watchgrid is detecting motion itself on the substream until they work again, "
-                        "with the sensitivity and zones below. Restarting the camera usually brings its events back."
-                    </p>
-                })}
+                // What detection is really doing right now (not what was chosen).
+                {move || {
+                    let c = camera.get();
+                    let stand_in = c.motion_fallback && source.get() == MotionSource::Onvif;
+                    let why = c.software_motion.as_ref().and_then(|s| s.detail.clone()).unwrap_or_default();
+                    match (c.software_motion.map(|s| s.state), stand_in) {
+                        (Some(DetectorState::Failing), true) => view! {
+                            <p class="note note--danger">
+                                <strong>"No motion detection on this camera right now."</strong>
+                                {format!(" Its ONVIF events don't work, and Watchgrid can't detect motion itself either: {why}.")}
+                            </p>
+                        }.into_any(),
+                        (Some(DetectorState::Failing), false) => view! {
+                            <p class="note note--danger"><strong>"Software detection isn't working: "</strong>{why}"."</p>
+                        }.into_any(),
+                        (Some(DetectorState::Working), true) => view! {
+                            <p class="note note--warning">
+                                <strong>"The camera's motion events aren't working right now"</strong>
+                                " (its ONVIF connection fails or keeps dropping). Watchgrid is detecting motion itself on the substream until they work again, "
+                                "with the sensitivity and zones below. Restarting the camera usually brings its events back."
+                            </p>
+                        }.into_any(),
+                        (Some(DetectorState::Starting), true) => view! {
+                            <p class="note note--warning">
+                                <strong>"The camera's motion events aren't working right now."</strong>
+                                " Watchgrid is starting its own detection on the substream…"
+                            </p>
+                        }.into_any(),
+                        (Some(DetectorState::Working), false) => view! { <p class="note note--ok">"Software detection is working: pictures are analysed."</p> }.into_any(),
+                        (Some(DetectorState::Starting), false) => view! { <p class="note">"Software detection is starting (waiting for video)…"</p> }.into_any(),
+                        (None, _) => ().into_any(),
+                    }
+                }}
             </FormSection>
 
             <div class="motion-layout">

@@ -13,7 +13,7 @@ use sqlx::PgPool;
 use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 use tokio::task::JoinHandle;
-use watchgrid_model::{EventType, MotionSource, MotionZone};
+use watchgrid_model::{DetectorState, EventType, MotionSource, MotionZone, SoftwareMotionStatus};
 
 use super::analyzer::{Analyzer, Transition, cells};
 use super::decoder::H264;
@@ -36,6 +36,23 @@ const STALL: Duration = Duration::from_secs(5);
 const STATS_EVERY: u32 = 50;
 /// How often a stand-in checks whether ONVIF events work (again).
 const CHECK: Duration = Duration::from_secs(10);
+/// No video this long: detection is reported as not working.
+const NO_VIDEO: Duration = Duration::from_secs(15);
+/// This many frames in a row that can't be decoded: not working.
+const DECODE_FAILURES: u32 = 50;
+
+/// What the decoding thread tells the watcher.
+enum Report {
+    Motion(Transition),
+    /// A picture was decoded and analysed.
+    Picture,
+    Failing(String),
+}
+
+/// Show how Watchgrid's own detection is doing (`None`: not running).
+fn status(deps: &Deps, id: &str, state: Option<(DetectorState, Option<String>)>) {
+    deps.live.update(id, |l| l.software_motion = state.map(|(state, detail)| SoftwareMotionStatus { state, detail }));
+}
 
 #[derive(Clone)]
 pub struct Deps {
@@ -80,6 +97,7 @@ impl Detectors {
                 end(&self.deps, id);
             }
             self.deps.live.update(id, |l| l.motion_fallback = false);
+            status(&self.deps, id, None);
         }
         if exists && self.enabled {
             let active = Arc::new(AtomicBool::new(false));
@@ -164,6 +182,7 @@ async fn stand_in(deps: &Deps, id: &str, cfg: &Settings, active: &AtomicBool) {
             tokio::time::sleep(RETRY).await;
         }
         deps.live.update(id, |l| l.motion_fallback = false);
+        status(deps, id, None);
         tracing::info!(camera = %id, "ONVIF motion events work again: software motion detection stopped");
     }
 }
@@ -189,7 +208,10 @@ async fn follow(deps: &Deps, id: &str, cfg: &Settings, active: &AtomicBool) {
     // The feed may already be streaming: look at its current state first.
     sub.state.mark_changed();
     let (work, queue) = sync_channel::<Work>(QUEUE);
-    let (report, mut transitions) = unbounded_channel();
+    let (report, mut transitions) = unbounded_channel::<Report>();
+    status(deps, id, Some((DetectorState::Starting, None)));
+    let mut working = false;
+    let mut no_video_reported = false;
     let (sensitivity, zones, camera) = (cfg.sensitivity, cfg.zones.clone(), id.to_string());
     let thread = std::thread::Builder::new()
         .name(format!("motion-{id}"))
@@ -208,6 +230,11 @@ async fn follow(deps: &Deps, id: &str, cfg: &Settings, active: &AtomicBool) {
     loop {
         tokio::select! {
             _ = watchdog.tick() => {
+                if last_frame.elapsed() >= NO_VIDEO && !no_video_reported {
+                    no_video_reported = true;
+                    working = false;
+                    status(deps, id, Some((DetectorState::Failing, Some(format!("no video from the substream for {} s", NO_VIDEO.as_secs())))));
+                }
                 if active.load(Ordering::Relaxed) && last_frame.elapsed() >= STALL {
                     tracing::debug!(camera = %id, "no video for {} s: software motion ended", STALL.as_secs());
                     active.store(false, Ordering::Relaxed);
@@ -232,6 +259,8 @@ async fn follow(deps: &Deps, id: &str, cfg: &Settings, active: &AtomicBool) {
                     if !unsupported_logged {
                         tracing::warn!(camera = %id, codec = %info.codec, "software motion detection needs H.264; this stream is not");
                         unsupported_logged = true;
+                        working = false;
+                        status(deps, id, Some((DetectorState::Failing, Some(format!("the stream is {}; software detection needs H.264", info.codec_label())))));
                     }
                     avcc = None;
                     continue;
@@ -247,6 +276,7 @@ async fn follow(deps: &Deps, id: &str, cfg: &Settings, active: &AtomicBool) {
             frame = sub.frames.recv() => match frame {
                 Ok(frame) => {
                     last_frame = Instant::now();
+                    no_video_reported = false;
                     if avcc.is_none() || (need_keyframe && !frame.keyframe) {
                         continue;
                     }
@@ -260,13 +290,23 @@ async fn follow(deps: &Deps, id: &str, cfg: &Settings, active: &AtomicBool) {
                 Err(RecvError::Lagged(_)) => need_keyframe = true,
                 Err(RecvError::Closed) => return,
             },
-            transition = transitions.recv() => match transition {
-                Some(Transition::Started) => {
+            report = transitions.recv() => match report {
+                Some(Report::Picture) => {
+                    if !working {
+                        working = true;
+                        status(deps, id, Some((DetectorState::Working, None)));
+                    }
+                }
+                Some(Report::Failing(why)) => {
+                    working = false;
+                    status(deps, id, Some((DetectorState::Failing, Some(why))));
+                }
+                Some(Report::Motion(Transition::Started)) => {
                     tracing::debug!(camera = %id, "software motion started");
                     active.store(true, Ordering::Relaxed);
                     deps.detections.start(id, EventType::Motion, super::Source::Software, TOPIC, Utc::now());
                 }
-                Some(Transition::Ended) => {
+                Some(Report::Motion(Transition::Ended)) => {
                     tracing::debug!(camera = %id, "software motion ended");
                     active.store(false, Ordering::Relaxed);
                     end(deps, id);
@@ -282,7 +322,7 @@ fn end(deps: &Deps, id: &str) {
 }
 
 /// Decode frames and analyse pictures until the sender goes away.
-fn decode_loop(id: &str, queue: Receiver<Work>, mut analyzer: Analyzer, report: UnboundedSender<Transition>) {
+fn decode_loop(id: &str, queue: Receiver<Work>, mut analyzer: Analyzer, report: UnboundedSender<Report>) {
     lower_priority();
     let mut decoder: Option<H264> = None;
     let mut last_analysed: Option<i64> = None;
@@ -295,6 +335,9 @@ fn decode_loop(id: &str, queue: Receiver<Work>, mut analyzer: Analyzer, report: 
                     Ok(d) => Some(d),
                     Err(e) => {
                         tracing::warn!(camera = %id, "motion detection: {e}");
+                        if report.send(Report::Failing(format!("the stream can't be decoded ({e})"))).is_err() {
+                            return;
+                        }
                         None
                     }
                 };
@@ -323,12 +366,15 @@ fn decode_loop(id: &str, queue: Receiver<Work>, mut analyzer: Analyzer, report: 
                 }
                 last_analysed = Some(frame.pts);
                 pictures += 1;
+                if report.send(Report::Picture).is_err() {
+                    return;
+                }
                 if pictures.is_multiple_of(STATS_EVERY) {
                     let (peak, trigger) = analyzer.take_peak();
                     tracing::debug!(camera = %id, "motion: {pictures} pictures analysed, largest change {:.2}% (triggers at {:.2}%)", peak * 100.0, trigger * 100.0);
                 }
                 if let Some(t) = analyzer.push(&grid, frame.pts as f64 / 90_000.0) {
-                    if report.send(t).is_err() {
+                    if report.send(Report::Motion(t)).is_err() {
                         return;
                     }
                 }
@@ -338,6 +384,9 @@ fn decode_loop(id: &str, queue: Receiver<Work>, mut analyzer: Analyzer, report: 
                 errors += 1;
                 if errors == 1 || errors.is_multiple_of(500) {
                     tracing::debug!(camera = %id, "motion detection: cannot decode a frame: {e}");
+                }
+                if errors == DECODE_FAILURES && report.send(Report::Failing(format!("frames can't be decoded ({e})"))).is_err() {
+                    return;
                 }
             }
         }

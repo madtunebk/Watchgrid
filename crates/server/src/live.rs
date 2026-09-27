@@ -23,6 +23,8 @@ pub struct CameraLive {
     pub motion_active: bool,
     /// ONVIF events don't work: software detection stands in.
     pub motion_fallback: bool,
+    /// Watchgrid's own detection, while it runs.
+    pub software_motion: Option<watchgrid_model::SoftwareMotionStatus>,
 }
 
 impl CameraLive {
@@ -39,6 +41,7 @@ impl CameraLive {
             last_error: None,
             motion_active: false,
             motion_fallback: false,
+            software_motion: None,
         }
     }
 }
@@ -72,6 +75,7 @@ impl LiveRegistry {
         camera.connected_since = live.connected_since;
         camera.motion_active = live.motion_active;
         camera.motion_fallback = live.motion_fallback;
+        camera.software_motion = live.software_motion.clone();
         let s = &mut camera.main_stream;
         s.status = match live.status {
             CameraStatus::Online => StreamStatus::Active,
