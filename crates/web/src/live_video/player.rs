@@ -154,6 +154,9 @@ fn open_socket(shared: &Shared) {
 fn on_message(shared: &Shared, e: MessageEvent) {
     let data = e.data();
     if let Some(buf) = data.dyn_ref::<ArrayBuffer>() {
+        if matches!(shared.borrow().state.get_untracked(), PlayerState::Unsupported(_)) {
+            return;
+        }
         if let Some(conn) = shared.borrow_mut().conn.as_mut() {
             conn.queue.push_back(buf.clone());
         }
@@ -174,9 +177,18 @@ fn on_message(shared: &Shared, e: MessageEvent) {
 fn on_init(shared: &Shared, codec: String, audio: bool) {
     let mime = format!("video/mp4; codecs=\"{codec}\"");
     if !MediaSource::is_type_supported(&mime) {
-        set_state(shared, PlayerState::Unsupported(format!("this browser can't play {codec}")));
+        if let Some(conn) = shared.borrow_mut().conn.as_mut() {
+            conn.queue.clear();
+        }
+        let reason = if codec.starts_with("hvc1.") {
+            "this browser can't play HEVC (H.265); use an HEVC-capable browser or an H.264 camera stream".to_string()
+        } else {
+            format!("this browser can't play {codec}")
+        };
+        set_state(shared, PlayerState::Unsupported(reason));
         return;
     }
+    set_state(shared, PlayerState::Connecting);
     let mut inner = shared.borrow_mut();
     if inner.audio.get_untracked() != audio {
         inner.audio.set(audio);
@@ -184,9 +196,15 @@ fn on_init(shared: &Shared, codec: String, audio: bool) {
     let generation = inner.generation;
     let weak = Rc::downgrade(shared);
     let Some(conn) = inner.conn.as_mut() else { return };
+    conn.started = false;
+    conn.queue.clear();
     match &conn.buffer {
         Some(buffer) => {
-            let _ = buffer.change_type(&mime);
+            if buffer.change_type(&mime).is_err() {
+                // A busy buffer or a codec switch may require a fresh MediaSource.
+                drop(inner);
+                schedule_reconnect(shared);
+            }
         }
         None => match conn.source.add_source_buffer(&mime) {
             Ok(buffer) => {

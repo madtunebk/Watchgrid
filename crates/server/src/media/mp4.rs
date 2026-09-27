@@ -176,7 +176,7 @@ mod tests {
     use crate::media::boxes::test_util::{find, top_level, u32_at};
 
     fn track() -> VideoTrack {
-        VideoTrack { width: 640, height: 360, avcc: vec![1, 0x64, 0, 0x1e, 0xff, 0xe0, 0] }
+        VideoTrack { codec: crate::media::VideoCodec::H264, width: 640, height: 360, decoder_config: vec![1, 0x64, 0, 0x1e, 0xff, 0xe0, 0] }
     }
 
     /// Build a whole file in memory the way the recorder writes it.

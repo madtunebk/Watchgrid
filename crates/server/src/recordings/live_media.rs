@@ -145,7 +145,7 @@ mod tests {
         let path = std::env::temp_dir().join(format!("wg-live-clip-{}.mp4", std::process::id()));
         let audio = AudioTrack { channels: 1, pre_skip: 312, input_rate: 8000 };
         let mut w = Mp4Writer::create(path.clone(), Some(audio)).await.unwrap();
-        let video = VideoTrack { width: 640, height: 360, avcc: vec![1, 0x64, 0, 0x1e, 0xff, 0xe0, 0] };
+        let video = VideoTrack { codec: crate::media::VideoCodec::H264, width: 640, height: 360, decoder_config: vec![1, 0x64, 0, 0x1e, 0xff, 0xe0, 0] };
         let clip = LiveClip {
             recording_id: "rec-x".into(),
             camera_id: "cam".into(),
@@ -198,7 +198,7 @@ mod tests {
             i += size;
         }
         let avcc_at = buf.windows(4).position(|w| w == b"avcC").unwrap() - 4;
-        let video = VideoTrack { width: 640, height: 360, avcc: buf[avcc_at + 8..avcc_at + u32_at(avcc_at) as usize].to_vec() };
+        let video = VideoTrack { codec: crate::media::VideoCodec::H264, width: 640, height: 360, decoder_config: buf[avcc_at + 8..avcc_at + u32_at(avcc_at) as usize].to_vec() };
         let partial = std::path::PathBuf::from(format!("{out}.partial"));
         let mut w = Mp4Writer::create(partial.clone(), Some(AudioTrack { channels: 1, pre_skip: 312, input_rate: 8000 })).await.unwrap();
         let clip = LiveClip {

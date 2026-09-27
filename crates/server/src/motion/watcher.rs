@@ -265,10 +265,10 @@ async fn follow(deps: &Deps, id: &str, cfg: &Settings, active: &AtomicBool) {
                     avcc = None;
                     continue;
                 }
-                if avcc.as_deref() != Some(&info.track.avcc) {
-                    avcc = Some(info.track.avcc.clone());
+                if avcc.as_deref() != Some(&info.track.decoder_config) {
+                    avcc = Some(info.track.decoder_config.clone());
                     need_keyframe = true;
-                    if work.send(Work::Track(info.track.avcc.clone())).is_err() {
+                    if work.send(Work::Track(info.track.decoder_config.clone())).is_err() {
                         return;
                     }
                 }

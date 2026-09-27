@@ -95,8 +95,10 @@ async fn serve(mut socket: WebSocket, state: AppState, id: String, kind: StreamK
 
 async fn on_state(socket: &mut WebSocket, feed: FeedState, current: &mut Option<Arc<TrackInfo>>, fragmenter: &mut Fragmenter, wants_audio: bool) -> Result<(), axum::Error> {
     match feed {
-        FeedState::Streaming(info) if !info.is_h264() => {
-            let reason = format!("live view supports H.264 only (camera sends {})", info.codec);
+        FeedState::Streaming(info) if !info.can_mux() => {
+            *current = None;
+            fragmenter.resync();
+            let reason = format!("live view supports H.264 and HEVC (camera sends {})", info.codec);
             socket.send(Message::Text(json!({ "type": "status", "state": "offline", "reason": reason }).to_string().into())).await
         }
         FeedState::Streaming(info) => {

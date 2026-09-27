@@ -43,10 +43,14 @@ pub async fn for_event(db: &PgPool, files: &RecordingFiles, event_id: &str) -> R
 
     let _turn = MAKING.acquire().await.map_err(|e| e.to_string())?;
     let index = mp4_read::read_index(&file).await?;
+    // The bundled thumbnail decoder is OpenH264; let the UI use its placeholder.
+    if index.codec != crate::media::VideoCodec::H264 {
+        return Ok(None);
+    }
     let at = (start - rec_start).num_milliseconds() as f64 / 1000.0 + INTO_EVENT;
     let sample = index.keyframe_at(at).ok_or("the recording has no keyframe")?;
     let frame = mp4_read::read_sample(&file, sample).await?;
-    let avcc = index.avcc;
+    let avcc = index.decoder_config;
     let jpeg = tokio::task::spawn_blocking(move || picture::jpeg(&avcc, &frame, WIDTH)).await.map_err(|e| e.to_string())??;
 
     if let Some(dir) = path.parent() {
@@ -105,7 +109,7 @@ mod tests {
         let sample = index.keyframe_at(5.0).unwrap();
         let frame = crate::media::mp4_read::read_sample(&path, sample).await.unwrap();
         let started = std::time::Instant::now();
-        let jpeg = super::picture::jpeg(&index.avcc, &frame, super::WIDTH).unwrap();
+        let jpeg = super::picture::jpeg(&index.decoder_config, &frame, super::WIDTH).unwrap();
         println!("{} samples, keyframe {} bytes → JPEG {} bytes in {:?}", index.samples.len(), frame.len(), jpeg.len(), started.elapsed());
         std::fs::write(path.with_extension("thumb.jpg"), jpeg).unwrap();
     }

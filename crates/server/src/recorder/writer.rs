@@ -266,7 +266,7 @@ mod tests {
         w.push_audio(&packet(9_000 + 2 * PACKET_TICKS)).await.unwrap(); // duplicate
         w.push_audio(&packet(9_000 + 3 * PACKET_TICKS)).await.unwrap();
         w.push(frame(12_600, false)).await.unwrap();
-        let video = VideoTrack { width: 640, height: 360, avcc: vec![1, 0x64, 0, 0x1e, 0xff, 0xe0, 0] };
+        let video = VideoTrack { codec: crate::media::VideoCodec::H264, width: 640, height: 360, decoder_config: vec![1, 0x64, 0, 0x1e, 0xff, 0xe0, 0] };
         let done = w.finish(&video).await.unwrap();
         assert_eq!((done.samples, done.audio_samples), (2, 4));
         let file = std::fs::read(&path).unwrap();
@@ -285,7 +285,7 @@ mod tests {
             w.push(Frame { pts: *pts, keyframe: *key, data: data.clone().into() }).await.unwrap();
             w.push_audio(&AudioFrame { pts: *pts, data: vec![0xfc, 0xaa].into() }).await.unwrap();
         }
-        let video = VideoTrack { width: 640, height: 360, avcc: vec![1, 0x64, 0, 0x1e, 0xff, 0xe0, 0] };
+        let video = VideoTrack { codec: crate::media::VideoCodec::H264, width: 640, height: 360, decoder_config: vec![1, 0x64, 0, 0x1e, 0xff, 0xe0, 0] };
         let done = w.finish(&video).await.unwrap();
         let file = std::fs::read(&path).unwrap();
         assert_eq!(done.size, file.len() as u64);
@@ -320,7 +320,7 @@ mod tests {
         let mut w = Mp4Writer::create(path.clone(), None).await.unwrap();
         w.push(frame(0, true)).await.unwrap();
         w.push_audio(&AudioFrame { pts: 0, data: vec![1].into() }).await.unwrap();
-        let video = VideoTrack { width: 640, height: 360, avcc: vec![1, 0x64, 0, 0x1e, 0xff, 0xe0, 0] };
+        let video = VideoTrack { codec: crate::media::VideoCodec::H264, width: 640, height: 360, decoder_config: vec![1, 0x64, 0, 0x1e, 0xff, 0xe0, 0] };
         let done = w.finish(&video).await.unwrap();
         assert_eq!(done.audio_samples, 0);
         assert_eq!(std::fs::read(&path).unwrap().windows(4).filter(|w| *w == b"trak").count(), 1);
@@ -367,7 +367,7 @@ mod tests {
         // Video parameters from the dump's avcC.
         let avcc_at = buf.windows(4).position(|w| w == b"avcC").unwrap() - 4;
         let avcc = buf[avcc_at + 8..avcc_at + u32_at(avcc_at) as usize].to_vec();
-        let done = w.finish(&VideoTrack { width: 1280, height: 720, avcc }).await.unwrap();
+        let done = w.finish(&VideoTrack { codec: crate::media::VideoCodec::H264, width: 1280, height: 720, decoder_config: avcc }).await.unwrap();
         println!("video {} audio {}", done.samples, done.audio_samples);
     }
 }

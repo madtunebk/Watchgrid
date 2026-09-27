@@ -8,6 +8,13 @@
 
 const SEI: u8 = 6;
 
+pub fn prepare(data: Vec<u8>, codec: super::VideoCodec) -> Vec<u8> {
+    match codec {
+        super::VideoCodec::H264 => strip_sei(data),
+        _ => data,
+    }
+}
+
 /// The frame without SEI units; unchanged (no copy) if it has none or
 /// isn't well-formed length-prefixed data.
 pub fn strip_sei(data: Vec<u8>) -> Vec<u8> {
@@ -68,5 +75,14 @@ mod tests {
         assert_eq!(strip_sei(clean.clone()), clean);
         let broken = vec![0, 0, 0, 9, 0x06, 1];
         assert_eq!(strip_sei(broken.clone()), broken, "lengths don't add up: untouched");
+    }
+
+    #[test]
+    fn hevc_idr_is_not_mistaken_for_h264_sei() {
+        // HEVC IDR_W_RADL is type 19: its first byte is 0x26, whose low
+        // five bits would incorrectly identify it as H.264 SEI (type 6).
+        let frame = nal(0x26, &[0x01, 0xaa, 0xbb]);
+        assert_eq!(prepare(frame.clone(), super::super::VideoCodec::H265), frame);
+        assert!(prepare(nal(0x06, &[1]), super::super::VideoCodec::H264).is_empty());
     }
 }

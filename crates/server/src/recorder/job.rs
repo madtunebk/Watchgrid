@@ -136,8 +136,8 @@ async fn wait_for_track(sub: &mut Subscription, stop: &mut watch::Receiver<bool>
     let mut last_problem = None;
     loop {
         if let FeedState::Streaming(info) = &*sub.state.borrow_and_update() {
-            if !info.is_h264() {
-                return Err(End::Failed(format!("recording supports H.264 only (camera sends {})", info.codec)));
+            if !info.can_mux() {
+                return Err(End::Failed(format!("recording supports H.264 and HEVC (camera sends {})", info.codec)));
             }
             return Ok(info.clone());
         }

@@ -23,6 +23,9 @@ pub async fn run(hub: &Arc<MediaHub>, camera_id: &str, kind: StreamKind, seconds
         let _ = tokio::time::timeout(Duration::from_secs(1), sub.state.changed()).await;
     };
     println!("codec {} {}x{}, audio {}", info.codec, info.track.width, info.track.height, if info.audio.is_some() { "opus" } else { "none" });
+    if !info.can_mux() {
+        return Err(format!("cannot package codec {} as MP4", info.codec));
+    }
     let mut file = tokio::fs::File::create(out).await.map_err(|e| e.to_string())?;
     file.write_all(&fmp4::init_segment(&info.track, info.audio.as_ref())).await.map_err(|e| e.to_string())?;
     let with_audio = info.audio.is_some();

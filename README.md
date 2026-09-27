@@ -18,8 +18,13 @@ from a browser — on your own server or NAS, with no cloud and no vendor app.
 - **Operations** — one static binary, PostgreSQL, one-file backups,
   HTTPS behind a reverse proxy, capacity estimate for your hardware.
 
-Works with H.264 cameras over RTSP (Tapo, EZVIZ, Hikvision, Dahua, Reolink…);
-camera audio (G.711) is played and recorded as Opus.
+Works with H.264 and HEVC/H.265 (`hvc1`) cameras over RTSP (Tapo, EZVIZ,
+Hikvision, Dahua, Reolink…); camera audio (G.711) is played and recorded as
+Opus. HEVC playback requires browser/device codec support; streams are not
+transcoded. Software motion detection needs an H.264 substream, and event
+thumbnails are currently generated only from H.264 recordings. Camera ONVIF
+motion events can still trigger HEVC recordings. Video timing assumes camera
+streams without B-frame reordering.
 
 ## How it's built
 
@@ -27,7 +32,7 @@ camera audio (G.711) is played and recorded as Opus.
 |---|---|
 | Server | Rust, Axum, Tokio, sqlx + PostgreSQL, retina (RTSP) |
 | Web UI | Rust → WebAssembly with Leptos (no Node.js, no npm) |
-| Video | camera H.264 repackaged as fragmented MP4 (no transcoding) |
+| Video | camera H.264 or HEVC repackaged as MP4 (no transcoding) |
 | Audio | G.711 → Opus (pure Rust) |
 | Motion | ONVIF events, or OpenH264 on the substream |
 
@@ -206,4 +211,3 @@ over a network, you must share its source too.
 
 Bundled and used components keep their own licenses (OpenH264 BSD-2,
 opus-pure BSD-3, retina MIT/Apache-2.0, and the crates in `Cargo.lock`).
-

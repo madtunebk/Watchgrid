@@ -164,7 +164,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_substream_shows_what_its_feed_is_doing() {
-        let info = TrackInfo { codec: "avc1.4d001e".into(), track: VideoTrack { width: 768, height: 432, avcc: vec![] }, audio_codec: None, audio: None };
+        let info = TrackInfo { codec: "avc1.4d001e".into(), track: VideoTrack { codec: crate::media::VideoCodec::H264, width: 768, height: 432, decoder_config: vec![] }, audio_codec: None, audio: None };
         let mut sub = Stream::unprobed("rtsp://h/2");
         hub_with_sub(FeedState::Streaming(Arc::new(info))).overlay_sub("cam", Some(&mut sub));
         assert_eq!((sub.status, sub.codec.as_deref(), sub.width, sub.height), (StreamStatus::Active, Some("H264"), Some(768), Some(432)));

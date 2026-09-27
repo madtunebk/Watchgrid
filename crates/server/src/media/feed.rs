@@ -124,7 +124,12 @@ async fn pump(hub: &MediaHub, key: &Key, ch: &Channels, mut opened: Opened, idle
                     let ts = f.timestamp();
                     let pts = rescale(ts.elapsed(), ts.clock_rate().get());
                     let keyframe = f.is_random_access_point();
-                    let frame = Frame { pts, keyframe, data: super::nal::strip_sei(f.into_data()).into() };
+                    let codec = match &*ch.state.borrow() {
+                        FeedState::Streaming(info) => info.track.codec,
+                        _ => continue,
+                    };
+                    let data = super::nal::prepare(f.into_data(), codec);
+                    let frame = Frame { pts, keyframe, data: data.into() };
                     // Cache first, then send: a new recorder that subscribes and
                     // then snapshots can't miss a frame (duplicates are skipped by pts).
                     ch.preroll.push(&frame);
@@ -155,7 +160,8 @@ fn track_info(opened: &Opened, audio: Option<super::audio::AudioTrack>) -> Resul
     // recorder refuse what they can't repackage.
     let codec = v.rfc6381_codec().to_string();
     let (width, height) = v.pixel_dimensions();
-    Ok(Some(TrackInfo { codec, audio_codec: opened.facts.audio_codec.clone(), audio, track: super::VideoTrack { width, height, avcc: v.extra_data().to_vec() } }))
+    let track = super::VideoTrack { codec: super::VideoCodec::from_rfc6381(&codec), width, height, decoder_config: v.extra_data().to_vec() };
+    Ok(Some(TrackInfo { codec, audio_codec: opened.facts.audio_codec.clone(), audio, track }))
 }
 
 /// Convert RTP clock ticks to the 90 kHz MP4 timescale.

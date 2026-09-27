@@ -16,7 +16,10 @@ pub mod mp4_read;
 mod timing;
 mod ws;
 
-pub use boxes::{TIMESCALE, VideoTrack};
+#[cfg(test)]
+mod hevc_tests;
+
+pub use boxes::{TIMESCALE, VideoCodec, VideoTrack};
 pub use hub::{MediaHub, Subscription};
 pub use timing::SampleClock;
 pub use ws::upgrade;
@@ -43,18 +46,26 @@ pub struct TrackInfo {
 }
 
 impl TrackInfo {
-    /// Only H.264 can be repackaged for browsers and MP4 files today.
+    /// Software motion detection requires H.264.
     pub fn is_h264(&self) -> bool {
-        self.codec.starts_with("avc1")
+        self.track.codec == VideoCodec::H264
+    }
+
+    pub fn can_mux(&self) -> bool {
+        matches!(self.track.codec, VideoCodec::H264 | VideoCodec::H265)
     }
 
     /// For people: "H264", "HEVC"…
     pub fn codec_label(&self) -> String {
-        if self.is_h264() { "H264".to_string() } else { self.codec.split('.').next().unwrap_or(&self.codec).to_uppercase() }
+        match self.track.codec {
+            VideoCodec::H264 => "H264".into(),
+            VideoCodec::H265 => "HEVC".into(),
+            VideoCodec::Unsupported => self.codec.split('.').next().unwrap_or(&self.codec).to_uppercase(),
+        }
     }
 }
 
-/// One encoded video frame (an H.264 access unit, length-prefixed NALs).
+/// One encoded video frame (H.264 or HEVC, length-prefixed NALs).
 #[derive(Debug, Clone)]
 pub struct Frame {
     /// Presentation time in 90 kHz ticks, from the camera's RTP clock.

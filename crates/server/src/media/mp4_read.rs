@@ -1,4 +1,4 @@
-//! Reading back the video track of a recording file: its H.264 parameters
+//! Reading back the video track of a recording file: its H.264/HEVC parameters
 //! and where each frame lies, from the `moov` box. Made for the files
 //! `mp4.rs` writes (`ftyp`, `mdat`, `moov`), but follows the general box
 //! rules (32/64-bit sizes, `stco` or `co64`, any `stsc` layout).
@@ -17,8 +17,9 @@ pub struct Sample {
 
 #[derive(Debug, PartialEq)]
 pub struct VideoIndex {
-    /// AVCDecoderConfigurationRecord.
-    pub avcc: Vec<u8>,
+    pub codec: super::VideoCodec,
+    /// AVC or HEVC decoder configuration record.
+    pub decoder_config: Vec<u8>,
     pub timescale: u32,
     pub samples: Vec<Sample>,
 }
@@ -79,10 +80,15 @@ pub fn parse_moov(moov: &[u8]) -> Result<VideoIndex, String> {
     let stbl = child(mdia, b"minf").and_then(|m| child(m, b"stbl")).ok_or("no sample table")?;
     let table = |k: &[u8; 4]| child(stbl, k);
 
-    // stsd → first entry (avc1) → avcC, after the 78-byte visual sample entry.
+    // Decoder config follows the 78-byte visual sample entry.
     let stsd = table(b"stsd").ok_or("no stsd")?;
     let entry = children(stsd.get(8..).ok_or("bad stsd")?).next().ok_or("empty stsd")?;
-    let avcc = child(entry.1.get(78..).ok_or("bad sample entry")?, b"avcC").ok_or("not H.264 (no avcC)")?.to_vec();
+    let (codec, config) = match &entry.0 {
+        b"avc1" => (super::VideoCodec::H264, b"avcC"),
+        b"hvc1" => (super::VideoCodec::H265, b"hvcC"),
+        _ => return Err("unsupported video sample entry".into()),
+    };
+    let decoder_config = child(entry.1.get(78..).ok_or("bad sample entry")?, config).ok_or("missing decoder configuration")?.to_vec();
 
     let stsz = table(b"stsz").ok_or("no stsz")?;
     let (fixed, count) = (u32_at(stsz, 4).ok_or("bad stsz")?, u32_at(stsz, 8).ok_or("bad stsz")? as usize);
@@ -139,7 +145,7 @@ pub fn parse_moov(moov: &[u8]) -> Result<VideoIndex, String> {
             keyframe: keys.as_ref().is_none_or(|k| k.binary_search(&(i as u32 + 1)).is_ok()),
         })
         .collect();
-    Ok(VideoIndex { avcc, timescale, samples })
+    Ok(VideoIndex { codec, decoder_config, timescale, samples })
 }
 
 /// Find and read the `moov` box of a finished recording.
@@ -200,7 +206,7 @@ mod tests {
         let at = start.mdat_size_at as usize;
         let size = mdat_size(file.len() as u64 - start.data_start);
         file[at..at + 8].copy_from_slice(&size.to_be_bytes());
-        let track = VideoTrack { width: 640, height: 360, avcc: vec![1, 0x64, 0, 0x1e, 0xff, 0xe1, 0, 1, 0x67, 1, 0, 1, 0x68] };
+        let track = VideoTrack { codec: crate::media::VideoCodec::H264, width: 640, height: 360, decoder_config: vec![1, 0x64, 0, 0x1e, 0xff, 0xe1, 0, 1, 0x67, 1, 0, 1, 0x68] };
         file.extend(moov(&track, &table, None));
         file
     }
@@ -214,7 +220,8 @@ mod tests {
 
         let index = read_index(&path).await.unwrap();
         assert_eq!(index.timescale, 90_000);
-        assert_eq!(index.avcc[0..2], [1, 0x64]);
+        assert_eq!(index.codec, super::super::VideoCodec::H264);
+        assert_eq!(index.decoder_config[0..2], [1, 0x64]);
         assert_eq!(index.samples.iter().map(|s| (s.time, s.keyframe)).collect::<Vec<_>>(), [(0, true), (45_000, false), (90_000, true), (135_000, false)]);
         for (s, (data, _, _)) in index.samples.iter().zip(frames) {
             assert_eq!(read_sample(&path, *s).await.unwrap(), data);

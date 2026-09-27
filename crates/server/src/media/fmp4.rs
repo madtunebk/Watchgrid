@@ -1,6 +1,6 @@
 //! Fragmented MP4 for Media Source Extensions: an init segment
 //! (`ftyp` + `moov`) followed by media segments (`moof` + `mdat`), one
-//! sample each for low latency. Video samples are the camera's own H.264
+//! sample each for low latency. Video samples are the camera's own H.264/HEVC
 //! access units — nothing is decoded; audio samples are Opus packets.
 
 use super::audio::AudioTrack;
@@ -64,7 +64,7 @@ mod tests {
 
     #[test]
     fn init_segment_is_ftyp_then_moov_with_avcc() {
-        let track = VideoTrack { width: 1280, height: 720, avcc: vec![1, 0x64, 0, 0x1f, 0xff] };
+        let track = VideoTrack { codec: crate::media::VideoCodec::H264, width: 1280, height: 720, decoder_config: vec![1, 0x64, 0, 0x1f, 0xff] };
         let init = init_segment(&track, None);
         let boxes: Vec<String> = top_level(&init).into_iter().map(|b| b.0).collect();
         assert_eq!(boxes, ["ftyp", "moov"]);
@@ -103,7 +103,7 @@ mod tests {
 
     #[test]
     fn init_segment_with_audio_has_an_opus_track() {
-        let video = VideoTrack { width: 640, height: 360, avcc: vec![1, 0x64, 0, 0x1e, 0xff] };
+        let video = VideoTrack { codec: crate::media::VideoCodec::H264, width: 640, height: 360, decoder_config: vec![1, 0x64, 0, 0x1e, 0xff] };
         let audio = AudioTrack { channels: 1, pre_skip: 312, input_rate: 8000 };
         let init = init_segment(&video, Some(&audio));
         assert_eq!(init.windows(4).filter(|w| *w == b"trak").count(), 2);

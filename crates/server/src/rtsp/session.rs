@@ -77,7 +77,7 @@ pub async fn open(url: &str, username: &str, password: Option<&str>, audio: bool
     }
     let video = video.ok_or("the stream has no video track")?;
     session
-        .setup(video, SetupOptions::default().transport(transport()))
+        .setup(video, SetupOptions::default().transport(transport()).frame_format(retina::codec::FrameFormat::MP4))
         .await
         .map_err(|e| format!("SETUP failed: {e}"))?;
     let audio = if audio { setup_audio(&mut session).await } else { None };

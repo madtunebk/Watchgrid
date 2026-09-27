@@ -1,6 +1,6 @@
 //! ISO BMFF (MP4) box writing shared by the fragmented live stream and
 //! recorded files: a byte writer plus the `ftyp`/`moov` structure for an
-//! H.264 video track and, when the camera has audio, an Opus track.
+//! H.264 or HEVC video track and, when the camera has audio, an Opus track.
 
 use super::audio::{AudioTrack, OPUS_TIMESCALE};
 
@@ -9,13 +9,31 @@ pub const TIMESCALE: u32 = 90_000;
 /// Movie timescale (milliseconds).
 const MOVIE_TIMESCALE: u32 = 1000;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VideoCodec {
+    H264,
+    H265,
+    Unsupported,
+}
+
+impl VideoCodec {
+    pub fn from_rfc6381(codec: &str) -> Self {
+        match codec.split('.').next() {
+            Some("avc1") => Self::H264,
+            Some("hvc1") => Self::H265,
+            _ => Self::Unsupported,
+        }
+    }
+}
+
 /// Everything needed to describe the track.
 #[derive(Debug, Clone, PartialEq)]
 pub struct VideoTrack {
+    pub codec: VideoCodec,
     pub width: u32,
     pub height: u32,
-    /// AVCDecoderConfigurationRecord (the `avcC` box payload).
-    pub avcc: Vec<u8>,
+    /// AVC or HEVC decoder configuration (`avcC` or `hvcC` payload).
+    pub decoder_config: Vec<u8>,
 }
 
 pub struct Writer(pub Vec<u8>);
@@ -80,7 +98,7 @@ impl Writer {
 
 pub fn ftyp(w: &mut Writer) {
     w.boxed(b"ftyp", |w| {
-        w.bytes(b"isom").u32(0x200).bytes(b"isom").bytes(b"iso6").bytes(b"avc1").bytes(b"mp41");
+        w.bytes(b"isom").u32(0x200).bytes(b"isom").bytes(b"iso6").bytes(b"mp41");
     });
 }
 
@@ -209,14 +227,19 @@ fn stsd_opus(w: &mut Writer, a: &AudioTrack) {
 }
 
 fn stsd(w: &mut Writer, t: &VideoTrack) {
+    let (entry, config) = match t.codec {
+        VideoCodec::H264 => (b"avc1", b"avcC"),
+        VideoCodec::H265 => (b"hvc1", b"hvcC"),
+        VideoCodec::Unsupported => panic!("unsupported video codec cannot be muxed"),
+    };
     w.full(b"stsd", 0, 0, |w| {
-        w.u32(1).boxed(b"avc1", |w| {
+        w.u32(1).boxed(entry, |w| {
             w.zeros(6).u16(1); // reserved, data_reference_index
             w.zeros(16).u16(t.width as u16).u16(t.height as u16);
             w.u32(0x0048_0000).u32(0x0048_0000).u32(0).u16(1);
             w.zeros(32).u16(0x0018).u16(0xffff);
-            w.boxed(b"avcC", |w| {
-                w.bytes(&t.avcc);
+            w.boxed(config, |w| {
+                w.bytes(&t.decoder_config);
             });
         });
     });
