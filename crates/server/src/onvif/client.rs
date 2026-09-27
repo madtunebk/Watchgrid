@@ -67,19 +67,37 @@ impl Client {
         let envelope = format!(
             r#"<?xml version="1.0" encoding="UTF-8"?><s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"><s:Header>{header}</s:Header><s:Body>{body}</s:Body></s:Envelope>"#
         );
+        // Errors name the call and carry the HTTP status: they end up in
+        // the log, where "which request, what answer" is what helps.
+        let op = operation(action);
         let reply = match limit {
-            Some(l) => http::post_soap_within(url, action, &envelope, l).await?,
-            None => http::post_soap(url, action, &envelope).await?,
-        };
+            Some(l) => http::post_soap_within(url, action, &envelope, l).await,
+            None => http::post_soap(url, action, &envelope).await,
+        }
+        .map_err(|e| format!("{op}: {e}"))?;
         if reply.status == 200 {
             return Ok(reply.body);
         }
         let reason = xml::fault_reason(&reply.body).unwrap_or_default();
         if reply.status == 401 || reason.to_ascii_lowercase().contains("not authorized") || reason.contains("NotAuthorized") {
-            return Err("the camera rejected the ONVIF username or password".into());
+            return Err(format!("{op}: the camera rejected the ONVIF username or password (HTTP {})", reply.status));
         }
-        Err(if reason.is_empty() { format!("the camera answered HTTP {}", reply.status) } else { format!("the camera refused: {reason}") })
+        let detail = if reason.is_empty() { snippet(&reply.body) } else { reason };
+        Err(if detail.is_empty() { format!("{op}: the camera answered HTTP {}", reply.status) } else { format!("{op}: the camera answered HTTP {}: {detail}", reply.status) })
     }
+}
+
+/// `…/PullPointSubscription/PullMessagesRequest` → `PullMessages`.
+fn operation(action: &str) -> &str {
+    let last = action.rsplit('/').next().unwrap_or(action);
+    last.strip_suffix("Request").unwrap_or(last)
+}
+
+/// The start of a non-SOAP answer (Tapo answers some refusals with JSON,
+/// e.g. `{"error_code":-40210}`), on one line.
+fn snippet(body: &str) -> String {
+    let flat: String = body.split_whitespace().collect::<Vec<_>>().join(" ");
+    flat.chars().take(160).collect()
 }
 
 fn nonce() -> [u8; 16] {
@@ -107,6 +125,14 @@ fn security_header(username: &str, password: &str, created: DateTime<Utc>, nonce
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn errors_name_the_call_and_keep_the_camera_s_words() {
+        assert_eq!(super::operation("http://www.onvif.org/ver10/events/wsdl/PullPointSubscription/PullMessagesRequest"), "PullMessages");
+        assert_eq!(super::operation("http://docs.oasis-open.org/wsn/bw-2/SubscriptionManager/RenewRequest"), "Renew");
+        assert_eq!(super::snippet("{\n  \"error_code\": -40210\n}"), "{ \"error_code\": -40210 }");
+    }
+
     use super::*;
 
     #[test]

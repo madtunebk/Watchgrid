@@ -168,9 +168,8 @@ async fn run(deps: Deps, id: String, open: Open) {
         state = Detections { motion: state.motion, ..Detections::default() };
         open.lock().expect("detections lock").clear();
         attempt += 1;
-        if attempt == 1 || attempt.is_multiple_of(10) {
-            tracing::warn!(camera = %id, "ONVIF events unavailable: {reason}");
-        }
+        // Reconnects are at least 10 s apart: every failure is worth a line.
+        tracing::warn!(camera = %id, attempt, retry_in_s = retry_delay(attempt).as_secs(), "ONVIF events unavailable: {reason}");
         tokio::time::sleep(retry_delay(attempt)).await;
     }
 }
