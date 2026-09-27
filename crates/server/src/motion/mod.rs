@@ -4,9 +4,11 @@
 //! like camera-reported detections.
 
 mod analyzer;
+pub mod sources;
 #[cfg(target_env = "musl")]
 mod cxxrt;
 pub(crate) mod decoder;
 mod watcher;
 
+pub use sources::{Detections, Source};
 pub use watcher::{Deps, Detectors, TOPIC};

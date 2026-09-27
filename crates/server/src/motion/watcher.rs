@@ -17,7 +17,6 @@ use watchgrid_model::{EventType, MotionSource, MotionZone};
 
 use super::analyzer::{Analyzer, Transition, cells};
 use super::decoder::H264;
-use crate::bus::{Bus, BusEvent};
 use crate::live::LiveRegistry;
 use crate::media::{FeedState, Frame, MediaHub, StreamKind};
 use crate::onvif::OnvifLinks;
@@ -43,9 +42,10 @@ pub struct Deps {
     pub db: PgPool,
     pub hub: Arc<MediaHub>,
     pub live: Arc<LiveRegistry>,
-    pub bus: Bus,
     /// Whether ONVIF cameras' events work (else detection stands in).
     pub links: Arc<OnvifLinks>,
+    /// Where detections go (combined with the camera's own).
+    pub detections: Arc<super::Detections>,
 }
 
 struct Running {
@@ -264,8 +264,7 @@ async fn follow(deps: &Deps, id: &str, cfg: &Settings, active: &AtomicBool) {
                 Some(Transition::Started) => {
                     tracing::debug!(camera = %id, "software motion started");
                     active.store(true, Ordering::Relaxed);
-                    deps.live.update(id, |l| l.motion_active = true);
-                    deps.bus.publish(BusEvent::DetectionStarted { camera_id: id.to_string(), kind: EventType::Motion, topic: TOPIC.into(), at: Utc::now() });
+                    deps.detections.start(id, EventType::Motion, super::Source::Software, TOPIC, Utc::now());
                 }
                 Some(Transition::Ended) => {
                     tracing::debug!(camera = %id, "software motion ended");
@@ -279,8 +278,7 @@ async fn follow(deps: &Deps, id: &str, cfg: &Settings, active: &AtomicBool) {
 }
 
 fn end(deps: &Deps, id: &str) {
-    deps.live.update(id, |l| l.motion_active = false);
-    deps.bus.publish(BusEvent::DetectionEnded { camera_id: id.to_string(), kind: EventType::Motion, at: Utc::now() });
+    deps.detections.end(id, EventType::Motion, super::Source::Software, Utc::now());
 }
 
 /// Decode frames and analyse pictures until the sender goes away.

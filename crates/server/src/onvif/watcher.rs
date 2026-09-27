@@ -17,6 +17,7 @@ use crate::bus::{Bus, BusEvent};
 use crate::cameras;
 use crate::credentials::CredentialStore;
 use crate::live::LiveRegistry;
+use crate::motion::{Detections as Combined, Source};
 
 /// Renew well before the subscription's lifetime ends.
 const RENEW_EVERY: Duration = Duration::from_secs(pullpoint::LIFETIME_SECS as u64 / 2);
@@ -42,10 +43,11 @@ fn retry_delay(attempt: u32) -> Duration {
 pub struct Deps {
     pub db: PgPool,
     pub credentials: Arc<CredentialStore>,
-    pub live: Arc<LiveRegistry>,
     pub bus: Bus,
     /// Whether events flow (software motion stands in while they don't).
     pub links: Arc<super::OnvifLinks>,
+    /// Where detections go (combined with software detection's).
+    pub detections: Arc<Combined>,
 }
 
 /// Detection types in progress per camera, shared with its task so a
@@ -72,6 +74,11 @@ impl Watchers {
     /// Shared with software motion detection (it stands in while failing).
     pub fn links(&self) -> Arc<super::OnvifLinks> {
         self.deps.links.clone()
+    }
+
+    /// Shared with software motion detection: one combined state per camera.
+    pub fn detections(&self) -> Arc<Combined> {
+        self.deps.detections.clone()
     }
 
     /// (Re)start watching after the camera was added or changed; the task
@@ -224,24 +231,18 @@ fn apply(deps: &Deps, id: &str, state: &mut Detections, n: &Notification) {
     let now = state.kind_active(kind);
     let at = pullpoint::when(n);
     if now && !was {
-        deps.bus.publish(BusEvent::DetectionStarted { camera_id: id.to_string(), kind, topic: n.topic.clone(), at });
+        deps.detections.start(id, kind, Source::Camera, &n.topic, at);
     } else if was && !now {
-        deps.bus.publish(BusEvent::DetectionEnded { camera_id: id.to_string(), kind, at });
+        deps.detections.end(id, kind, Source::Camera, at);
     }
-    // The camera's MOTION badge shows any detection in progress.
-    set_motion(deps, id, !state.active_kinds().is_empty());
 }
 
-/// End every detection in `kinds` and clear the MOTION badge.
+/// End every detection in `kinds` that the camera reported (the MOTION
+/// badge follows the combined state).
 fn close_all(deps: &Deps, id: &str, kinds: &[EventType]) {
     for kind in kinds {
-        deps.bus.publish(BusEvent::DetectionEnded { camera_id: id.to_string(), kind: *kind, at: Utc::now() });
+        deps.detections.end(id, *kind, Source::Camera, Utc::now());
     }
-    set_motion(deps, id, false);
-}
-
-fn set_motion(deps: &Deps, id: &str, on: bool) {
-    deps.live.update(id, |l| l.motion_active = on);
 }
 
 #[cfg(test)]
@@ -265,15 +266,18 @@ mod tests {
     async fn replacing_a_watcher_closes_its_open_detections() {
         let bus = Bus::new();
         let mut rx = bus.subscribe();
-        let live = Arc::new(LiveRegistry::default());
+        let combined = Arc::new(Combined::new(bus.clone(), Arc::new(LiveRegistry::default())));
         let deps = Deps {
             db: sqlx::postgres::PgPoolOptions::new().connect_lazy("postgres://unused").unwrap(),
             credentials: Arc::new(CredentialStore::from_key(&[1u8; 32])),
-            live: live.clone(),
-            bus,
+            bus: bus.clone(),
             links: Arc::default(),
+            detections: combined.clone(),
         };
         let watchers = Watchers::inert(deps);
+        // The camera reported motion (as the watcher's `apply` would).
+        combined.start("cam", EventType::Motion, Source::Camera, "m", Utc::now());
+        assert!(matches!(rx.try_recv().unwrap(), BusEvent::DetectionStarted { .. }));
         let open: Open = Arc::new(Mutex::new(vec![EventType::Motion]));
         watchers.tasks.lock().unwrap().insert("cam".into(), (tokio::spawn(async {}), open));
         // e.g. motion switched off while the camera reported motion
@@ -289,9 +293,9 @@ mod tests {
         let deps = Deps {
             db: sqlx::postgres::PgPoolOptions::new().connect_lazy("postgres://unused").unwrap(),
             credentials: Arc::new(CredentialStore::from_key(&[1u8; 32])),
-            live: Arc::new(LiveRegistry::default()),
-            bus,
+            bus: bus.clone(),
             links: Arc::default(),
+            detections: Arc::new(Combined::new(bus, Arc::new(LiveRegistry::default()))),
         };
         let mut s = Detections::default();
         apply(&deps, "cam", &mut s, &note("RuleEngine/CellMotionDetector/Motion", true));
@@ -312,9 +316,9 @@ mod tests {
         let deps = Deps {
             db: sqlx::postgres::PgPoolOptions::new().connect_lazy("postgres://unused").unwrap(),
             credentials: Arc::new(CredentialStore::from_key(&[1u8; 32])),
-            live: Arc::new(LiveRegistry::default()),
-            bus,
+            bus: bus.clone(),
             links: Arc::default(),
+            detections: Arc::new(Combined::new(bus, Arc::new(LiveRegistry::default()))),
         };
         let mut s = Detections::default();
         apply(&deps, "cam", &mut s, &note("UserAlarm/IllegalAccess", true));
@@ -330,9 +334,9 @@ mod tests {
         let deps = Deps {
             db: sqlx::postgres::PgPoolOptions::new().connect_lazy("postgres://unused").unwrap(),
             credentials: Arc::new(CredentialStore::from_key(&[1u8; 32])),
-            live: Arc::new(LiveRegistry::default()),
-            bus,
+            bus: bus.clone(),
             links: Arc::default(),
+            detections: Arc::new(Combined::new(bus, Arc::new(LiveRegistry::default()))),
         };
         let mut s = Detections { motion: false, ..Detections::default() };
         apply(&deps, "cam", &mut s, &note("RuleEngine/CellMotionDetector/Motion", true));

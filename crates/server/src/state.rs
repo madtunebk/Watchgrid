@@ -56,7 +56,7 @@ impl AppState {
         let credentials = Arc::new(credentials);
         let hub = Arc::new(MediaHub::new(db.clone(), credentials.clone()));
         let deps = Deps { db: db.clone(), credentials, live: Arc::new(LiveRegistry::default()), bus: Bus::new(), hub };
-        let watch = WatchDeps { db: deps.db.clone(), credentials: deps.credentials.clone(), live: deps.live.clone(), bus: deps.bus.clone(), links: Arc::default() };
+        let watch = WatchDeps { db: deps.db.clone(), credentials: deps.credentials.clone(), bus: deps.bus.clone(), links: Arc::default(), detections: Arc::new(motion::Detections::new(deps.bus.clone(), deps.live.clone())) };
         Self::with_supervisor(Supervisor::new(deps.clone()), Watchers::new(watch), deps, recordings_dir, true)
     }
 
@@ -66,14 +66,14 @@ impl AppState {
         let credentials = Arc::new(credentials);
         let hub = Arc::new(MediaHub::new(db.clone(), credentials.clone()));
         let deps = Deps { db, credentials, live: Arc::new(LiveRegistry::default()), bus: Bus::new(), hub };
-        let watch = WatchDeps { db: deps.db.clone(), credentials: deps.credentials.clone(), live: deps.live.clone(), bus: deps.bus.clone(), links: Arc::default() };
+        let watch = WatchDeps { db: deps.db.clone(), credentials: deps.credentials.clone(), bus: deps.bus.clone(), links: Arc::default(), detections: Arc::new(motion::Detections::new(deps.bus.clone(), deps.live.clone())) };
         Self::with_supervisor(Supervisor::inert(deps.clone()), Watchers::inert(watch), deps, std::env::temp_dir().join("watchgrid-test-recordings"), false)
     }
 
     fn with_supervisor(supervisor: Supervisor, onvif: Watchers, deps: Deps, recordings_dir: PathBuf, live: bool) -> Self {
         let media = deps.hub.clone();
         let files = Arc::new(RecordingFiles::new(recordings_dir));
-        let motion_deps = motion::Deps { db: deps.db.clone(), hub: media.clone(), live: deps.live.clone(), bus: deps.bus.clone(), links: onvif.links() };
+        let motion_deps = motion::Deps { db: deps.db.clone(), hub: media.clone(), live: deps.live.clone(), links: onvif.links(), detections: onvif.detections() };
         let motion = if live {
             Detectors::new(motion_deps)
         } else {
