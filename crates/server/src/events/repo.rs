@@ -276,6 +276,14 @@ pub async fn list(db: &PgPool, q: &EventQuery, tz: &str) -> sqlx::Result<(Vec<Ev
     Ok((rows.into_iter().map(Row::into_model).collect(), total as u32))
 }
 
+/// Ids of every event matching `q` (paging ignored), newest first, at
+/// most `cap`.
+pub async fn ids_matching(db: &PgPool, q: &EventQuery, tz: &str, cap: usize) -> sqlx::Result<Vec<String>> {
+    let mut b = filtered("SELECT id", q, tz);
+    b.push(" ORDER BY start_time DESC, id DESC LIMIT ").push_bind(cap as i64);
+    b.build_query_scalar().fetch_all(db).await
+}
+
 /// Events linked to a recording, oldest first.
 pub async fn of_recording(db: &PgPool, recording_id: &str) -> sqlx::Result<Vec<Event>> {
     let rows: Vec<Row> = sqlx::query_as(&format!("SELECT {COLUMNS} FROM events WHERE recording_id = $1 ORDER BY start_time, id")).bind(recording_id).fetch_all(db).await?;

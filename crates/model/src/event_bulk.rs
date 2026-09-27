@@ -2,10 +2,12 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::Id;
+use crate::{EventQuery, Id};
 
-/// Most events one request may change.
+/// Most events one request may change when they are listed by id.
 pub const EVENT_BULK_MAX: usize = 500;
+/// Most events "all matching" may change at once.
+pub const EVENT_MATCHING_MAX: usize = 10_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -23,6 +25,9 @@ pub enum EventBulkAction {
 pub struct EventBulkRequest {
     pub ids: Vec<Id>,
     pub action: EventBulkAction,
+    /// Instead of `ids`: every event matching this filter (paging ignored).
+    #[serde(default)]
+    pub matching: Option<EventQuery>,
 }
 
 /// Why an event or a recording was left alone.

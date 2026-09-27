@@ -102,7 +102,12 @@ fn plan(db: &super::db::Db, req: &EventBulkRequest) -> (EventBulkSummary, Vec<St
     let mut sum = EventBulkSummary::default();
     let (mut events, mut seen) = (Vec::new(), HashSet::new());
     let skip = |id: &str, reason| BulkSkip { id: id.to_string(), reason };
-    for id in req.ids.iter().filter(|id| seen.insert(id.as_str())) {
+    // "All matching": the filter's events instead of the ticked ones.
+    let wanted: Vec<String> = match &req.matching {
+        Some(q) => db.events.iter().filter(|e| matches(e, q)).map(|e| e.id.clone()).collect(),
+        None => req.ids.clone(),
+    };
+    for id in wanted.iter().filter(|id| seen.insert(id.as_str())) {
         let Some(e) = db.events.iter().find(|e| &e.id == id) else {
             sum.skipped_events.push(skip(id, BulkSkipReason::NotFound));
             continue;

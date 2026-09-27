@@ -250,3 +250,15 @@ async fn motion_pulses_a_few_seconds_apart_are_one_event(db: PgPool) {
     let spans: Vec<(DateTime<Utc>, Option<DateTime<Utc>>)> = events.iter().map(|e| (e.start_time, e.end_time)).collect();
     assert_eq!(spans, [(s(80), Some(s(85))), (s(0), Some(s(50)))], "four pulses → one event; after a 30 s pause, a new one");
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn all_matching_ignores_paging_and_respects_the_cap(db: PgPool) {
+    for (i, cam) in ["cam-a", "cam-b", "cam-a", "cam-a"].iter().enumerate() {
+        let at = t("2026-09-24T10:00:00Z") + Duration::hours(i as i64);
+        repo::instant(&db, cam, EventType::Manual, at, "x").await.unwrap();
+    }
+    let q = EventQuery { camera_id: Some("cam-a".into()), limit: Some(1), offset: Some(1), ..Default::default() };
+    let ids = repo::ids_matching(&db, &q, TZ, 100).await.unwrap();
+    assert_eq!(ids.len(), 3, "every match, whatever page the list shows");
+    assert_eq!(repo::ids_matching(&db, &q, TZ, 2).await.unwrap().len(), 2, "at most the cap");
+}

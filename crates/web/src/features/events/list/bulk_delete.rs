@@ -6,17 +6,27 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 use super::bulk_text;
-use crate::api::{self, EventBulkAction, EventBulkRequest, EventBulkSummary};
+use crate::api::{self, EventBulkAction, EventBulkRequest, EventBulkSummary, EventQuery};
 use crate::ui::{Tone, use_toaster};
 
 #[component]
-pub fn BulkDeleteDialog(open: RwSignal<bool>, ids: Signal<Vec<String>>, on_done: Callback<(EventBulkAction, EventBulkSummary)>) -> impl IntoView {
+pub fn BulkDeleteDialog(
+    open: RwSignal<bool>,
+    ids: Signal<Vec<String>>,
+    /// Every event matching these filters instead of `ids`.
+    #[prop(into)]
+    matching: Signal<Option<EventQuery>>,
+    /// How many are about to go (for the title).
+    #[prop(into)]
+    count: Signal<usize>,
+    on_done: Callback<(EventBulkAction, EventBulkSummary)>,
+) -> impl IntoView {
     let with_video = RwSignal::new(false);
     let busy = RwSignal::new(false);
     let toaster = use_toaster();
     let action = move || if with_video.get() { EventBulkAction::DeleteWithVideo } else { EventBulkAction::Delete };
     let preview = LocalResource::new(move || {
-        let (open, req) = (open.get(), EventBulkRequest { ids: ids.get(), action: action() });
+        let (open, req) = (open.get(), EventBulkRequest { ids: ids.get(), action: action(), matching: matching.get() });
         async move {
             if !open {
                 return None;
@@ -35,7 +45,7 @@ pub fn BulkDeleteDialog(open: RwSignal<bool>, ids: Signal<Vec<String>>, on_done:
 
     let ready = move || preview.get().flatten().and_then(Result::ok).filter(|s| s.events > 0);
     let confirm = move |_| {
-        let req = EventBulkRequest { ids: ids.get_untracked(), action: action() };
+        let req = EventBulkRequest { ids: ids.get_untracked(), action: action(), matching: matching.get_untracked() };
         busy.set(true);
         spawn_local(async move {
             let act = req.action;
@@ -59,7 +69,7 @@ pub fn BulkDeleteDialog(open: RwSignal<bool>, ids: Signal<Vec<String>>, on_done:
         <Show when=move || open.get()>
             <div class="modal-backdrop" on:click=move |_| close()></div>
             <div class="modal" role="alertdialog" aria-modal="true" aria-label="Delete events">
-                <h2 class="modal__title">{move || { let n = ids.with(Vec::len); format!("Delete {n} event{}?", if n == 1 { "" } else { "s" }) }}</h2>
+                <h2 class="modal__title">{move || { let n = count.get(); format!("Delete {n} event{}?", if n == 1 { "" } else { "s" }) }}</h2>
                 <div class="bulk-choice">
                     <label class="bulk-choice__option">
                         <input type="radio" name="bulk-delete" prop:checked=move || !with_video.get() on:change=move |_| with_video.set(false) />

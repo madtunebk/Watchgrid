@@ -108,7 +108,8 @@ pub fn EventsPage() -> impl IntoView {
                     }.into_any()
                 }
             }}
-            <BulkBar selected shown />
+            <BulkBar selected shown
+                matching=Signal::derive(move || events.get().and_then(Result::ok).map(|p| (filters.get().to_query(0, PAGE), p.total))) />
         </Page>
     }
 }

@@ -6,7 +6,7 @@ use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
-use watchgrid_model::{EVENT_BULK_MAX, EventBulkRequest, EventBulkSummary, EventDetail, EventPage, EventQuery, NvrDays};
+use watchgrid_model::{EVENT_BULK_MAX, EVENT_MATCHING_MAX, EventBulkRequest, EventBulkSummary, EventDetail, EventPage, EventQuery, NvrDays};
 
 use super::{kinds, repo};
 use crate::bus::BusEvent;
@@ -38,23 +38,42 @@ async fn thumb(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult<a
     }
 }
 
-fn check_bulk(req: &EventBulkRequest) -> ApiResult<()> {
-    if req.ids.is_empty() || req.ids.len() > EVENT_BULK_MAX {
-        return Err(ApiError::invalid(format!("Select between 1 and {EVENT_BULK_MAX} events")));
+/// The events a bulk request is about: its ids, or every event matching
+/// its filter (worked out now, so the preview and the action agree with
+/// the list as it is).
+async fn bulk_ids(s: &AppState, req: &EventBulkRequest) -> ApiResult<Vec<String>> {
+    let Some(q) = &req.matching else {
+        if req.ids.is_empty() || req.ids.len() > EVENT_BULK_MAX {
+            return Err(ApiError::invalid(format!("Select between 1 and {EVENT_BULK_MAX} events")));
+        }
+        return Ok(req.ids.clone());
+    };
+    let tz = crate::settings::load_app(&s.db, s.bind).await?.general.timezone;
+    let mut q = q.clone();
+    if let Some(days) = q.days {
+        let (from, to) = super::days::bounds(&s.db, &tz, days).await?;
+        (q.from, q.to) = (Some(from), Some(to));
     }
-    Ok(())
+    let ids = repo::ids_matching(&s.db, &q, &tz, EVENT_MATCHING_MAX + 1).await?;
+    if ids.len() > EVENT_MATCHING_MAX {
+        return Err(ApiError::invalid(format!("More than {EVENT_MATCHING_MAX} events match: narrow the filters first")));
+    }
+    if ids.is_empty() {
+        return Err(ApiError::invalid("No events match these filters any more"));
+    }
+    Ok(ids)
 }
 
 /// What a bulk action would do; changes nothing.
 async fn bulk_preview(State(s): State<AppState>, Json(req): Json<EventBulkRequest>) -> ApiResult<Json<EventBulkSummary>> {
-    check_bulk(&req)?;
-    Ok(Json(super::bulk::preview(&s, req.action, &req.ids).await?))
+    let ids = bulk_ids(&s, &req).await?;
+    Ok(Json(super::bulk::preview(&s, req.action, &ids).await?))
 }
 
 /// Protect, unprotect or delete many events; the summary says what happened.
 async fn bulk_apply(State(s): State<AppState>, Json(req): Json<EventBulkRequest>) -> ApiResult<Json<EventBulkSummary>> {
-    check_bulk(&req)?;
-    let done = super::bulk::apply(&s, req.action, &req.ids).await?;
+    let ids = bulk_ids(&s, &req).await?;
+    let done = super::bulk::apply(&s, req.action, &ids).await?;
     tracing::info!(action = ?req.action, events = done.events, recordings = done.recordings, "bulk event action");
     s.bus.publish(BusEvent::EventsChanged);
     s.bus.publish(BusEvent::RecordingsChanged);
