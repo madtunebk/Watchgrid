@@ -59,7 +59,12 @@ fn plan(db: &super::db::Db, req: &RecordingBulkRequest) -> (RecordingBulkSummary
     let mut sum = RecordingBulkSummary::default();
     let (mut ids, mut seen) = (Vec::new(), HashSet::new());
     let skip = |id: &str, reason| BulkSkip { id: id.to_string(), reason };
-    for id in req.ids.iter().filter(|id| seen.insert(id.as_str())) {
+    // "All matching": the query's clips instead of the ticked ones.
+    let wanted: Vec<String> = match &req.matching {
+        Some(q) => db.recordings.iter().filter(|r| matches(r, q)).map(|r| r.id.clone()).collect(),
+        None => req.ids.clone(),
+    };
+    for id in wanted.iter().filter(|id| seen.insert(id.as_str())) {
         let Some(r) = db.recordings.iter().find(|r| &r.id == id) else {
             sum.skipped.push(skip(id, BulkSkipReason::NotFound));
             continue;

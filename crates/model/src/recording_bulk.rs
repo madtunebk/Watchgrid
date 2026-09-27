@@ -2,10 +2,12 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{BulkSkip, Id};
+use crate::{BulkSkip, Id, RecordingQuery};
 
-/// Most recordings one request may change.
+/// Most recordings one request may change when they are listed by id.
 pub const RECORDING_BULK_MAX: usize = 500;
+/// Most recordings "all matching" may change at once.
+pub const RECORDING_MATCHING_MAX: usize = 10_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -25,6 +27,9 @@ pub enum RecordingBulkAction {
 pub struct RecordingBulkRequest {
     pub ids: Vec<Id>,
     pub action: RecordingBulkAction,
+    /// Instead of `ids`: every saved recording matching this query.
+    #[serde(default)]
+    pub matching: Option<RecordingQuery>,
 }
 
 /// What a bulk action will do (preview) or did (result).

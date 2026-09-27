@@ -10,7 +10,7 @@ use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
-use watchgrid_model::{RECORDING_BULK_MAX, Recording, RecordingBulkRequest, RecordingBulkSummary};
+use watchgrid_model::{RECORDING_BULK_MAX, RECORDING_MATCHING_MAX, Recording, RecordingBulkRequest, RecordingBulkSummary};
 
 use super::repo;
 use crate::bus::BusEvent;
@@ -128,23 +128,35 @@ async fn protect(State(s): State<AppState>, Path(id): Path<String>, Json(body): 
     Ok(StatusCode::NO_CONTENT)
 }
 
-fn check_bulk(req: &RecordingBulkRequest) -> ApiResult<()> {
-    if req.ids.is_empty() || req.ids.len() > RECORDING_BULK_MAX {
-        return Err(ApiError::invalid(format!("Select between 1 and {RECORDING_BULK_MAX} recordings")));
+/// The recordings a bulk request is about: its ids, or every saved
+/// recording matching its query (worked out now).
+async fn bulk_ids(s: &AppState, req: &RecordingBulkRequest) -> ApiResult<Vec<String>> {
+    let Some(q) = &req.matching else {
+        if req.ids.is_empty() || req.ids.len() > RECORDING_BULK_MAX {
+            return Err(ApiError::invalid(format!("Select between 1 and {RECORDING_BULK_MAX} recordings")));
+        }
+        return Ok(req.ids.clone());
+    };
+    let ids: Vec<String> = repo::list(&s.db, &q.camera_ids, q.from, q.to).await?.into_iter().map(|r| r.id).collect();
+    if ids.len() > RECORDING_MATCHING_MAX {
+        return Err(ApiError::invalid(format!("More than {RECORDING_MATCHING_MAX} recordings match: narrow the selection first")));
     }
-    Ok(())
+    if ids.is_empty() {
+        return Err(ApiError::invalid("No recordings match any more"));
+    }
+    Ok(ids)
 }
 
 /// What a bulk action would do; changes nothing.
 async fn bulk_preview(State(s): State<AppState>, Json(req): Json<RecordingBulkRequest>) -> ApiResult<Json<RecordingBulkSummary>> {
-    check_bulk(&req)?;
-    Ok(Json(super::bulk::preview(&s, req.action, &req.ids).await?))
+    let ids = bulk_ids(&s, &req).await?;
+    Ok(Json(super::bulk::preview(&s, req.action, &ids).await?))
 }
 
 /// Protect, unprotect or delete many recordings; the summary says what happened.
 async fn bulk_apply(State(s): State<AppState>, Json(req): Json<RecordingBulkRequest>) -> ApiResult<Json<RecordingBulkSummary>> {
-    check_bulk(&req)?;
-    let done = super::bulk::apply(&s, req.action, &req.ids).await?;
+    let ids = bulk_ids(&s, &req).await?;
+    let done = super::bulk::apply(&s, req.action, &ids).await?;
     tracing::info!(action = ?req.action, recordings = done.recordings, events = done.events, "bulk recording action");
     s.bus.publish(BusEvent::RecordingsChanged);
     s.bus.publish(BusEvent::EventsChanged);

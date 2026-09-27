@@ -137,7 +137,11 @@ pub fn RecordingsPage() -> impl IntoView {
                 }
             }}
             <Show when=clips_view>
-                <BulkBar selected=ticked shown />
+                <BulkBar selected=ticked shown matching=Signal::derive(move || {
+                    let s = state.get();
+                    let (from, to) = s.day_range();
+                    recordings.get().and_then(Result::ok).map(|l| (RecordingQuery { camera_ids: s.cameras, from: Some(from), to: Some(to) }, l.len() as u32))
+                }) />
             </Show>
             {move || selected.get().map(|recording| {
                 let camera_name = camera_list.get_untracked().into_iter().find(|c| c.id == recording.camera_id).map(|c| c.name).unwrap_or_default();

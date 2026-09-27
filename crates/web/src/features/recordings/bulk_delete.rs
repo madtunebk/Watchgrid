@@ -6,17 +6,27 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 use super::bulk_text;
-use crate::api::{self, RecordingBulkAction, RecordingBulkRequest, RecordingBulkSummary};
+use crate::api::{self, RecordingBulkAction, RecordingBulkRequest, RecordingBulkSummary, RecordingQuery};
 use crate::ui::{Tone, use_toaster};
 
 #[component]
-pub fn BulkDeleteDialog(open: RwSignal<bool>, ids: Signal<Vec<String>>, on_done: Callback<(RecordingBulkAction, RecordingBulkSummary)>) -> impl IntoView {
+pub fn BulkDeleteDialog(
+    open: RwSignal<bool>,
+    ids: Signal<Vec<String>>,
+    /// Every clip matching this query instead of `ids`.
+    #[prop(into)]
+    matching: Signal<Option<RecordingQuery>>,
+    /// How many are about to go (for the title).
+    #[prop(into)]
+    count: Signal<usize>,
+    on_done: Callback<(RecordingBulkAction, RecordingBulkSummary)>,
+) -> impl IntoView {
     let busy = RwSignal::new(false);
     let toaster = use_toaster();
     // A recording's events go with it: an event without its video says nothing more.
     let action = move || RecordingBulkAction::DeleteWithEvents;
     let preview = LocalResource::new(move || {
-        let (open, req) = (open.get(), RecordingBulkRequest { ids: ids.get(), action: action() });
+        let (open, req) = (open.get(), RecordingBulkRequest { ids: ids.get(), action: action(), matching: matching.get() });
         async move {
             if !open {
                 return None;
@@ -34,7 +44,7 @@ pub fn BulkDeleteDialog(open: RwSignal<bool>, ids: Signal<Vec<String>>, on_done:
 
     let ready = move || preview.get().flatten().and_then(Result::ok).filter(|s| s.recordings > 0);
     let confirm = move |_| {
-        let req = RecordingBulkRequest { ids: ids.get_untracked(), action: action() };
+        let req = RecordingBulkRequest { ids: ids.get_untracked(), action: action(), matching: matching.get_untracked() };
         busy.set(true);
         spawn_local(async move {
             let act = req.action;
@@ -58,7 +68,7 @@ pub fn BulkDeleteDialog(open: RwSignal<bool>, ids: Signal<Vec<String>>, on_done:
         <Show when=move || open.get()>
             <div class="modal-backdrop" on:click=move |_| close()></div>
             <div class="modal" role="alertdialog" aria-modal="true" aria-label="Delete recordings">
-                <h2 class="modal__title">{move || { let n = ids.with(Vec::len); format!("Delete {n} recording{}?", if n == 1 { "" } else { "s" }) }}</h2>
+                <h2 class="modal__title">{move || { let n = count.get(); format!("Delete {n} recording{}?", if n == 1 { "" } else { "s" }) }}</h2>
                 <div class="modal__text bulk-preview">
                     {move || match preview.get().flatten() {
                         None => view! { <p>"Checking…"</p> }.into_any(),
