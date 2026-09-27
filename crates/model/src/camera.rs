@@ -69,6 +69,16 @@ pub enum DetectorState {
     Failing,
 }
 
+/// A connection proves delivery, not detection: `last_detection` says
+/// whether the camera has reported any motion since it connected.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OnvifEventsStatus {
+    pub connected: bool,
+    pub connected_since: Option<crate::Timestamp>,
+    pub last_detection: Option<crate::Timestamp>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SoftwareMotionStatus {
@@ -277,6 +287,9 @@ pub struct Camera {
     /// it runs (software source, or standing in for ONVIF).
     #[serde(default)]
     pub software_motion: Option<SoftwareMotionStatus>,
+    /// Live state of the camera's ONVIF events, when its motion comes from them.
+    #[serde(default)]
+    pub onvif_events: Option<OnvifEventsStatus>,
 
     pub last_event: Option<LastEventSummary>,
     /// Bytes used by this camera's recordings.

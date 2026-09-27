@@ -227,6 +227,8 @@ fn apply(deps: &Deps, id: &str, state: &mut Detections, n: &Notification) {
         return;
     }
     let (true, Some(kind)) = (state.motion, topics::detection(&n.topic)) else { return };
+    // Proof that detection reaches us, not just that pulls succeed.
+    deps.links.detected(id);
     let was = state.kind_active(kind);
     if n.deleted() {
         // Gone (no Data follows): it no longer holds anything on.

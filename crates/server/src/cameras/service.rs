@@ -99,6 +99,7 @@ fn with_live(state: &AppState, row: repo::CameraRow, extras: &Extras) -> Camera 
     state.live.overlay(&mut camera);
     state.recorder.overlay(&mut camera);
     state.media.overlay_sub(&camera.id, camera.sub_stream.as_mut());
+    camera.onvif_events = state.onvif.links().status(&camera.id);
     camera
 }
 

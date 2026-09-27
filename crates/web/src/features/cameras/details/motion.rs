@@ -69,6 +69,19 @@ pub fn MotionTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
                 <fieldset class="plain-fieldset" disabled=off>
                     <RadioCards value=source options=sources name="motion-source" />
                 </fieldset>
+                // The camera's own events: connected proves delivery; the
+                // last reported detection proves motion gets through.
+                {move || {
+                    let c = camera.get();
+                    (source.get() == MotionSource::Onvif).then_some(()).and(c.onvif_events).map(|e| {
+                        let text = match (e.connected, e.last_detection) {
+                            (false, _) => "Camera events: not connected right now (Watchgrid keeps retrying).".to_string(),
+                            (true, Some(t)) => format!("Camera events: connected · last detection reported {}.", crate::format::relative(t)),
+                            (true, None) => "Camera events: connected · no detection reported yet (move in front of the camera to confirm).".to_string(),
+                        };
+                        view! { <p class=if e.connected { "note" } else { "note note--warning" }>{text}</p> }
+                    })
+                }}
                 // What detection is really doing right now (not what was chosen).
                 {move || {
                     let c = camera.get();

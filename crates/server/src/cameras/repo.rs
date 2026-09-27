@@ -47,6 +47,7 @@ impl CameraRow {
             motion_active: false,
             motion_fallback: false,
             software_motion: None,
+            onvif_events: None,
             last_event: None,
             storage_used: None,
             connected_since: None,
