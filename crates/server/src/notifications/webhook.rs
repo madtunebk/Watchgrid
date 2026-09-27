@@ -51,7 +51,7 @@ mod tests {
     use super::*;
 
     fn note() -> Notification {
-        Notification { id: "n1".into(), level: NotificationLevel::Info, title: "Test".into(), message: "hello".into(), time: chrono::Utc::now(), read: false, link: None }
+        Notification { id: "n1".into(), level: NotificationLevel::Info, title: "Test".into(), message: "hello".into(), time: chrono::Utc::now(), read: false, link: None, camera_id: None }
     }
 
     /// One-request server answering `status`; returns what it received.

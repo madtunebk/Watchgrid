@@ -16,7 +16,7 @@ const LATEST: u32 = 15;
 #[component]
 pub fn Notifications() -> impl IntoView {
     let open = RwSignal::new(false);
-    let page = use_query(Topic::Notifications, Some(Duration::from_secs(30)), || api::get_notifications(false, LATEST, 0));
+    let page = use_query(Topic::Notifications, Some(Duration::from_secs(30)), || api::get_notifications(Default::default(), LATEST, 0));
     let unread = move || page.get().and_then(Result::ok).map_or(0, |p| p.unread);
     let navigate = use_navigate();
 

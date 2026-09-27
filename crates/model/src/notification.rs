@@ -24,6 +24,19 @@ pub struct Notification {
     pub read: bool,
     /// In-app route to open when clicked.
     pub link: Option<String>,
+    /// The camera it is about, if any.
+    #[serde(default)]
+    pub camera_id: Option<Id>,
+}
+
+/// Which notifications a page shows.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationFilter {
+    pub unread_only: bool,
+    pub camera_id: Option<Id>,
+    /// Warnings and errors only.
+    pub problems_only: bool,
 }
 
 /// One page of notifications, newest first.

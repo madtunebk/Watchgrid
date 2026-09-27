@@ -11,6 +11,7 @@ pub fn all() -> Vec<Notification> {
         time: Utc::now() - Duration::minutes(minutes_ago),
         read,
         link: Some(link.into()),
+        camera_id: None,
     };
     vec![
         note("n1", NotificationLevel::Warning, "Garage offline",

@@ -1,9 +1,9 @@
-use super::{ApiResult, Id, NotificationBulkRequest, NotificationBulkResult, NotificationPage, TestNotificationResult, backend};
+use super::{ApiResult, Id, NotificationBulkRequest, NotificationFilter, NotificationBulkResult, NotificationPage, TestNotificationResult, backend};
 
-/// GET /api/v1/notifications?unread=&limit=&offset= — newest first, with
-/// the overall unread count.
-pub async fn get_notifications(unread_only: bool, limit: u32, offset: u32) -> ApiResult<NotificationPage> {
-    backend::notifications::list(unread_only, limit, offset).await
+/// GET /api/v1/notifications?unread=&camera=&problems=&limit=&offset= —
+/// newest first, with the overall unread count.
+pub async fn get_notifications(filter: NotificationFilter, limit: u32, offset: u32) -> ApiResult<NotificationPage> {
+    backend::notifications::list(&filter, limit, offset).await
 }
 
 /// POST /api/v1/notifications/read   (`None` = all)

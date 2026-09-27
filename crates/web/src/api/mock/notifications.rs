@@ -4,15 +4,26 @@ use gloo_timers::future::TimeoutFuture;
 
 use super::db::with_db;
 use super::sim::latency;
-use crate::api::{ApiResult, Id, Notification, NotificationBulkAction, NotificationBulkRequest, NotificationBulkResult, NotificationLevel, NotificationPage, TestNotificationResult};
+use crate::api::{ApiResult, Id, Notification, NotificationBulkAction, NotificationBulkRequest, NotificationFilter, NotificationBulkResult, NotificationLevel, NotificationPage, TestNotificationResult};
 
-pub async fn list(unread_only: bool, limit: u32, offset: u32) -> ApiResult<NotificationPage> {
+/// The demo's notifications carry their camera in the link only.
+fn camera_of(n: &Notification) -> Option<String> {
+    n.camera_id.clone().or_else(|| n.link.as_deref()?.strip_prefix("/cameras/").map(|c| c.split('/').next().unwrap_or(c).to_string()))
+}
+
+pub async fn list(f: &NotificationFilter, limit: u32, offset: u32) -> ApiResult<NotificationPage> {
     latency().await;
     Ok(with_db(|db| {
         let mut all = db.notifications.clone();
         all.sort_by_key(|n| std::cmp::Reverse(n.time));
         let unread = all.iter().filter(|n| !n.read).count() as u32;
-        let matching: Vec<_> = all.into_iter().filter(|n| !unread_only || !n.read).collect();
+        let matching: Vec<_> = all
+            .into_iter()
+            .map(|n| Notification { camera_id: camera_of(&n), ..n })
+            .filter(|n| !f.unread_only || !n.read)
+            .filter(|n| f.camera_id.is_none() || n.camera_id == f.camera_id)
+            .filter(|n| !f.problems_only || matches!(n.level, NotificationLevel::Warning | NotificationLevel::Error))
+            .collect();
         let total = matching.len() as u32;
         let items = matching.into_iter().skip(offset as usize).take(limit as usize).collect();
         NotificationPage { items, total, unread }
@@ -65,6 +76,7 @@ pub async fn test() -> ApiResult<TestNotificationResult> {
             time: chrono::Utc::now(),
             read: false,
             link: Some("/notifications".into()),
+            camera_id: None,
         });
         let webhook = db.settings.notifications.webhook_url.as_ref().map(|_| "HTTP 200 (demo)".to_string());
         TestNotificationResult { webhook_ok: webhook.is_some(), webhook }

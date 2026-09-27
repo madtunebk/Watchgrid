@@ -3,7 +3,7 @@
 
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
-use watchgrid_model::{Notification, NotificationBulkAction, NotificationLevel, NotificationPage};
+use watchgrid_model::{Notification, NotificationBulkAction, NotificationFilter, NotificationLevel, NotificationPage};
 
 use super::rules::Draft;
 
@@ -44,11 +44,11 @@ pub async fn insert(db: &PgPool, d: &Draft) -> sqlx::Result<Notification> {
     .fetch_one(db)
     .await?;
     prune(db).await?;
-    Ok(Notification { id, level: d.level, title: d.title.clone(), message: d.message.clone(), time, read: false, link: d.link.clone() })
+    Ok(Notification { id, level: d.level, title: d.title.clone(), message: d.message.clone(), time, read: false, link: d.link.clone(), camera_id: d.camera_id.clone() })
 }
 
-/// id, level, title, message, created_at, read, link
-type Row = (String, String, String, String, DateTime<Utc>, bool, Option<String>);
+/// id, level, title, message, created_at, read, link, camera_id
+type Row = (String, String, String, String, DateTime<Utc>, bool, Option<String>, Option<String>);
 
 /// SQL: `$u` has read notification `n`.
 const READ_BY: &str = "EXISTS (SELECT 1 FROM notification_reads r WHERE r.notification_id = n.id AND r.user_id = $1)";
@@ -70,29 +70,37 @@ async fn prune(db: &PgPool) -> sqlx::Result<()> {
         .map(|_| ())
 }
 
-/// A page for `user`, newest first; `unread_only` filters.
-pub async fn page(db: &PgPool, user: i64, unread_only: bool, limit: i64, offset: i64) -> sqlx::Result<NotificationPage> {
+/// A page for `user`, newest first, matching `f`. `unread` counts all of
+/// the user's unread ones (the bell), whatever the filter.
+pub async fn page(db: &PgPool, user: i64, f: &NotificationFilter, limit: i64, offset: i64) -> sqlx::Result<NotificationPage> {
+    let matches = format!(
+        "NOT ($2 AND {READ_BY}) AND ($3::text IS NULL OR camera_id = $3) AND (NOT $4 OR level IN ('warning', 'error'))"
+    );
     let rows: Vec<Row> = sqlx::query_as(&format!(
-        "SELECT id, level, title, message, created_at, {READ_BY} AS read, link FROM notifications n
-         WHERE NOT ($2 AND {READ_BY}) ORDER BY created_at DESC, id DESC LIMIT $3 OFFSET $4"
+        "SELECT id, level, title, message, created_at, {READ_BY} AS read, link, camera_id FROM notifications n
+         WHERE {matches} ORDER BY created_at DESC, id DESC LIMIT $5 OFFSET $6"
     ))
     .bind(user)
-    .bind(unread_only)
+    .bind(f.unread_only)
+    .bind(&f.camera_id)
+    .bind(f.problems_only)
     .bind(limit)
     .bind(offset)
     .fetch_all(db)
     .await?;
     let (total, unread): (i64, i64) = sqlx::query_as(&format!(
-        "SELECT COUNT(*) FILTER (WHERE NOT ($2 AND {READ_BY})), COUNT(*) FILTER (WHERE NOT {READ_BY}) FROM notifications n"
+        "SELECT COUNT(*) FILTER (WHERE {matches}), COUNT(*) FILTER (WHERE NOT {READ_BY}) FROM notifications n"
     ))
     .bind(user)
-    .bind(unread_only)
+    .bind(f.unread_only)
+    .bind(&f.camera_id)
+    .bind(f.problems_only)
     .fetch_one(db)
     .await?;
     Ok(NotificationPage {
         items: rows
             .into_iter()
-            .map(|(id, level, title, message, time, read, link)| Notification { id, level: parse_level(&level), title, message, time, read, link })
+            .map(|(id, level, title, message, time, read, link, camera_id)| Notification { id, level: parse_level(&level), title, message, time, read, link, camera_id })
             .collect(),
         total: total as u32,
         unread: unread as u32,

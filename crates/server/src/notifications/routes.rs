@@ -5,7 +5,7 @@ use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Extension, Json, Router};
 use serde::Deserialize;
-use watchgrid_model::{NOTIFICATION_BULK_MAX, NotificationBulkAction, NotificationBulkRequest, NotificationBulkResult, NotificationLevel, NotificationPage, Role, TestNotificationResult};
+use watchgrid_model::{NOTIFICATION_BULK_MAX, NotificationBulkAction, NotificationBulkRequest, NotificationBulkResult, NotificationFilter, NotificationLevel, NotificationPage, Role, TestNotificationResult};
 
 use super::rules::Draft;
 use super::{repo, webhook};
@@ -23,6 +23,9 @@ pub fn router() -> Router<AppState> {
 struct ListQuery {
     #[serde(default)]
     unread: bool,
+    camera: Option<String>,
+    #[serde(default)]
+    problems: bool,
     limit: Option<i64>,
     offset: Option<i64>,
 }
@@ -30,7 +33,8 @@ struct ListQuery {
 /// Read / unread are the signed-in user's own.
 async fn list(State(s): State<AppState>, Extension(me): Extension<CurrentUser>, Query(q): Query<ListQuery>) -> ApiResult<Json<NotificationPage>> {
     let limit = q.limit.unwrap_or(50).clamp(1, 200);
-    Ok(Json(repo::page(&s.db, me.user_id, q.unread, limit, q.offset.unwrap_or(0).max(0)).await?))
+    let filter = NotificationFilter { unread_only: q.unread, camera_id: q.camera.filter(|c| !c.is_empty()), problems_only: q.problems };
+    Ok(Json(repo::page(&s.db, me.user_id, &filter, limit, q.offset.unwrap_or(0).max(0)).await?))
 }
 
 /// Read / unread change only the caller's state; deleting removes a
