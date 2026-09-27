@@ -8,10 +8,11 @@ use leptos::prelude::*;
 use leptos_router::components::A;
 use leptos_router::hooks::{use_navigate, use_query_map};
 
-use crate::api::{self, Topic, use_query};
+use crate::api::{self, ApiError, Topic, use_query};
+use crate::features::cameras::render_key;
 use crate::features::cameras::widgets::{CameraCard, NoCameras};
 use crate::prefs;
-use crate::ui::{EmptyState, I, Icon, Page, Skeleton, async_view};
+use crate::ui::{EmptyState, ErrorBox, I, Icon, Page, Skeleton};
 use filter::StatusFilter;
 use table::CameraTable;
 use toolbar::Toolbar;
@@ -23,6 +24,15 @@ pub enum ViewMode {
 }
 
 const VIEW_KEY: &str = "ui.cameras.view";
+
+/// What the page shows; changes only between these, not on every refresh.
+#[derive(Clone, PartialEq)]
+enum Phase {
+    Loading,
+    Failed(ApiError),
+    NoCameras,
+    Ready,
+}
 
 #[component]
 pub fn CamerasPage() -> impl IntoView {
@@ -60,6 +70,15 @@ pub fn CamerasPage() -> impl IntoView {
             .unwrap_or_default()
     });
 
+    let phase = Memo::new(move |_| match cameras.get() {
+        None => Phase::Loading,
+        Some(Err(e)) => Phase::Failed(e),
+        Some(Ok(all)) if all.is_empty() => Phase::NoCameras,
+        Some(Ok(_)) => Phase::Ready,
+    });
+    let shown = Memo::new(move |_| cameras.get().and_then(Result::ok).map(|all| filter::apply(all, &search.get(), status.get())).unwrap_or_default());
+    let none_shown = Memo::new(move |_| shown.with(Vec::is_empty));
+
     view! {
         <Page
             title="Cameras"
@@ -70,27 +89,23 @@ pub fn CamerasPage() -> impl IntoView {
                 </A>
             }
         >
-            {async_view(cameras, || view! { <Skeleton lines=6 height="2.5rem" /> }.into_any(), move |all| {
-                if all.is_empty() {
-                    return view! { <NoCameras /> }.into_any();
-                }
-                view! {
+            {move || match phase.get() {
+                Phase::Loading => view! { <Skeleton lines=6 height="2.5rem" /> }.into_any(),
+                Phase::Failed(error) => view! { <ErrorBox error /> }.into_any(),
+                Phase::NoCameras => view! { <NoCameras /> }.into_any(),
+                Phase::Ready => view! {
                     <Toolbar search status view_mode />
-                    {move || {
-                        let shown = filter::apply(all.clone(), &search.get(), status.get());
-                        if shown.is_empty() {
-                            return view! { <EmptyState icon=I::Search title="No cameras match" text="Try a different search or status filter." /> }.into_any();
-                        }
-                        match view_mode.get() {
-                            ViewMode::Grid => view! {
-                                <div class="cam-grid">{shown.into_iter().map(|camera| view! { <CameraCard camera /> }).collect_view()}</div>
-                            }.into_any(),
-                            ViewMode::List => view! { <CameraTable cameras=shown /> }.into_any(),
-                        }
+                    {move || match (none_shown.get(), view_mode.get()) {
+                        (true, _) => view! { <EmptyState icon=I::Search title="No cameras match" text="Try a different search or status filter." /> }.into_any(),
+                        (false, ViewMode::Grid) => view! {
+                            <div class="cam-grid">
+                                <For each=move || shown.get() key=render_key let:camera><CameraCard camera /></For>
+                            </div>
+                        }.into_any(),
+                        (false, ViewMode::List) => view! { <CameraTable cameras=shown /> }.into_any(),
                     }}
-                }
-                .into_any()
-            })}
+                }.into_any(),
+            }}
         </Page>
     }
 }

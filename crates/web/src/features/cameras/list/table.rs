@@ -2,7 +2,7 @@ use leptos::prelude::*;
 use leptos_router::components::A;
 
 use crate::api::{Camera, CameraStatus, StreamStatus};
-use crate::features::cameras::labels;
+use crate::features::cameras::{labels, render_key};
 use crate::features::cameras::widgets::{ActionsMenu, RecordButton};
 use crate::features::events;
 use crate::format;
@@ -10,7 +10,7 @@ use crate::ui::{Badge, Dot, I, Icon, Tone};
 
 /// Dense list view: one row per camera with every state column.
 #[component]
-pub fn CameraTable(cameras: Vec<Camera>) -> impl IntoView {
+pub fn CameraTable(#[prop(into)] cameras: Signal<Vec<Camera>>) -> impl IntoView {
     view! {
         <div class="table-wrap">
             <table class="table">
@@ -29,7 +29,7 @@ pub fn CameraTable(cameras: Vec<Camera>) -> impl IntoView {
                     </tr>
                 </thead>
                 <tbody>
-                    {cameras.into_iter().map(|camera| view! { <Row camera /> }).collect_view()}
+                    <For each=move || cameras.get() key=render_key let:camera><Row camera /></For>
                 </tbody>
             </table>
         </div>
