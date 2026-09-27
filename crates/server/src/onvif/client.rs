@@ -40,14 +40,19 @@ impl Client {
     /// Like [`call`], with WS-Addressing `Action`/`To` headers (required by
     /// many devices on subscription endpoints).
     pub async fn call_addressed(&self, url: &Url, action: &str, body: &str) -> Result<String, String> {
-        self.raw_with(url, action, body, true, true).await
+        self.raw_with(url, action, body, true, true, None).await
+    }
+
+    /// [`call_addressed`] for a call the device may hold open up to `limit`.
+    pub async fn call_addressed_within(&self, url: &Url, action: &str, body: &str, limit: std::time::Duration) -> Result<String, String> {
+        self.raw_with(url, action, body, true, true, Some(limit)).await
     }
 
     async fn raw(&self, url: &Url, action: &str, body: &str, auth: bool) -> Result<String, String> {
-        self.raw_with(url, action, body, auth, false).await
+        self.raw_with(url, action, body, auth, false, None).await
     }
 
-    async fn raw_with(&self, url: &Url, action: &str, body: &str, auth: bool, addressed: bool) -> Result<String, String> {
+    async fn raw_with(&self, url: &Url, action: &str, body: &str, auth: bool, addressed: bool, limit: Option<std::time::Duration>) -> Result<String, String> {
         let mut header = match (&self.password, auth) {
             (Some(p), true) => security_header(&self.username, p, Utc::now() + self.clock_offset, &nonce()),
             _ => String::new(),
@@ -62,7 +67,10 @@ impl Client {
         let envelope = format!(
             r#"<?xml version="1.0" encoding="UTF-8"?><s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"><s:Header>{header}</s:Header><s:Body>{body}</s:Body></s:Envelope>"#
         );
-        let reply = http::post_soap(url, action, &envelope).await?;
+        let reply = match limit {
+            Some(l) => http::post_soap_within(url, action, &envelope, l).await?,
+            None => http::post_soap(url, action, &envelope).await?,
+        };
         if reply.status == 200 {
             return Ok(reply.body);
         }

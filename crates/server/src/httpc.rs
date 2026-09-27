@@ -17,10 +17,15 @@ pub struct Reply {
 }
 
 pub async fn post_soap(url: &Url, action: &str, body: &str) -> Result<Reply, String> {
-    post(url, &format!("application/soap+xml; charset=utf-8; action=\"{action}\""), body).await
+    post_soap_within(url, action, body, TIMEOUT).await
 }
 
-pub async fn post(url: &Url, content_type: &str, body: &str) -> Result<Reply, String> {
+/// For calls the device may hold open (event pulls that wait for events).
+pub async fn post_soap_within(url: &Url, action: &str, body: &str, limit: Duration) -> Result<Reply, String> {
+    post_within(url, &format!("application/soap+xml; charset=utf-8; action=\"{action}\""), body, limit).await
+}
+
+async fn post_within(url: &Url, content_type: &str, body: &str, limit: Duration) -> Result<Reply, String> {
     if url.scheme() != "http" {
         return Err("only http:// addresses are supported".into());
     }
@@ -60,7 +65,7 @@ pub async fn post(url: &Url, content_type: &str, body: &str) -> Result<Reply, St
         }
         parse_response(&raw)
     };
-    timeout(TIMEOUT, exchange).await.map_err(|_| format!("{host}:{port} did not answer in {} s", TIMEOUT.as_secs()))?
+    timeout(limit, exchange).await.map_err(|_| format!("{host}:{port} did not answer in {} s", limit.as_secs()))?
 }
 
 /// Has a full response (per Content-Length or the chunked terminator) arrived?

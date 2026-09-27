@@ -3,6 +3,7 @@
 /.env
 /data
 /.tmp
+/temp/*
 # Never tracked: secrets, database copies, backups, conversation exports.
 master.key
 db-password

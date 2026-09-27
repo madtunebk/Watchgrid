@@ -17,10 +17,26 @@ use crate::bus::{Bus, BusEvent};
 use crate::cameras;
 use crate::credentials::CredentialStore;
 use crate::live::LiveRegistry;
-use crate::supervisor::backoff;
 
 /// Renew well before the subscription's lifetime ends.
 const RENEW_EVERY: Duration = Duration::from_secs(pullpoint::LIFETIME_SECS as u64 / 2);
+/// At most one pull per this long: some cameras answer at once instead of
+/// waiting, and a tight loop of requests gets a camera to refuse us.
+const PULL_EVERY: Duration = Duration::from_secs(1);
+/// A connection that delivered this long counts as working: only then does
+/// the reconnect delay start over. (A camera that accepts and drops again
+/// right away must not be re-subscribed every few seconds.)
+const STABLE: Duration = Duration::from_secs(60);
+/// Each reconnect creates a subscription on the camera, which keeps it for
+/// its whole lifetime even when the connection dropped: Tapo allows only a
+/// few and then refuses everything (HTTP 400, `error_code -40210`).
+const RETRY_FIRST: Duration = Duration::from_secs(10);
+const RETRY_MAX: Duration = Duration::from_secs(300);
+
+/// Wait before reconnect attempt `attempt` (1-based): 10 s, doubling, 5 min at most.
+fn retry_delay(attempt: u32) -> Duration {
+    RETRY_FIRST.saturating_mul(2u32.saturating_pow(attempt.saturating_sub(1).min(8))).min(RETRY_MAX)
+}
 
 #[derive(Clone)]
 pub struct Deps {
@@ -123,7 +139,7 @@ async fn run(deps: Deps, id: String, open: Open) {
             }
             Err(e) => {
                 tracing::warn!(camera = %id, "cannot load ONVIF settings: {e}");
-                tokio::time::sleep(backoff::delay(attempt.max(1))).await;
+                tokio::time::sleep(retry_delay(attempt.max(1))).await;
                 continue;
             }
         };
@@ -139,7 +155,7 @@ async fn run(deps: Deps, id: String, open: Open) {
                 // Only a working pull counts as connected: some cameras
                 // accept the subscription but then refuse to deliver.
                 let (reason, delivered) = pull_until_error(&deps, &id, &sub, &mut state, &open, attempt > 0).await;
-                if delivered {
+                if delivered.is_some_and(|d| d >= STABLE) {
                     attempt = 0;
                 }
                 sub.unsubscribe().await;
@@ -155,32 +171,39 @@ async fn run(deps: Deps, id: String, open: Open) {
         if attempt == 1 || attempt.is_multiple_of(10) {
             tracing::warn!(camera = %id, "ONVIF events unavailable: {reason}");
         }
-        tokio::time::sleep(backoff::delay(attempt)).await;
+        tokio::time::sleep(retry_delay(attempt)).await;
     }
 }
 
-/// Returns why pulling stopped and whether any pull succeeded.
-async fn pull_until_error(deps: &Deps, id: &str, sub: &Subscription, state: &mut Detections, open: &Open, recovering: bool) -> (String, bool) {
+/// Returns why pulling stopped and, if any pull succeeded, for how long
+/// events were delivered.
+async fn pull_until_error(deps: &Deps, id: &str, sub: &Subscription, state: &mut Detections, open: &Open, recovering: bool) -> (String, Option<Duration>) {
     let mut renew_at = Instant::now() + RENEW_EVERY;
-    let mut delivered = false;
+    let mut first_ok: Option<Instant> = None;
     loop {
+        let delivered = first_ok.map(|t| t.elapsed());
         if Instant::now() >= renew_at {
             if let Err(e) = sub.renew().await {
                 return (format!("renew failed: {e}"), delivered);
             }
             renew_at = Instant::now() + RENEW_EVERY;
         }
+        let started = Instant::now();
         match sub.pull().await {
             Ok(list) => {
-                if !delivered && recovering {
+                if first_ok.is_none() && recovering {
                     tracing::info!(camera = %id, "ONVIF events connected");
                 }
-                delivered = true;
+                first_ok.get_or_insert(started);
                 deps.links.delivered(id);
                 for n in list {
                     apply(deps, id, state, &n);
                 }
                 *open.lock().expect("detections lock") = state.active_kinds();
+                // The camera answered at once: don't ask again straight away.
+                if let Some(rest) = PULL_EVERY.checked_sub(started.elapsed()) {
+                    tokio::time::sleep(rest).await;
+                }
             }
             Err(e) => return (e, delivered),
         }
@@ -224,6 +247,15 @@ fn set_motion(deps: &Deps, id: &str, on: bool) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn reconnects_slow_down_and_never_hurry() {
+        assert_eq!(super::retry_delay(1), Duration::from_secs(10));
+        assert_eq!(super::retry_delay(2), Duration::from_secs(20));
+        assert_eq!(super::retry_delay(5), Duration::from_secs(160));
+        assert_eq!(super::retry_delay(6), super::RETRY_MAX);
+        assert_eq!(super::retry_delay(40), super::RETRY_MAX);
+    }
+
     use super::*;
 
     fn note(topic: &str, on: bool) -> Notification {

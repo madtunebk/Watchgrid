@@ -8,10 +8,16 @@ use super::xml::{self, Notification};
 
 const EVENTS: &str = "http://www.onvif.org/ver10/events/wsdl";
 const WSN: &str = "http://docs.oasis-open.org/wsn/b-2";
-/// Subscription lifetime requested (renewed well before it ends).
-pub const LIFETIME_SECS: u32 = 120;
-/// How long a PullMessages call may wait for events on the camera.
-const PULL_WAIT: &str = "PT5S";
+/// Subscription lifetime requested (renewed well before it ends). Long
+/// enough that renewals are rare; short enough that one left behind by a
+/// dropped connection frees its slot on the camera soon.
+pub const LIFETIME_SECS: u32 = 300;
+/// How long a PullMessages call may wait for events on the camera: long
+/// polls mean a couple of requests a minute when nothing happens (Tapo
+/// refuses clients that ask too often).
+const PULL_WAIT: &str = "PT30S";
+/// The HTTP call must outlast that wait.
+const PULL_LIMIT: std::time::Duration = std::time::Duration::from_secs(40);
 
 pub struct Subscription {
     client: Client,
@@ -37,14 +43,15 @@ impl Subscription {
         Ok(Self { client, address })
     }
 
-    /// Wait (up to a few seconds) for events.
+    /// Wait (up to 30 s) for events.
     pub async fn pull(&self) -> Result<Vec<Notification>, String> {
         let reply = self
             .client
-            .call_addressed(
+            .call_addressed_within(
                 &self.address,
                 &format!("{EVENTS}/PullPointSubscription/PullMessagesRequest"),
                 &format!(r#"<tev:PullMessages xmlns:tev="{EVENTS}"><tev:Timeout>{PULL_WAIT}</tev:Timeout><tev:MessageLimit>64</tev:MessageLimit></tev:PullMessages>"#),
+                PULL_LIMIT,
             )
             .await?;
         Ok(xml::notifications(&reply))
