@@ -61,6 +61,12 @@ pub async fn set_export_auto_upload(id: Id, rule: AutoUpload) -> ApiResult<()> {
     backend::exports::set_auto(&id, rule).await
 }
 
+/// POST /api/v1/exports/targets/{id}/check — reachable and writable right
+/// now? Stores nothing.
+pub async fn check_export_target(id: Id) -> ApiResult<ConnectionProbe> {
+    backend::exports::check(&id).await
+}
+
 /// POST /api/v1/exports/targets/{id}/reconnect — redo sign-in (OAuth).
 pub async fn reconnect_export_target(id: Id) -> ApiResult<()> {
     backend::exports::reconnect(&id).await

@@ -24,6 +24,7 @@ pub fn router() -> Router<AppState> {
         .route("/targets/{id}/test", post(test_saved))
         .route("/targets/{id}/auto-upload", put(set_auto))
         .route("/targets/{id}/reconnect", post(reconnect))
+        .route("/targets/{id}/check", post(check))
         .route("/jobs", get(active_jobs))
         .route("/jobs/{id}", get(job))
         .route("/jobs/{id}/cancel", post(cancel_job))
@@ -163,6 +164,14 @@ async fn set_auto(State(s): State<AppState>, Path(id): Path<String>, Json(body):
         return Err(ApiError::not_found("Export destination"));
     }
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Is the destination reachable and writable right now? The same test as
+/// when adding it; nothing is stored (only uploads and Reconnect record a
+/// problem), so a short outage never blocks automatic uploads.
+async fn check(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult<Json<ConnectionProbe>> {
+    let target = repo::target_by_id(&s.db, &id).await?.ok_or_else(|| ApiError::not_found("Export destination"))?;
+    Ok(Json(probe(s.exports.provider(&target)).await))
 }
 
 /// Test a saved destination again; clears or records its problem.

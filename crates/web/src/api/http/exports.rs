@@ -56,6 +56,10 @@ pub async fn set_auto(id: &str, rule: AutoUpload) -> ApiResult<()> {
     client::put_no_content(&format!("/exports/targets/{}/auto-upload", enc(id)), &serde_json::json!({ "rule": rule })).await
 }
 
+pub async fn check(id: &str) -> ApiResult<ConnectionProbe> {
+    client::post(&format!("/exports/targets/{}/check", enc(id)), None::<&()>).await
+}
+
 /// Tests the destination again (clears or records its problem).
 pub async fn reconnect(id: &str) -> ApiResult<()> {
     client::post::<ExportTarget>(&format!("/exports/targets/{}/reconnect", enc(id)), None::<&()>).await.map(|_| ())

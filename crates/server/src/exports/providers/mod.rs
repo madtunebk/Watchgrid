@@ -109,13 +109,48 @@ fn extract_message(body: &str) -> String {
 /// the UI doesn't show.
 fn net_error(what: &str, e: reqwest::Error) -> String {
     let e = e.without_url();
-    let mut msg = format!("{what}: {e}");
+    let mut chain = e.to_string();
     let mut source = std::error::Error::source(&e);
     while let Some(s) = source {
-        msg.push_str(&format!(": {s}"));
+        chain.push_str(&format!(": {s}"));
         source = s.source();
     }
-    msg
+    tracing::debug!("{what}: {chain}");
+    format!("{what}: {}", plain(&chain, e.is_timeout()))
+}
+
+/// The reason in a few plain words, for the common network failures; the
+/// library's whole chain otherwise.
+fn plain(chain: &str, timeout: bool) -> String {
+    let low = chain.to_ascii_lowercase();
+    let known = [
+        ("connection refused", "connection refused (is the server running on that port?)"),
+        ("dns error", "server name not found"),
+        ("failed to lookup", "server name not found"),
+        ("no route to host", "no route to the server (network unreachable)"),
+        ("network is unreachable", "no route to the server (network unreachable)"),
+        ("connection reset", "the connection was reset by the server"),
+        ("certificate", "the server's certificate isn't trusted"),
+        ("handshake", "the secure (TLS) connection failed"),
+    ];
+    match known.iter().find(|(needle, _)| low.contains(needle)) {
+        Some((_, text)) => (*text).to_string(),
+        None if timeout || low.contains("timed out") => "the server didn't answer in time".to_string(),
+        None => chain.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod plain_errors {
+    use super::plain;
+
+    #[test]
+    fn common_failures_read_plainly() {
+        assert_eq!(plain("error sending request: client error (Connect): tcp connect error: Connection refused (os error 111)", false), "connection refused (is the server running on that port?)");
+        assert_eq!(plain("error sending request: dns error: failed to lookup address information", false), "server name not found");
+        assert_eq!(plain("error sending request: operation timed out", true), "the server didn't answer in time");
+        assert_eq!(plain("something new", false), "something new");
+    }
 }
 
 /// Live check against a real server; run with

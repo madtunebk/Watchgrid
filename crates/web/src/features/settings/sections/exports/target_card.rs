@@ -2,7 +2,7 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 use super::labels;
-use crate::api::{self, ExportTarget, Topic, invalidate};
+use crate::api::{self, ConnectionProbe, ExportTarget, Topic, invalidate};
 use crate::ui::{Badge, ConfirmDialog, Icon, Tone};
 
 #[component]
@@ -36,6 +36,26 @@ pub fn TargetCard(target: ExportTarget, on_edit: Callback<()>) -> impl IntoView 
         }
     };
     let reconnect = { let id = id.clone(); move |_| run(Box::pin(api::reconnect_export_target(id.clone()))) };
+    // Reachable right now? Checked when this page opens (and on request),
+    // never in the background; nothing is stored.
+    let live = RwSignal::new(None::<ConnectionProbe>);
+    let checking = RwSignal::new(false);
+    let check = {
+        let id = id.clone();
+        move || {
+            let id = id.clone();
+            checking.set(true);
+            spawn_local(async move {
+                let probe = api::check_export_target(id).await.unwrap_or_else(|e| ConnectionProbe { ok: false, message: e.to_string(), latency_ms: None, device: None });
+                live.try_set(Some(probe));
+                checking.try_set(false);
+            });
+        }
+    };
+    if target.ready {
+        check();
+    }
+    let unreachable = move || live.get().is_some_and(|p| !p.ok);
     let delete = Callback::new({ let id = id.clone(); move |_| run(Box::pin(api::delete_export_target(id.clone()))) });
     let rule = target.auto_upload;
 
@@ -45,15 +65,28 @@ pub fn TargetCard(target: ExportTarget, on_edit: Callback<()>) -> impl IntoView 
             <div class="dest__main">
                 <div class="dest__title">
                     <span>{target.name.clone()}</span>
-                    {if target.ready {
-                        // No known problem (checked when added, and on every upload).
-                        view! { <Badge tone=Tone::Online label="READY" dot=true /> }.into_any()
-                    } else {
-                        view! { <Badge tone=Tone::Warning label="NEEDS ATTENTION" dot=true /> }.into_any()
+                    {move || match (target.ready, unreachable()) {
+                        (false, _) => view! { <Badge tone=Tone::Warning label="NEEDS ATTENTION" dot=true /> }.into_any(),
+                        (true, true) => view! { <Badge tone=Tone::Warning label="UNREACHABLE" dot=true /> }.into_any(),
+                        // No known problem, and the check (if done) passed.
+                        (true, false) => view! { <Badge tone=Tone::Online label="READY" dot=true /> }.into_any(),
                     }}
                 </div>
                 <div class="dest__meta">{format!("{} · {}", labels::kind(target.kind), target.location)}</div>
                 {target.problem.clone().map(|p| view! { <div class="dest__problem">{p}</div> })}
+                {target.ready.then(|| view! {
+                    <div class="dest__check">
+                        {move || match (checking.get(), live.get()) {
+                            (true, _) => view! { <span class="muted">"Checking…"</span> }.into_any(),
+                            (false, Some(p)) if p.ok => view! {
+                                <span class="text-online">{match p.latency_ms { Some(ms) => format!("Reachable · {ms} ms"), None => "Reachable".into() }}</span>
+                            }.into_any(),
+                            (false, Some(p)) => view! { <span class="dest__problem">{p.message}</span> }.into_any(),
+                            (false, None) => ().into_any(),
+                        }}
+                        <button class="link-btn" disabled=checking on:click={let check = check.clone(); move |_| check()}>"Check again"</button>
+                    </div>
+                })}
                 {move || error.get().filter(|_| !confirm.get()).map(|e| view! { <div class="dest__problem">{e}</div> })}
             </div>
             <label class="dest__auto">

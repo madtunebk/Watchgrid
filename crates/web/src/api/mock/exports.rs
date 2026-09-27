@@ -176,6 +176,17 @@ pub async fn set_auto(id: &str, rule: AutoUpload) -> ApiResult<()> {
     })
 }
 
+pub async fn check(id: &str) -> ApiResult<ConnectionProbe> {
+    TimeoutFuture::new(400).await;
+    with_db(|db| {
+        let t = db.export_targets.iter().find(|t| t.id == id).ok_or_else(|| ApiError::not_found("Export destination"))?;
+        Ok(match &t.problem {
+            None => ConnectionProbe { ok: true, message: "Connected".into(), latency_ms: Some(38), device: None },
+            Some(p) => ConnectionProbe { ok: false, message: p.clone(), latency_ms: None, device: None },
+        })
+    })
+}
+
 pub async fn reconnect(id: &str) -> ApiResult<()> {
     TimeoutFuture::new(1200).await;
     with_db(|db| {
