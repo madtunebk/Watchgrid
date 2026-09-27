@@ -5,19 +5,56 @@ use chrono::{DateTime, NaiveDate, Utc};
 use quick_xml::Reader;
 use quick_xml::events::Event;
 
-fn local(name: &[u8]) -> &[u8] {
+pub(super) fn local(name: &[u8]) -> &[u8] {
     name.rsplit(|b| *b == b':').next().unwrap_or(name)
+}
+
+/// The whole text of the element just opened, up to its end tag, with
+/// entities (`&amp;`, `&#38;`) and CDATA decoded, trimmed. The parser hands
+/// text over in pieces around each entity: taking only the first piece
+/// cut `http://cam/events?a=1&amp;b=2` to `http://cam/events?a=1`.
+pub(super) fn element_text(r: &mut Reader<&[u8]>) -> Option<String> {
+    let mut out = String::new();
+    let mut depth = 0u32;
+    loop {
+        match r.read_event().ok()? {
+            Event::Text(t) => out.push_str(&t.decode().ok()?),
+            Event::CData(c) => out.push_str(std::str::from_utf8(&c).ok()?),
+            Event::GeneralRef(g) => out.push_str(&entity(&g)?),
+            Event::Start(_) => depth += 1,
+            Event::End(_) if depth == 0 => return Some(out.trim().to_string()),
+            Event::End(_) => depth -= 1,
+            Event::Eof => return None,
+            _ => {}
+        }
+    }
+}
+
+/// `&amp;` → `&`, `&#38;` / `&#x26;` → `&` (XML's five names and number references).
+fn entity(g: &quick_xml::events::BytesRef<'_>) -> Option<String> {
+    if let Ok(Some(c)) = g.resolve_char_ref() {
+        return Some(c.to_string());
+    }
+    Some(
+        match g.decode().ok()?.as_ref() {
+            "amp" => "&",
+            "lt" => "<",
+            "gt" => ">",
+            "quot" => "\"",
+            "apos" => "'",
+            _ => return None,
+        }
+        .to_string(),
+    )
 }
 
 /// Text of the first element with this local name.
 pub fn text(xml: &str, name: &str) -> Option<String> {
     let mut r = Reader::from_str(xml);
-    let mut inside = false;
     loop {
         match r.read_event().ok()? {
-            Event::Start(e) if local(e.name().as_ref()) == name.as_bytes() => inside = true,
-            Event::Text(t) if inside => return t.decode().ok().map(|s| s.trim().to_string()),
-            Event::End(_) if inside => return Some(String::new()),
+            Event::Start(e) if local(e.name().as_ref()) == name.as_bytes() => return element_text(&mut r),
+            Event::Empty(e) if local(e.name().as_ref()) == name.as_bytes() => return Some(String::new()),
             Event::Eof => return None,
             _ => {}
         }
@@ -27,12 +64,11 @@ pub fn text(xml: &str, name: &str) -> Option<String> {
 /// `XAddr` of the first element named `section` (e.g. "Events" in GetCapabilities).
 pub fn xaddr_in(xml: &str, section: &str) -> Option<String> {
     let mut r = Reader::from_str(xml);
-    let (mut in_section, mut in_xaddr) = (false, false);
+    let mut in_section = false;
     loop {
         match r.read_event().ok()? {
             Event::Start(e) if local(e.name().as_ref()) == section.as_bytes() => in_section = true,
-            Event::Start(e) if in_section && local(e.name().as_ref()) == b"XAddr" => in_xaddr = true,
-            Event::Text(t) if in_xaddr => return t.decode().ok().map(|s| s.trim().to_string()),
+            Event::Start(e) if in_section && local(e.name().as_ref()) == b"XAddr" => return element_text(&mut r),
             Event::End(e) if local(e.name().as_ref()) == section.as_bytes() => in_section = false,
             Event::Eof => return None,
             _ => {}
@@ -133,15 +169,20 @@ pub fn notifications(xml: &str) -> Vec<Notification> {
     let mut r = Reader::from_str(xml);
     let mut out = Vec::new();
     let mut current: Option<Notification> = None;
-    let (mut in_topic, mut in_data) = (false, false);
+    let mut in_data = false;
     loop {
         let Ok(ev) = r.read_event() else { break };
         match ev {
+            // The whole topic text (entities included).
+            Event::Start(e) if local(e.name().as_ref()) == b"Topic" => {
+                if let (Some(n), Some(topic)) = (current.as_mut(), element_text(&mut r)) {
+                    n.topic = strip_prefixes(&topic);
+                }
+            }
             Event::Start(e) | Event::Empty(e) => {
                 let name = local(e.name().as_ref()).to_vec();
                 match name.as_slice() {
                     b"NotificationMessage" => current = Some(Notification { topic: String::new(), time: None, operation: String::new(), data: Vec::new() }),
-                    b"Topic" => in_topic = true,
                     b"Message" if current.is_some() => {
                         if let Some(n) = current.as_mut() {
                             if let Some(t) = attr(&e, b"UtcTime") {
@@ -161,13 +202,7 @@ pub fn notifications(xml: &str) -> Vec<Notification> {
                     _ => {}
                 }
             }
-            Event::Text(t) if in_topic => {
-                if let (Some(n), Ok(text)) = (current.as_mut(), t.decode()) {
-                    n.topic = strip_prefixes(&text);
-                }
-            }
             Event::End(e) => match local(e.name().as_ref()) {
-                b"Topic" => in_topic = false,
                 b"Data" => in_data = false,
                 b"NotificationMessage" => out.extend(current.take()),
                 _ => {}
@@ -185,6 +220,17 @@ pub fn escape(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn text_keeps_everything_after_an_entity() {
+        let caps = r#"<s:Envelope><tds:Capabilities><tt:Events><tt:XAddr>http://cam/events?a=1&amp;b=2</tt:XAddr></tt:Events></tds:Capabilities></s:Envelope>"#;
+        assert_eq!(super::xaddr_in(caps, "Events").as_deref(), Some("http://cam/events?a=1&b=2"));
+        let addr = r#"<wsa5:Address>http://cam:1024/sub?id=7&amp;k=x&#38;y</wsa5:Address>"#;
+        assert_eq!(super::text(addr, "Address").as_deref(), Some("http://cam:1024/sub?id=7&k=x&y"));
+        assert_eq!(super::text("<Name><![CDATA[Gate & Yard]]></Name>", "Name").as_deref(), Some("Gate & Yard"));
+        assert_eq!(super::text("<a><Name/></a>", "Name").as_deref(), Some(""));
+    }
+
     use super::*;
 
     const PROPS: &str = r#"<env:Envelope xmlns:env="e" xmlns:wstop="w" xmlns:tns1="t"><env:Body><tev:GetEventPropertiesResponse xmlns:tev="v">

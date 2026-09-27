@@ -134,16 +134,21 @@ fn ptz_profile(xml: &str) -> Option<String> {
 
 fn parse_presets(xml: &str) -> Vec<Preset> {
     let mut r = Reader::from_str(xml);
-    let (mut out, mut token, mut in_name) = (Vec::new(), None::<String>, false);
+    let (mut out, mut token) = (Vec::new(), None::<String>);
     loop {
         match r.read_event() {
             Ok(Event::Start(e)) if local(e.name().as_ref()) == b"Preset" => token = token_of(&e),
-            Ok(Event::Start(e)) if token.is_some() && local(e.name().as_ref()) == b"Name" => in_name = true,
-            Ok(Event::Text(t)) if in_name => {
-                if let (Some(tok), Ok(name)) = (token.take(), t.decode()) {
-                    out.push(Preset { token: tok, name: name.trim().to_string() });
+            // `<Preset token="2"/>`: no name, show its token.
+            Ok(Event::Empty(e)) if local(e.name().as_ref()) == b"Preset" => {
+                if let Some(tok) = token_of(&e) {
+                    out.push(Preset { name: tok.clone(), token: tok });
                 }
-                in_name = false;
+            }
+            // The whole name (entities included: "Gate &amp; Yard").
+            Ok(Event::Start(e)) if token.is_some() && local(e.name().as_ref()) == b"Name" => {
+                if let (Some(tok), Some(name)) = (token.take(), super::xml::element_text(&mut r)) {
+                    out.push(Preset { token: tok, name });
+                }
             }
             Ok(Event::End(e)) if local(e.name().as_ref()) == b"Preset" => {
                 // A preset without a name: show its token.
@@ -159,6 +164,15 @@ fn parse_presets(xml: &str) -> Vec<Preset> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn preset_names_keep_ampersands() {
+        let xml = r#"<GetPresetsResponse><Preset token="1"><Name>Gate &amp; Yard</Name></Preset><Preset token="2"/></GetPresetsResponse>"#;
+        let p = super::parse_presets(xml);
+        assert_eq!((p[0].token.as_str(), p[0].name.as_str()), ("1", "Gate & Yard"));
+        assert_eq!(p[1].name, "2", "no name: the token");
+    }
+
     use super::*;
 
     #[test]
