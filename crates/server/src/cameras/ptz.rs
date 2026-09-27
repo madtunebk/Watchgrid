@@ -46,7 +46,13 @@ async fn session(s: &AppState, id: &str) -> ApiResult<Option<Arc<Ptz>>> {
     let camera = service::get(s, id).await?;
     let Some(onvif) = camera.onvif.filter(|o| !o.url.trim().is_empty()) else { return Ok(None) };
     let (user, password) = service::stored_onvif_login(s, &onvif.url).await?.unwrap_or_default();
-    let ptz = Ptz::connect(&onvif.url, &user, password).await.map_err(|e| ApiError::conflict(format!("Cannot reach the camera's PTZ: {e}")))?.map(Arc::new);
+    let ptz = Ptz::connect(&onvif.url, &user, password)
+        .await
+        .map_err(|e| {
+            tracing::warn!(camera = %id, "PTZ: cannot reach the camera: {e}");
+            ApiError::conflict(format!("Cannot reach the camera's PTZ: {e}"))
+        })?
+        .map(Arc::new);
     s.ptz.0.lock().expect("ptz lock").insert(id.to_string(), ptz.clone());
     Ok(ptz)
 }
@@ -62,10 +68,19 @@ fn failed(s: &AppState, id: &str, e: String) -> ApiError {
     ApiError::conflict(format!("The camera refused: {e}"))
 }
 
+/// Whether the camera moves, and its presets. A preset list the camera
+/// refuses doesn't take the arrows away: it comes back as `presetsError`.
 async fn state(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult<Json<PtzState>> {
     let Some(ptz) = session(&s, &id).await? else { return Ok(Json(PtzState::default())) };
-    let presets = ptz.presets().await.map_err(|e| failed(&s, &id, e))?;
-    Ok(Json(PtzState { available: true, presets: presets.into_iter().map(|p| PtzPreset { token: p.token, name: p.name }).collect() }))
+    let (presets, presets_error) = match ptz.presets().await {
+        Ok(list) => (list.into_iter().map(|p| PtzPreset { token: p.token, name: p.name }).collect(), None),
+        Err(e) => {
+            tracing::warn!(camera = %id, "PTZ: the camera didn't list its presets: {e}");
+            s.ptz.forget(&id);
+            (Vec::new(), Some(format!("The camera didn't list its saved positions: {e}")))
+        }
+    };
+    Ok(Json(PtzState { available: true, presets, presets_error }))
 }
 
 async fn move_camera(State(s): State<AppState>, Path(id): Path<String>, Json(m): Json<PtzMove>) -> ApiResult<StatusCode> {

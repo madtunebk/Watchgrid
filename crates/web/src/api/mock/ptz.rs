@@ -18,9 +18,22 @@ fn check(id: &str) -> ApiResult<()> {
     if id == MOVING_CAMERA { Ok(()) } else { Err(ApiError::conflict("This camera has no pan / tilt")) }
 }
 
+/// `?ptz=presets`: the camera moves but won't list its presets;
+/// `?ptz=unreachable`: its PTZ can't be reached at all.
 pub async fn state(id: &str) -> ApiResult<PtzState> {
     latency().await;
-    Ok(if id == MOVING_CAMERA { PtzState { available: true, presets: PRESETS.with_borrow(Clone::clone) } } else { PtzState::default() })
+    if id != MOVING_CAMERA {
+        return Ok(PtzState::default());
+    }
+    match super::scenario::param("ptz").as_str() {
+        "unreachable" => Err(ApiError::conflict("Cannot reach the camera's PTZ: GetCapabilities: the camera closed the connection without answering")),
+        "presets" => Ok(PtzState {
+            available: true,
+            presets: Vec::new(),
+            presets_error: Some("The camera didn't list its saved positions: GetPresets: the camera answered HTTP 500".into()),
+        }),
+        _ => Ok(PtzState { available: true, presets: PRESETS.with_borrow(Clone::clone), presets_error: None }),
+    }
 }
 
 pub async fn move_at(id: &str, _m: PtzMove) -> ApiResult<()> {

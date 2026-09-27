@@ -19,6 +19,10 @@
 .ptz__row { display: flex; gap: 0.5333rem; align-items: center; }
 .ptz__row .select, .ptz__row .input { flex: 1 1 auto; min-width: 0; }
 .ptz__error { flex-basis: 100%; margin: 0; font-size: 0.8667rem; color: var(--danger); }
+.ptz__row .ptz__error { flex: 1 1 auto; }
+/* The camera's PTZ couldn't be asked: the reason and a retry. */
+.ptz--failed { align-items: flex-start; flex-direction: column; gap: 0.5333rem; max-width: 22rem; }
+.ptz__btn--failed { width: 2.1333rem; height: 2.1333rem; color: var(--warning); }
 
 /* Over the picture in Live View's single-camera view */
 .tile__ptz { position: absolute; right: 0.8rem; bottom: 3.2rem; z-index: 3; }
@@ -26,6 +30,7 @@
 .ptz--compact .ptz__pad { grid-template: repeat(3, 2.1333rem) / repeat(3, 2.1333rem); }
 .ptz--compact .ptz__btn { background: rgb(0 0 0 / 0.45); border-color: rgb(255 255 255 / 0.25); color: #fff; }
 .ptz--compact .ptz__btn:hover { background: rgb(0 0 0 / 0.65); }
+.ptz--compact .ptz__btn--failed { color: var(--warning); }
 .ptz--compact .ptz__error { color: #fca5a5; text-shadow: 0 1px 2px #000; max-width: 16rem; }
 
 /* Saved positions over the picture, right side above the arrows (camera
@@ -43,3 +48,7 @@
 }
 .tile__presets .select, .tile__presets .input { background: rgb(0 0 0 / 0.45); border-color: rgb(255 255 255 / 0.25); color: #fff; }
 .tile__presets .ptz__error { color: #fca5a5; text-shadow: 0 1px 2px #000; max-width: 17.3333rem; }
+.tile__presets .ptz--failed {
+  padding: 0.6667rem; background: rgb(0 0 0 / 0.6); backdrop-filter: blur(6px);
+  border: 1px solid rgb(255 255 255 / 0.15); border-radius: var(--radius-lg);
+}

@@ -12,14 +12,14 @@ pub enum Scenario {
     Large,
 }
 
-pub fn current() -> Scenario {
+/// A `name=value` from the page URL (mock switches such as `mock=` or `ptz=`).
+pub fn param(name: &str) -> String {
     let search = web_sys::window().and_then(|w| w.location().search().ok()).unwrap_or_default();
-    let value = search
-        .trim_start_matches('?')
-        .split('&')
-        .find_map(|kv| kv.strip_prefix("mock="))
-        .unwrap_or("");
-    match value {
+    search.trim_start_matches('?').split('&').find_map(|kv| kv.strip_prefix(name)?.strip_prefix('=')).unwrap_or("").to_string()
+}
+
+pub fn current() -> Scenario {
+    match param("mock").as_str() {
         "empty" => Scenario::Empty,
         "nostorage" => Scenario::NoStorage,
         "large" => Scenario::Large,

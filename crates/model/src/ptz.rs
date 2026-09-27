@@ -2,12 +2,16 @@
 
 use serde::{Deserialize, Serialize};
 
-/// What the camera offers.
+/// What the camera offers. Movement and presets are separate: a camera
+/// that won't list its presets can still turn.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PtzState {
     pub available: bool,
     pub presets: Vec<PtzPreset>,
+    /// Why the presets couldn't be listed (then `presets` is empty).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub presets_error: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

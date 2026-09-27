@@ -1,13 +1,16 @@
 //! Pan / tilt controls for cameras that move (ONVIF PTZ). Hold an arrow to
 //! turn: the move is repeated while held, and the camera stops by itself
 //! about a second after the last one, so it never keeps turning.
+//!
+//! A camera that can't be asked shows why, with a retry; one that won't
+//! list its presets keeps its arrows.
 
 use std::time::Duration;
 
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 
-use crate::api::{self, PtzMove, PtzPreset};
+use crate::api::{self, ApiResult, PtzMove, PtzPreset, PtzState};
 use crate::clock::use_interval;
 use crate::ui::{I, Icon};
 
@@ -36,7 +39,7 @@ impl Dir {
 
 /// Arrows (and, unless `compact`, presets; with `presets_only`, just the
 /// presets, for when the arrows sit over the video). Renders nothing for
-/// cameras that can't move.
+/// cameras that can't move, and the reason when the camera couldn't be asked.
 #[component]
 pub fn PtzPad(camera_id: String, #[prop(optional)] compact: bool, #[prop(optional)] presets_only: bool) -> impl IntoView {
     let state = LocalResource::new({
@@ -46,9 +49,11 @@ pub fn PtzPad(camera_id: String, #[prop(optional)] compact: bool, #[prop(optiona
     let held = RwSignal::new(None::<Dir>);
     let error = RwSignal::new(None::<String>);
     let presets = RwSignal::new(Vec::<PtzPreset>::new());
+    let presets_error = RwSignal::new(None::<String>);
     Effect::new(move || {
         if let Some(Ok(s)) = state.get() {
             presets.set(s.presets);
+            presets_error.set(s.presets_error);
         }
     });
 
@@ -110,9 +115,10 @@ pub fn PtzPad(camera_id: String, #[prop(optional)] compact: bool, #[prop(optiona
     };
 
     let available = Signal::derive(move || state.get().and_then(Result::ok).is_some_and(|s| s.available));
+    let failure = move || state.get().and_then(Result::err).map(|e| view! { <Unreachable error=e.to_string() compact state /> });
 
     view! {
-        <Show when=move || available.get()>
+        <Show when=move || available.get() fallback=failure>
             <div class="ptz" class:ptz--compact=compact on:dblclick=|ev| ev.stop_propagation()>
                 {(!presets_only).then(|| view! {
                     <div class="ptz__pad">
@@ -122,15 +128,49 @@ pub fn PtzPad(camera_id: String, #[prop(optional)] compact: bool, #[prop(optiona
                         {arrow(Dir::Down, I::ChevronDown, "Tilt down", "ptz__btn--down")}
                     </div>
                 })}
-                {(!compact).then(|| view! { <Presets camera_id=camera_id.clone() presets error /> })}
+                {(!compact).then(|| view! { <Presets camera_id=camera_id.clone() presets presets_error error state /> })}
                 {move || error.get().map(|e| view! { <p class="ptz__error">{e}</p> })}
             </div>
         </Show>
     }
 }
 
+/// The camera's PTZ couldn't be asked (unreachable, refused): say so instead
+/// of hiding the controls as if it couldn't move. Over the video (`compact`)
+/// it is just a warning button; the reason is in its tooltip.
 #[component]
-fn Presets(camera_id: String, presets: RwSignal<Vec<PtzPreset>>, error: RwSignal<Option<String>>) -> impl IntoView {
+fn Unreachable(error: String, compact: bool, state: LocalResource<ApiResult<PtzState>>) -> impl IntoView {
+    if compact {
+        let title = format!("{error} — click to try again");
+        view! {
+            <div class="ptz ptz--compact">
+                <button class="ptz__btn ptz__btn--failed" title=title aria-label="Pan / tilt unavailable; try again" on:click=move |_| state.refetch()>
+                    <Icon icon=I::TriangleAlert class="icon icon--sm" />
+                </button>
+            </div>
+        }
+        .into_any()
+    } else {
+        view! {
+            <div class="ptz ptz--failed">
+                <p class="ptz__error">{error}</p>
+                <button class="btn btn--secondary btn--sm" on:click=move |_| state.refetch()>
+                    <Icon icon=I::RotateCw class="icon icon--sm" />"Try again"
+                </button>
+            </div>
+        }
+        .into_any()
+    }
+}
+
+#[component]
+fn Presets(
+    camera_id: String,
+    presets: RwSignal<Vec<PtzPreset>>,
+    presets_error: RwSignal<Option<String>>,
+    error: RwSignal<Option<String>>,
+    state: LocalResource<ApiResult<PtzState>>,
+) -> impl IntoView {
     let chosen = RwSignal::new(String::new());
     let name = RwSignal::new(String::new());
     let busy = RwSignal::new(false);
@@ -191,11 +231,20 @@ fn Presets(camera_id: String, presets: RwSignal<Vec<PtzPreset>>, error: RwSignal
     };
     view! {
         <div class="ptz__presets">
+            {move || presets_error.get().map(|e| view! {
+                <div class="ptz__row">
+                    <p class="ptz__error">{e}</p>
+                    <button class="btn btn--secondary btn--sm" on:click=move |_| state.refetch()>
+                        <Icon icon=I::RotateCw class="icon icon--sm" />"Try again"
+                    </button>
+                </div>
+            })}
             <div class="ptz__row">
                 <select class="select select--sm" aria-label="Preset" disabled=move || presets.with(Vec::is_empty)
                     on:change=move |ev| chosen.set(event_target_value(&ev))>
                     {move || if presets.with(Vec::is_empty) {
-                        view! { <option value="">"No saved positions"</option> }.into_any()
+                        let label = if presets_error.with(Option::is_some) { "Saved positions unavailable" } else { "No saved positions" };
+                        view! { <option value="">{label}</option> }.into_any()
                     } else {
                         presets.get().into_iter().map(|p| {
                             let token = p.token.clone();
