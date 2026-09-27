@@ -170,6 +170,9 @@ pub struct Notification {
     pub operation: String,
     /// `Data` items as (name, value).
     pub data: Vec<(String, String)>,
+    /// `Source` and `Key` items (rule, zone, channel…): with the topic,
+    /// they identify the property, so two rules on one topic stay apart.
+    pub source: Vec<(String, String)>,
 }
 
 /// Data items that carry a detection's on/off state.
@@ -184,6 +187,18 @@ fn boolean(v: &str) -> Option<bool> {
 }
 
 impl Notification {
+    /// Which property this is: the topic plus its source and key items.
+    pub fn identity(&self) -> String {
+        let mut parts: Vec<String> = self.source.iter().map(|(k, v)| format!("{k}={v}")).collect();
+        parts.sort();
+        if parts.is_empty() { self.topic.clone() } else { format!("{}[{}]", self.topic, parts.join(",")) }
+    }
+
+    /// The property no longer exists (a rule was removed, a zone emptied).
+    pub fn deleted(&self) -> bool {
+        self.operation.eq_ignore_ascii_case("Deleted")
+    }
+
     /// The detection's on/off state, from an item named like one
     /// (`State`, `IsMotion`, …). Only when there is none, a single
     /// boolean-looking item is trusted; a number such as `ObjectId=1`
@@ -215,7 +230,8 @@ pub fn notifications(xml: &str) -> Result<Vec<Notification>, String> {
     let mut r = Reader::from_str(xml);
     let mut out = Vec::new();
     let mut current: Option<Notification> = None;
-    let mut in_data = false;
+    // Which part of the Message the next SimpleItems belong to.
+    let (mut in_data, mut in_source) = (false, false);
     loop {
         let ev = r.read_event().map_err(|e| format!("unreadable reply: {e}"))?;
         match ev {
@@ -228,7 +244,7 @@ pub fn notifications(xml: &str) -> Result<Vec<Notification>, String> {
             Event::Start(e) | Event::Empty(e) => {
                 let name = local(e.name().as_ref()).to_vec();
                 match name.as_slice() {
-                    b"NotificationMessage" => current = Some(Notification { topic: String::new(), time: None, operation: String::new(), data: Vec::new() }),
+                    b"NotificationMessage" => current = Some(Notification { topic: String::new(), time: None, operation: String::new(), data: Vec::new(), source: Vec::new() }),
                     b"Message" if current.is_some() => {
                         if let Some(n) = current.as_mut() {
                             if let Some(t) = attr(&e, b"UtcTime") {
@@ -240,9 +256,10 @@ pub fn notifications(xml: &str) -> Result<Vec<Notification>, String> {
                         }
                     }
                     b"Data" => in_data = true,
-                    b"SimpleItem" if in_data => {
+                    b"Source" | b"Key" => in_source = true,
+                    b"SimpleItem" if in_data || in_source => {
                         if let (Some(n), Some(k), Some(v)) = (current.as_mut(), attr(&e, b"Name"), attr(&e, b"Value")) {
-                            n.data.push((k, v));
+                            if in_data { n.data.push((k, v)) } else { n.source.push((k, v)) }
                         }
                     }
                     _ => {}
@@ -250,6 +267,7 @@ pub fn notifications(xml: &str) -> Result<Vec<Notification>, String> {
             }
             Event::End(e) => match local(e.name().as_ref()) {
                 b"Data" => in_data = false,
+                b"Source" | b"Key" => in_source = false,
                 b"NotificationMessage" => out.extend(current.take()),
                 _ => {}
             },
@@ -269,7 +287,7 @@ mod tests {
 
     #[test]
     fn state_comes_from_its_named_item_and_bad_xml_is_an_error() {
-        let n = |data: &[(&str, &str)]| super::Notification { topic: "t".into(), time: None, operation: "Changed".into(), data: data.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect() };
+        let n = |data: &[(&str, &str)]| super::Notification { topic: "t".into(), time: None, operation: "Changed".into(), data: data.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(), source: vec![] };
         assert_eq!(n(&[("ObjectId", "1"), ("State", "false")]).active(), Some(false), "a number never decides");
         assert_eq!(n(&[("IsMotion", "true")]).active(), Some(true));
         assert_eq!(n(&[("Anything", "true")]).active(), Some(true), "a single boolean is trusted");
@@ -277,6 +295,14 @@ mod tests {
         assert!(super::notifications("<a><b></a>").is_err(), "mismatched tags: an error, not zero events");
         assert!(super::is_fault("<s:Envelope><s:Body><s:Fault><s:Reason><s:Text>no</s:Text></s:Reason></s:Fault></s:Body></s:Envelope>"));
         assert!(!super::is_fault("<s:Envelope><s:Body><tev:GetEventPropertiesResponse><tns1:Fault topic=\"true\"/></tev:GetEventPropertiesResponse></s:Body></s:Envelope>"), "a topic named Fault is not a fault");
+    }
+
+    #[test]
+    fn source_items_are_kept_apart_from_data() {
+        let reply = r#"<s:Envelope><s:Body><tev:PullMessagesResponse><wsnt:NotificationMessage><wsnt:Topic>tns1:RuleEngine/CellMotionDetector/Motion</wsnt:Topic><wsnt:Message><tt:Message UtcTime="2026-09-27T10:00:00Z" PropertyOperation="Deleted"><tt:Source><tt:SimpleItem Name="Rule" Value="Zone 1"/></tt:Source><tt:Key><tt:SimpleItem Name="ObjectId" Value="7"/></tt:Key></tt:Message></wsnt:Message></wsnt:NotificationMessage></tev:PullMessagesResponse></s:Body></s:Envelope>"#;
+        let n = &super::notifications(reply).unwrap()[0];
+        assert!(n.data.is_empty() && n.deleted());
+        assert_eq!(n.identity(), "RuleEngine/CellMotionDetector/Motion[ObjectId=7,Rule=Zone 1]");
     }
 
     #[test]

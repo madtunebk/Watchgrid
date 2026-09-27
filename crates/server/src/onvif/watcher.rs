@@ -102,7 +102,8 @@ impl Watchers {
     }
 }
 
-/// Current state of each topic and what it maps to.
+/// Current state of each property (topic + source, see
+/// [`Notification::identity`]) and what it maps to.
 struct Detections {
     topics: HashMap<String, (EventType, bool)>,
     /// Detections count (motion comes from ONVIF); security alerts always do.
@@ -225,9 +226,15 @@ fn apply(deps: &Deps, id: &str, state: &mut Detections, n: &Notification) {
         }
         return;
     }
-    let (true, Some(kind), Some(on)) = (state.motion, topics::detection(&n.topic), n.active()) else { return };
+    let (true, Some(kind)) = (state.motion, topics::detection(&n.topic)) else { return };
     let was = state.kind_active(kind);
-    state.topics.insert(n.topic.clone(), (kind, on));
+    if n.deleted() {
+        // Gone (no Data follows): it no longer holds anything on.
+        state.topics.remove(&n.identity());
+    } else {
+        let Some(on) = n.active() else { return };
+        state.topics.insert(n.identity(), (kind, on));
+    }
     let now = state.kind_active(kind);
     let at = pullpoint::when(n);
     if now && !was {
@@ -259,7 +266,7 @@ mod tests {
     use super::*;
 
     fn note(topic: &str, on: bool) -> Notification {
-        Notification { topic: topic.into(), time: None, operation: "Changed".into(), data: vec![("State".into(), on.to_string())] }
+        Notification { topic: topic.into(), time: None, operation: "Changed".into(), data: vec![("State".into(), on.to_string())], source: vec![] }
     }
 
     #[tokio::test]
@@ -284,6 +291,33 @@ mod tests {
         watchers.apply("cam", true);
         assert!(matches!(rx.try_recv().unwrap(), BusEvent::DetectionEnded { kind: EventType::Motion, .. }));
         assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn two_rules_on_one_topic_stay_apart_and_deleted_ends_one() {
+        let bus = Bus::new();
+        let mut rx = bus.subscribe();
+        let deps = Deps {
+            db: sqlx::postgres::PgPoolOptions::new().connect_lazy("postgres://unused").unwrap(),
+            credentials: Arc::new(CredentialStore::from_key(&[1u8; 32])),
+            bus: bus.clone(),
+            links: Arc::default(),
+            detections: Arc::new(Combined::new(bus, Arc::new(LiveRegistry::default()))),
+        };
+        let ruled = |rule: &str, op: &str, on: Option<bool>| Notification {
+            topic: "RuleEngine/CellMotionDetector/Motion".into(),
+            time: None,
+            operation: op.into(),
+            data: on.map(|b| vec![("IsMotion".to_string(), b.to_string())]).unwrap_or_default(),
+            source: vec![("Rule".into(), rule.into())],
+        };
+        let mut s = Detections { motion: true, ..Detections::default() };
+        apply(&deps, "cam", &mut s, &ruled("A", "Changed", Some(true)));
+        apply(&deps, "cam", &mut s, &ruled("B", "Changed", Some(false))); // B's "off" must not end A
+        assert!(matches!(rx.try_recv().unwrap(), BusEvent::DetectionStarted { kind: EventType::Motion, .. }));
+        assert!(rx.try_recv().is_err(), "rule A still sees motion");
+        apply(&deps, "cam", &mut s, &ruled("A", "Deleted", None)); // rule A removed, no Data
+        assert!(matches!(rx.try_recv().unwrap(), BusEvent::DetectionEnded { kind: EventType::Motion, .. }));
     }
 
     #[tokio::test]
