@@ -8,9 +8,10 @@ use std::time::{Duration, Instant};
 
 use chrono::Utc;
 use sqlx::PgPool;
-use tokio::task::JoinHandle;
+use tokio::sync::watch;
 use watchgrid_model::EventType;
 
+use super::endpoint::renew_after;
 use super::pullpoint::{self, Subscription};
 use super::{Notification, topics};
 use crate::bus::{Bus, BusEvent};
@@ -19,8 +20,9 @@ use crate::credentials::CredentialStore;
 use crate::live::LiveRegistry;
 use crate::motion::{Detections as Combined, Source};
 
-/// Renew well before the subscription's lifetime ends.
-const RENEW_EVERY: Duration = Duration::from_secs(pullpoint::LIFETIME_SECS as u64 / 2);
+/// A stopped watcher gets this long to unsubscribe (freeing the camera's
+/// slot now instead of when the lease runs out).
+const UNSUBSCRIBE_LIMIT: Duration = Duration::from_secs(3);
 /// At most one pull per this long: some cameras answer at once instead of
 /// waiting, and a tight loop of requests gets a camera to refuse us.
 const PULL_EVERY: Duration = Duration::from_secs(1);
@@ -54,9 +56,12 @@ pub struct Deps {
 /// replaced task's open detections can be closed.
 type Open = Arc<Mutex<Vec<EventType>>>;
 
+/// Set to `true` (or dropped) to stop a watcher.
+type Stop = watch::Receiver<bool>;
+
 pub struct Watchers {
     deps: Deps,
-    tasks: Mutex<HashMap<String, (JoinHandle<()>, Open)>>,
+    tasks: Mutex<HashMap<String, (watch::Sender<bool>, Open)>>,
     /// Tests never contact cameras.
     enabled: bool,
 }
@@ -84,8 +89,10 @@ impl Watchers {
     /// (Re)start watching after the camera was added or changed; the task
     /// itself decides from the settings whether there is anything to do.
     pub fn apply(&self, id: &str, exists: bool) {
-        if let Some((old, open)) = self.tasks.lock().expect("watchers lock").remove(id) {
-            old.abort();
+        if let Some((stop, open)) = self.tasks.lock().expect("watchers lock").remove(id) {
+            // Not aborted: it unsubscribes first (Tapo keeps a dropped
+            // subscription until its lease ends and allows only a few).
+            let _ = stop.send(true);
             self.deps.links.gone(id);
             // Stopped mid-detection (motion switched off, settings saved):
             // close what was open, or MOTION and the event stay on forever.
@@ -96,8 +103,9 @@ impl Watchers {
         }
         if exists && self.enabled {
             let open = Open::default();
-            let handle = tokio::spawn(run(self.deps.clone(), id.to_string(), open.clone()));
-            self.tasks.lock().expect("watchers lock").insert(id.to_string(), (handle, open));
+            let (stop, stopped) = watch::channel(false);
+            tokio::spawn(run(self.deps.clone(), id.to_string(), open.clone(), stopped));
+            self.tasks.lock().expect("watchers lock").insert(id.to_string(), (stop, open));
         }
     }
 }
@@ -133,13 +141,25 @@ impl Detections {
 /// moment, which drops the stream (seen at every service start).
 const START_DELAY: Duration = Duration::from_secs(10);
 
-async fn run(deps: Deps, id: String, open: Open) {
-    tokio::time::sleep(START_DELAY).await;
+/// `f`, unless the watcher is stopped first (`None`).
+async fn unless_stopped<F: std::future::Future>(stop: &mut Stop, f: F) -> Option<F::Output> {
+    tokio::select! {
+        out = f => Some(out),
+        _ = stop.wait_for(|s| *s) => None,
+    }
+}
+
+async fn run(deps: Deps, id: String, open: Open, mut stop: Stop) {
+    // Whoever stopped us closed our detections and link: just leave.
+    if unless_stopped(&mut stop, tokio::time::sleep(START_DELAY)).await.is_none() {
+        return;
+    }
     let mut attempt = 0u32;
     let mut state = Detections::default();
     let mut registered = false;
     loop {
-        let cfg = match cameras::onvif_watch(&deps.db, &deps.credentials, &id).await {
+        let Some(cfg) = unless_stopped(&mut stop, cameras::onvif_watch(&deps.db, &deps.credentials, &id)).await else { return };
+        let cfg = match cfg {
             Ok(Some(cfg)) if cfg.active => cfg,
             Ok(_) => {
                 deps.links.gone(&id);
@@ -147,7 +167,9 @@ async fn run(deps: Deps, id: String, open: Open) {
             }
             Err(e) => {
                 tracing::warn!(camera = %id, "cannot load ONVIF settings: {e}");
-                tokio::time::sleep(retry_delay(attempt.max(1))).await;
+                if unless_stopped(&mut stop, tokio::time::sleep(retry_delay(attempt.max(1)))).await.is_none() {
+                    return;
+                }
                 continue;
             }
         };
@@ -157,12 +179,19 @@ async fn run(deps: Deps, id: String, open: Open) {
             deps.links.watching(&id);
             registered = true;
         }
-        let reason = match Subscription::create(&cfg.url, &cfg.username, cfg.password).await {
+        let Some(created) = unless_stopped(&mut stop, Subscription::create(&cfg.url, &cfg.username, cfg.password)).await else { return };
+        let reason = match created {
             Err(e) => e,
             Ok(sub) => {
+                tracing::info!(camera = %id, lease_s = sub.lease().as_secs(), renew_in_s = renew_after(sub.lease()).as_secs(), reference_parameters = sub.reference_parameters(), "ONVIF subscribed");
                 // Only a working pull counts as connected: some cameras
                 // accept the subscription but then refuse to deliver.
-                let (reason, delivered) = pull_until_error(&deps, &id, &sub, &mut state, &open, attempt > 0).await;
+                let pulling = pull_until_error(&deps, &id, &sub, &mut state, &open, attempt > 0);
+                let Some((reason, delivered)) = unless_stopped(&mut stop, pulling).await else {
+                    // Settings saved or camera removed: free its slot now.
+                    let _ = tokio::time::timeout(UNSUBSCRIBE_LIMIT, sub.unsubscribe()).await;
+                    return;
+                };
                 if delivered.is_some_and(|d| d >= STABLE) {
                     attempt = 0;
                 }
@@ -178,22 +207,25 @@ async fn run(deps: Deps, id: String, open: Open) {
         attempt += 1;
         // Reconnects are at least 10 s apart: every failure is worth a line.
         tracing::warn!(camera = %id, attempt, retry_in_s = retry_delay(attempt).as_secs(), "ONVIF events unavailable: {reason}");
-        tokio::time::sleep(retry_delay(attempt)).await;
+        if unless_stopped(&mut stop, tokio::time::sleep(retry_delay(attempt))).await.is_none() {
+            return;
+        }
     }
 }
 
 /// Returns why pulling stopped and, if any pull succeeded, for how long
 /// events were delivered.
 async fn pull_until_error(deps: &Deps, id: &str, sub: &Subscription, state: &mut Detections, open: &Open, recovering: bool) -> (String, Option<Duration>) {
-    let mut renew_at = Instant::now() + RENEW_EVERY;
+    let mut renew_at = Instant::now() + renew_after(sub.lease());
     let mut first_ok: Option<Instant> = None;
     loop {
         let delivered = first_ok.map(|t| t.elapsed());
         if Instant::now() >= renew_at {
-            if let Err(e) = sub.renew().await {
-                return (format!("renew failed: {e}"), delivered);
+            match sub.renew().await {
+                // The camera may grant less than asked, or less than before.
+                Ok(lease) => renew_at = Instant::now() + renew_after(lease),
+                Err(e) => return (format!("renew failed: {e}"), delivered),
             }
-            renew_at = Instant::now() + RENEW_EVERY;
         }
         let started = Instant::now();
         match sub.pull().await {
@@ -256,6 +288,17 @@ fn close_all(deps: &Deps, id: &str, kinds: &[EventType]) {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn a_stop_interrupts_whatever_the_watcher_waits_on() {
+        let (stop, mut stopped) = tokio::sync::watch::channel(false);
+        assert_eq!(super::unless_stopped(&mut stopped, async { 7 }).await, Some(7));
+        let _ = stop.send(true);
+        assert_eq!(super::unless_stopped(&mut stopped, std::future::pending::<()>()).await, None);
+        let (stop, mut stopped) = tokio::sync::watch::channel(false);
+        drop(stop); // the watchers map let go of it
+        assert_eq!(super::unless_stopped(&mut stopped, std::future::pending::<()>()).await, None);
+    }
+
     #[test]
     fn reconnects_slow_down_and_never_hurry() {
         assert_eq!(super::retry_delay(1), Duration::from_secs(10));
@@ -288,7 +331,7 @@ mod tests {
         combined.start("cam", EventType::Motion, Source::Camera, "m", Utc::now());
         assert!(matches!(rx.try_recv().unwrap(), BusEvent::DetectionStarted { .. }));
         let open: Open = Arc::new(Mutex::new(vec![EventType::Motion]));
-        watchers.tasks.lock().unwrap().insert("cam".into(), (tokio::spawn(async {}), open));
+        watchers.tasks.lock().unwrap().insert("cam".into(), (tokio::sync::watch::channel(false).0, open));
         // e.g. motion switched off while the camera reported motion
         watchers.apply("cam", true);
         assert!(matches!(rx.try_recv().unwrap(), BusEvent::DetectionEnded { kind: EventType::Motion, .. }));

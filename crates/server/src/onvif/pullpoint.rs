@@ -1,9 +1,12 @@
 //! ONVIF event subscription (PullPoint): create, pull, renew, unsubscribe.
 
+use std::time::Duration;
+
 use chrono::{DateTime, Utc};
 use url::Url;
 
 use super::client::Client;
+use super::endpoint;
 use super::xml::{self, Notification};
 
 const EVENTS: &str = "http://www.onvif.org/ver10/events/wsdl";
@@ -12,17 +15,23 @@ const WSN: &str = "http://docs.oasis-open.org/wsn/b-2";
 /// enough that renewals are rare; short enough that one left behind by a
 /// dropped connection frees its slot on the camera soon.
 pub const LIFETIME_SECS: u32 = 300;
+/// Assumed granted when a reply doesn't say.
+const REQUESTED: Duration = Duration::from_secs(LIFETIME_SECS as u64);
 /// How long a PullMessages call may wait for events on the camera. Tapo
 /// (TC71, TC72) closes the connection without answering when asked to wait
 /// 30 s; 5 s has always worked. The request rate is kept down elsewhere
 /// (one subscription, paced pulls, slow reconnects).
 const PULL_WAIT: &str = "PT5S";
 /// The HTTP call must outlast that wait.
-const PULL_LIMIT: std::time::Duration = std::time::Duration::from_secs(15);
+const PULL_LIMIT: Duration = Duration::from_secs(15);
 
 pub struct Subscription {
     client: Client,
     address: Url,
+    /// Sent back with every call on the subscription (WS-Addressing).
+    reference: Vec<String>,
+    /// What the camera granted at creation (it may shorten what we ask).
+    lease: Duration,
 }
 
 impl Subscription {
@@ -39,20 +48,33 @@ impl Subscription {
                 &format!(r#"<tev:CreatePullPointSubscription xmlns:tev="{EVENTS}"><tev:InitialTerminationTime>PT{LIFETIME_SECS}S</tev:InitialTerminationTime></tev:CreatePullPointSubscription>"#),
             )
             .await?;
-        let address = xml::text(&reply, "Address").and_then(|a| Url::parse(&a).ok()).ok_or("the camera returned no subscription address")?;
+        let reference = endpoint::subscription_reference(&reply).ok_or("CreatePullPointSubscription: the camera returned no subscription address")?;
+        let address = Url::parse(&reference.address).map_err(|_| format!("CreatePullPointSubscription: unusable subscription address {:?}", reference.address))?;
         let address = super::probe::rebase(&address, &device);
-        Ok(Self { client, address })
+        let lease = endpoint::granted_lease(&reply).unwrap_or(REQUESTED);
+        Ok(Self { client, address, reference: reference.parameters, lease })
+    }
+
+    /// The lease granted at creation; renew after [`endpoint::renew_after`] of it.
+    pub fn lease(&self) -> Duration {
+        self.lease
+    }
+
+    /// How many reference parameters the camera asked to get back (for the log).
+    pub fn reference_parameters(&self) -> usize {
+        self.reference.len()
     }
 
     /// Wait (up to 5 s) for events.
     pub async fn pull(&self) -> Result<Vec<Notification>, String> {
         let reply = self
             .client
-            .call_addressed_within(
+            .call_endpoint(
                 &self.address,
+                &self.reference,
                 &format!("{EVENTS}/PullPointSubscription/PullMessagesRequest"),
                 &format!(r#"<tev:PullMessages xmlns:tev="{EVENTS}"><tev:Timeout>{PULL_WAIT}</tev:Timeout><tev:MessageLimit>64</tev:MessageLimit></tev:PullMessages>"#),
-                PULL_LIMIT,
+                Some(PULL_LIMIT),
             )
             .await?;
         // Anything but a PullMessagesResponse (an error page, a stray
@@ -64,22 +86,32 @@ impl Subscription {
         xml::notifications(&reply).map_err(|e| format!("PullMessages: {e}"))
     }
 
-    pub async fn renew(&self) -> Result<(), String> {
-        self.client
-            .call_addressed(
+    /// Extend the subscription; returns the lease the camera granted now.
+    pub async fn renew(&self) -> Result<Duration, String> {
+        let reply = self
+            .client
+            .call_endpoint(
                 &self.address,
+                &self.reference,
                 "http://docs.oasis-open.org/wsn/bw-2/SubscriptionManager/RenewRequest",
                 &format!(r#"<wsnt:Renew xmlns:wsnt="{WSN}"><wsnt:TerminationTime>PT{LIFETIME_SECS}S</wsnt:TerminationTime></wsnt:Renew>"#),
+                None,
             )
-            .await
-            .map(|_| ())
+            .await?;
+        Ok(endpoint::granted_lease(&reply).unwrap_or(REQUESTED))
     }
 
     /// Best effort: the subscription also expires on its own.
     pub async fn unsubscribe(&self) {
         let _ = self
             .client
-            .call_addressed(&self.address, "http://docs.oasis-open.org/wsn/bw-2/SubscriptionManager/UnsubscribeRequest", &format!(r#"<wsnt:Unsubscribe xmlns:wsnt="{WSN}"/>"#))
+            .call_endpoint(
+                &self.address,
+                &self.reference,
+                "http://docs.oasis-open.org/wsn/bw-2/SubscriptionManager/UnsubscribeRequest",
+                &format!(r#"<wsnt:Unsubscribe xmlns:wsnt="{WSN}"/>"#),
+                None,
+            )
             .await;
     }
 }

@@ -37,32 +37,29 @@ impl Client {
         self.raw(url, action, body, true).await
     }
 
-    /// Like [`call`], with WS-Addressing `Action`/`To` headers (required by
-    /// many devices on subscription endpoints).
-    pub async fn call_addressed(&self, url: &Url, action: &str, body: &str) -> Result<String, String> {
-        self.raw_with(url, action, body, true, true, None).await
-    }
-
-    /// [`call_addressed`] for a call the device may hold open up to `limit`.
-    pub async fn call_addressed_within(&self, url: &Url, action: &str, body: &str, limit: std::time::Duration) -> Result<String, String> {
-        self.raw_with(url, action, body, true, true, Some(limit)).await
+    /// A call to a subscription: WS-Addressing `Action`/`To` headers (many
+    /// devices require them there) plus the reference parameters the
+    /// device gave the subscription. `limit`: how long it may hold the call.
+    pub async fn call_endpoint(&self, to: &Url, reference: &[String], action: &str, body: &str, limit: Option<std::time::Duration>) -> Result<String, String> {
+        self.raw_with(to, action, body, true, Some(reference), limit).await
     }
 
     async fn raw(&self, url: &Url, action: &str, body: &str, auth: bool) -> Result<String, String> {
-        self.raw_with(url, action, body, auth, false, None).await
+        self.raw_with(url, action, body, auth, None, None).await
     }
 
-    async fn raw_with(&self, url: &Url, action: &str, body: &str, auth: bool, addressed: bool, limit: Option<std::time::Duration>) -> Result<String, String> {
+    async fn raw_with(&self, url: &Url, action: &str, body: &str, auth: bool, reference: Option<&[String]>, limit: Option<std::time::Duration>) -> Result<String, String> {
         let mut header = match (&self.password, auth) {
             (Some(p), true) => security_header(&self.username, p, Utc::now() + self.clock_offset, &nonce()),
             _ => String::new(),
         };
-        if addressed {
+        if let Some(parameters) = reference {
             header.push_str(&format!(
                 r#"<wsa:Action xmlns:wsa="http://www.w3.org/2005/08/addressing">{}</wsa:Action><wsa:To xmlns:wsa="http://www.w3.org/2005/08/addressing">{}</wsa:To>"#,
                 xml::escape(action),
                 xml::escape(url.as_str())
             ));
+            header.extend(parameters.iter().map(String::as_str));
         }
         let envelope = format!(
             r#"<?xml version="1.0" encoding="UTF-8"?><s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"><s:Header>{header}</s:Header><s:Body>{body}</s:Body></s:Envelope>"#
