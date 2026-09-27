@@ -41,8 +41,10 @@ fn window(hours: u32) -> String {
 
 /// Days of footage the rules allow at the rate measured lately.
 fn projection(status: &StorageStatus, rules: (Option<u32>, Option<u64>, Option<u64>)) -> String {
-    let Some(rate) = status.write_rate.filter(|r| r.bytes_per_day > 0) else {
-        return "Not enough recent recordings yet — the projection appears after about an hour of recording.".into();
+    let rate = match status.write_rate {
+        None => return "Not enough recordings yet — the projection appears after about an hour of recording.".into(),
+        Some(r) if r.bytes_per_day == 0 => return format!("Nothing was recorded in {}, so there is no rate to project from.", window(r.window_hours)),
+        Some(r) => r,
     };
     let per_day = rate.bytes_per_day as f64;
     let mut limits: Vec<(f64, &str)> = Vec::new();
