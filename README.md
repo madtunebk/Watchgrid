@@ -38,6 +38,31 @@ streams without B-frame reordering.
 
 Everything builds with Cargo.
 
+## System requirements
+
+| | Minimum | Recommended |
+|---|---|---|
+| CPU | 64-bit x86 (x86-64), 2 cores (Celeron J3455 class) | 4 cores, Celeron J4125 / N100 class |
+| RAM (Watchgrid + PostgreSQL) | 2 GB | 8 GB |
+| Recording disk | any disk with enough space | HDD, surveillance grade (e.g. WD Purple, Seagate SkyHawk) |
+| Network | 100 Mb/s, wired preferred | Gigabit Ethernet, cameras wired |
+| Operating system | 64-bit Linux, with Docker or systemd | same |
+
+- **CPU:** about 1.3 % of a J4125 per camera, stream handling and software
+  motion detection on the substream included. On such a box the network
+  and the disk run out long before the CPU.
+- **Disk:** recording is steady sequential writing, 24/7. A hard disk does
+  that well and cheaply; NVMe speed isn't needed, and constant writing wears
+  SSDs out. An SSD for the system and the database is a nice extra, not a
+  requirement.
+- **Storage size:** GB per day ≈ camera bitrate in Mb/s × 10.8. A 4 Mb/s
+  camera recording around the clock uses about 43 GB a day; recording on
+  events uses far less. System → Capacity estimates it from your cameras.
+- **Network:** each camera sends its main stream and substream (a few Mb/s).
+  Keep a gigabit port under about 60 % load, since live view, playback and
+  exports share it. Cameras are read over RTSP/TCP by default: no lost
+  packets, so no broken frames.
+
 ## Install
 
 Two ways, both with **PostgreSQL 14+**. Choose one. Ready-built archives
