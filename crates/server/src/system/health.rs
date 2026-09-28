@@ -82,15 +82,34 @@ fn some_names(names: &[&str]) -> String {
     }
 }
 
-/// Destinations that can't take uploads (rejected credentials…); `None`
-/// when there are none configured.
-pub fn exports(names_with_problems: &[String], configured: usize) -> Option<HealthCheck> {
+/// Uploads waiting longer than this mean the uplink doesn't keep up.
+const BACKLOG_WARNING: std::time::Duration = std::time::Duration::from_secs(3600);
+
+/// Destinations that can't take uploads (rejected credentials…), and a
+/// backlog of uploads that doesn't drain; `None` when there are none
+/// configured. `backlog`: uploads not finished and how long the oldest waits.
+pub fn exports(names_with_problems: &[String], configured: usize, backlog: (i64, Option<std::time::Duration>)) -> Option<HealthCheck> {
     const NAME: &str = "Export destinations";
+    let (waiting, oldest) = backlog;
     (configured > 0).then(|| match names_with_problems {
-        [] => check(NAME, CheckLevel::Ok, format!("{configured} ready")),
+        [] => match oldest.filter(|o| *o >= BACKLOG_WARNING) {
+            Some(o) => check(NAME, CheckLevel::Warning, format!("{waiting} uploads waiting, oldest {}: the uplink doesn't keep up (uploads waiting over 24 h are skipped)", age(o))),
+            None if waiting > 0 => check(NAME, CheckLevel::Ok, format!("{configured} ready, {waiting} uploading or waiting")),
+            None => check(NAME, CheckLevel::Ok, format!("{configured} ready")),
+        },
         [one] => check(NAME, CheckLevel::Warning, format!("{one} needs attention")),
         many => check(NAME, CheckLevel::Warning, format!("{} need attention", many.len())),
     })
+}
+
+/// "3 h 10 min", "25 min".
+fn age(d: std::time::Duration) -> String {
+    let mins = d.as_secs() / 60;
+    match (mins / 60, mins % 60) {
+        (0, m) => format!("{m} min"),
+        (h, 0) => format!("{h} h"),
+        (h, m) => format!("{h} h {m} min"),
+    }
 }
 
 pub fn database() -> HealthCheck {
@@ -116,12 +135,17 @@ mod tests {
         assert_eq!(ServerHealth::of(&[ok.clone(), recordings(&dir, Some(97.0))]), ServerHealth::Degraded);
         assert_eq!(ServerHealth::of(&[ok, recordings(&dir, Some(97.0)), gone]), ServerHealth::Stopped);
 
-        assert!(exports(&[], 0).is_none(), "no destinations: nothing to report");
+        assert!(exports(&[], 0, (0, None)).is_none(), "no destinations: nothing to report");
+        assert_eq!(exports(&[], 2, (0, None)).unwrap().detail, "2 ready");
+        assert_eq!(exports(&[], 2, (3, Some(std::time::Duration::from_secs(120)))).unwrap().level, CheckLevel::Ok, "a short queue is normal");
+        let slow = exports(&[], 2, (12, Some(std::time::Duration::from_secs(3 * 3600 + 600)))).unwrap();
+        assert_eq!(slow.level, CheckLevel::Warning);
+        assert!(slow.detail.starts_with("12 uploads waiting, oldest 3 h 10 min"), "{}", slow.detail);
 
         let why = |s: &str| s.to_string();
         let forty: Vec<(&str, String)> = ["c1", "c2", "c3", "c4", "c5"].iter().map(|n| (*n, why("can't decode"))).collect();
         assert_eq!(by_reason(&forty), "5 cameras (c1, c2, c3 and 2 more): can't decode", "one reason said once");
         assert_eq!(by_reason(&[("Hall", why("no video")), ("Gate", why("can't decode")), ("Yard", why("no video"))]), "Hall, Yard: no video; Gate: can't decode");
-        assert_eq!(exports(&["MinIO".into()], 2).unwrap().detail, "MinIO needs attention");
+        assert_eq!(exports(&["MinIO".into()], 2, (0, None)).unwrap().detail, "MinIO needs attention");
     }
 }

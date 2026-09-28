@@ -292,6 +292,24 @@ pub async fn retry_now(db: &PgPool, id: &str) -> sqlx::Result<bool> {
 }
 
 /// Retries whose time has come, handed to the queue.
+/// Jobs still waiting to start `max_wait` after they were queued: the
+/// uplink can't keep up. Marked failed so retention, which waits for
+/// pending uploads, can free space again. A running upload is never
+/// touched. Returns how many were skipped.
+pub async fn skip_stale(db: &PgPool, max_wait: std::time::Duration, message: &str) -> sqlx::Result<u64> {
+    sqlx::query("UPDATE export_jobs SET state = 'failed', message = $2, retry_at = NULL, updated_at = now() WHERE state = 'queued' AND created_at < now() - make_interval(secs => $1)")
+        .bind(max_wait.as_secs_f64())
+        .bind(message)
+        .execute(db)
+        .await
+        .map(|r| r.rows_affected())
+}
+
+/// Uploads not finished yet, and when the oldest of them was queued.
+pub async fn backlog(db: &PgPool) -> sqlx::Result<(i64, Option<DateTime<Utc>>)> {
+    sqlx::query_as("SELECT count(*), min(created_at) FROM export_jobs WHERE state IN ('queued', 'uploading')").fetch_one(db).await
+}
+
 pub async fn take_due_retries(db: &PgPool) -> sqlx::Result<Vec<String>> {
     sqlx::query_scalar("UPDATE export_jobs SET retry_at = NULL, message = NULL WHERE state = 'queued' AND retry_at <= now() RETURNING id").fetch_all(db).await
 }

@@ -17,6 +17,11 @@ use crate::recordings::RecordingFiles;
 
 /// Uploads running at once (they compete for the uplink).
 const WORKERS: usize = 2;
+/// A job that hasn't started this long after it was queued is skipped: the
+/// uplink can't keep up, and a queue that never empties would keep
+/// retention from deleting old clips (the disk would fill).
+const MAX_WAIT: Duration = Duration::from_secs(24 * 3600);
+const SKIPPED: &str = "Skipped: waited more than 24 h — the uplink can't keep up with the recordings";
 
 /// Waits before each retry of a failed upload; then it stays failed.
 const RETRY_AFTER: [Duration; 4] = [Duration::from_secs(60), Duration::from_secs(5 * 60), Duration::from_secs(15 * 60), Duration::from_secs(60 * 60)];
@@ -82,6 +87,11 @@ impl Exports {
             let mut tick = tokio::time::interval(Duration::from_secs(30));
             loop {
                 tick.tick().await;
+                match repo::skip_stale(&me.db, MAX_WAIT, SKIPPED).await {
+                    Ok(0) => {}
+                    Ok(n) => tracing::warn!(skipped = n, "export uploads skipped after waiting more than 24 h: the uplink can't keep up"),
+                    Err(e) => tracing::warn!("cannot check the export backlog: {e}"),
+                }
                 match repo::take_due_retries(&me.db).await {
                     Ok(ids) => ids.into_iter().for_each(|id| drop(me.queue.send(id))),
                     Err(e) => tracing::warn!("cannot check export retries: {e}"),

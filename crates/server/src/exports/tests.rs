@@ -20,6 +20,28 @@ fn target(id: &str) -> StoredTarget {
 }
 
 #[sqlx::test(migrations = "./migrations")]
+async fn uploads_waiting_too_long_are_skipped_and_stop_blocking(db: PgPool) {
+    let id = repo::new_target_id(&db).await.unwrap();
+    repo::insert_target(&db, &target(&id)).await.unwrap();
+    let old = repo::insert_job(&db, None, "rec-old", &id).await.unwrap().unwrap();
+    let running = repo::insert_job(&db, None, "rec-running", &id).await.unwrap().unwrap();
+    let fresh = repo::insert_job(&db, None, "rec-new", &id).await.unwrap().unwrap();
+    repo::job_started(&db, &running.id, 1000).await.unwrap();
+    sqlx::query("UPDATE export_jobs SET created_at = now() - interval '25 hours' WHERE id IN ($1, $2)").bind(&old.id).bind(&running.id).execute(&db).await.unwrap();
+
+    let (waiting, oldest) = repo::backlog(&db).await.unwrap();
+    assert_eq!(waiting, 3);
+    assert!(oldest.is_some_and(|t| chrono::Utc::now() - t > chrono::Duration::hours(24)));
+
+    let skipped = repo::skip_stale(&db, std::time::Duration::from_secs(24 * 3600), "Skipped").await.unwrap();
+    assert_eq!(skipped, 1, "only the old job that never started");
+    assert_eq!(repo::job_by_id(&db, &old.id).await.unwrap().unwrap().state, ExportState::Failed);
+    assert_eq!(repo::job_by_id(&db, &running.id).await.unwrap().unwrap().state, ExportState::Uploading, "a running upload is never cut");
+    assert_eq!(repo::job_by_id(&db, &fresh.id).await.unwrap().unwrap().state, ExportState::Queued);
+    assert_eq!(repo::backlog(&db).await.unwrap().0, 2);
+}
+
+#[sqlx::test(migrations = "./migrations")]
 async fn targets_never_expose_secrets_and_jobs_dedupe(db: PgPool) {
     let id = repo::new_target_id(&db).await.unwrap();
     repo::insert_target(&db, &target(&id)).await.unwrap();

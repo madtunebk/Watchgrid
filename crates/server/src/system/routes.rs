@@ -39,7 +39,9 @@ async fn status(State(s): State<AppState>) -> ApiResult<Json<SystemStatus>> {
     let failing: Vec<String> = targets.iter().filter(|t| t.problem.is_some()).map(|t| t.name.clone()).collect();
     let mut checks = vec![health::database(), health::recordings(&root, disk), health::cameras(&cams)];
     checks.extend(health::motion(&cams));
-    checks.extend(health::exports(&failing, targets.len()));
+    let (waiting, oldest) = crate::exports::repo::backlog(&s.db).await?;
+    let oldest = oldest.and_then(|t| (chrono::Utc::now() - t).to_std().ok());
+    checks.extend(health::exports(&failing, targets.len(), (waiting, oldest)));
     Ok(Json(SystemStatus {
         health: ServerHealth::of(&checks),
         checks,
