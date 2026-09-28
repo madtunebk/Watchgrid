@@ -10,8 +10,14 @@
 //!                   shorter than the camera's "minimum event" → dropped;
 //!                   one starting within `repo::DETECTION_MERGE_SECS` of the
 //!                   previous one's end continues it
+//! missed messages → detections caught up from the combined detection
+//!                   state (see [`catch_up`]); other kinds are closed by
+//!                   their next transition or at the next start
 
 use std::collections::HashMap;
+use std::sync::Arc;
+
+use chrono::Utc;
 
 use sqlx::PgPool;
 use tokio::sync::broadcast::error::RecvError;
@@ -19,10 +25,11 @@ use watchgrid_model::{EventType, RecordingReason};
 
 use super::repo;
 use crate::bus::{Bus, BusEvent};
+use crate::motion::{Detections, Source};
 
 /// Subscribe now (so nothing published after this call is missed) and
 /// process events in the background.
-pub fn start(db: PgPool, bus: Bus) {
+pub fn start(db: PgPool, bus: Bus, detections: Arc<Detections>) {
     let mut events = bus.subscribe();
     tokio::spawn(async move {
         match repo::close_stale(&db).await {
@@ -38,11 +45,45 @@ pub fn start(db: PgPool, bus: Bus) {
                     Ok(false) => {}
                     Err(e) => tracing::warn!(?event, "cannot store event: {e}"),
                 },
-                Err(RecvError::Lagged(n)) => tracing::warn!("event journal missed {n} bus messages"),
+                Err(RecvError::Lagged(n)) => {
+                    tracing::warn!("event journal missed {n} bus messages; catching up detections");
+                    match catch_up(&db, &links, &detections).await {
+                        Ok(true) => bus.publish(BusEvent::EventsChanged),
+                        Ok(false) => {}
+                        Err(e) => tracing::warn!("cannot catch up detections: {e}"),
+                    }
+                }
                 Err(RecvError::Closed) => return,
             }
         }
     });
+}
+
+/// After missed bus messages: make the open detection events match what the
+/// cameras see now. A lost end would leave an event open ("LIVE") forever;
+/// a lost start would leave a detection without an event. Times are "now":
+/// the real moment was in the missed messages.
+pub async fn catch_up(db: &PgPool, links: &Links, detections: &Detections) -> sqlx::Result<bool> {
+    let now = Utc::now();
+    let open = repo::open_detections(db).await?;
+    let seen = detections.snapshot();
+    let mut changed = false;
+    for (camera, kind) in &open {
+        if !seen.iter().any(|(c, k, _)| c == camera && k == kind) {
+            let min = crate::cameras::repo_get(db, camera).await.ok().flatten().map_or(0, |c| c.recording.min_event_seconds);
+            changed |= repo::close_detection(db, camera, *kind, now, min).await?;
+        }
+    }
+    for (camera, kind, source) in &seen {
+        if !open.iter().any(|(c, k)| c == camera && k == kind) {
+            let (text, origin) = match source {
+                Source::Software => ("Software motion", "software"),
+                Source::Camera => ("ONVIF: detection (start caught up after missed messages)", "onvif"),
+            };
+            changed |= repo::open_detection(db, camera, *kind, now, text, links.0.get(camera).map(String::as_str), origin).await?;
+        }
+    }
+    Ok(changed)
 }
 
 /// Event recordings in progress, per camera: detections that start while

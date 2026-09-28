@@ -92,6 +92,20 @@ impl Detections {
         self.active.lock().expect("detections lock").get(camera).map(|k| k.keys().copied().collect()).unwrap_or_default()
     }
 
+    /// Every detection under way, on every camera, with who sees it (the
+    /// camera wins when both do): what the event journal catches up from.
+    pub fn snapshot(&self) -> Vec<(String, EventType, Source)> {
+        let active = self.active.lock().expect("detections lock");
+        let mut out = Vec::new();
+        for (camera, kinds) in active.iter() {
+            for (kind, sources) in kinds {
+                let source = if sources.contains(&Source::Camera) { Source::Camera } else { Source::Software };
+                out.push((camera.clone(), *kind, source));
+            }
+        }
+        out
+    }
+
     fn badge(&self, camera: &str) {
         let on = self.active.lock().expect("detections lock").get(camera).is_some_and(|k| !k.is_empty());
         self.live.update(camera, |l| l.motion_active = on);

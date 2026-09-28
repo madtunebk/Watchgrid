@@ -262,3 +262,26 @@ async fn all_matching_ignores_paging_and_respects_the_cap(db: PgPool) {
     assert_eq!(ids.len(), 3, "every match, whatever page the list shows");
     assert_eq!(repo::ids_matching(&db, &q, TZ, 2).await.unwrap().len(), 2, "at most the cap");
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn missed_bus_messages_are_caught_up_from_the_detection_state(db: PgPool) {
+    use crate::motion::{Detections, Source};
+    use std::sync::Arc;
+    let detections = Detections::new(crate::bus::Bus::new(), Arc::new(crate::live::LiveRegistry::default()));
+    let mut links = journal::Links::default();
+    // The journal heard cam-a's motion start, then missed its end…
+    let start = BusEvent::DetectionStarted { camera_id: "cam-a".into(), kind: EventType::Motion, topic: "m".into(), at: Utc::now() - Duration::seconds(30) };
+    journal::handle(&db, &mut links, &start).await.unwrap();
+    // …and missed cam-b's person start (cam-a's motion is over).
+    detections.start("cam-b", EventType::Person, Source::Camera, "p", Utc::now());
+
+    assert!(journal::catch_up(&db, &links, &detections).await.unwrap());
+    let events = all(&db).await;
+    let a = events.iter().find(|e| e.camera_id == "cam-a").unwrap();
+    assert!(a.end_time.is_some(), "the lost end no longer leaves it LIVE forever");
+    let b = events.iter().find(|e| e.camera_id == "cam-b").unwrap();
+    assert_eq!((b.kind, b.end_time), (EventType::Person, None), "the lost start gets its event");
+    assert!(b.source.starts_with("ONVIF"), "{}", b.source);
+
+    assert!(!journal::catch_up(&db, &links, &detections).await.unwrap(), "in step: nothing to do");
+}

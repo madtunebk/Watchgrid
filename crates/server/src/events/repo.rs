@@ -210,6 +210,12 @@ pub async fn purge_older_than(db: &PgPool, days: u32) -> sqlx::Result<u64> {
 /// with their recording's end, and detections at their start (their real
 /// end is unknown). Outages stay open — the supervisor closes them when
 /// the camera connects again.
+/// Detections the journal holds open (camera, kind).
+pub async fn open_detections(db: &PgPool) -> sqlx::Result<Vec<(String, EventType)>> {
+    let rows: Vec<(String, String)> = sqlx::query_as("SELECT camera_id, kind FROM events WHERE origin <> 'watchgrid' AND end_time IS NULL").fetch_all(db).await?;
+    Ok(rows.into_iter().filter_map(|(camera, kind)| Some((camera, kinds::parse(&kind)?))).collect())
+}
+
 pub async fn close_stale(db: &PgPool) -> sqlx::Result<u64> {
     let detections = sqlx::query("UPDATE events SET end_time = start_time WHERE origin <> 'watchgrid' AND end_time IS NULL")
         .execute(db)
