@@ -157,6 +157,13 @@ pub async fn all_ids(state: &AppState) -> ApiResult<Vec<(String, bool)>> {
 /// Values the recorder can't honour are brought to what it does.
 fn normalize(input: &mut CameraInput) {
     input.recording.pre_record_seconds = input.recording.pre_record_seconds.min(watchgrid_model::MAX_PRE_RECORD_SECONDS);
+    // Free text as typed, without control characters (never secrets).
+    input.name = crate::text::one_line(&input.name);
+    input.location = crate::text::one_line(&input.location);
+    input.description = crate::text::multi_line(&input.description);
+    for z in &mut input.motion.zones {
+        z.name = crate::text::one_line(&z.name);
+    }
 }
 
 pub async fn create(state: &AppState, mut input: CameraInput) -> ApiResult<Camera> {

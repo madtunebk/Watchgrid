@@ -10,11 +10,14 @@ pub fn TextInput(
     #[prop(optional)] mono: bool,
     #[prop(default = "off")] autocomplete: &'static str,
     #[prop(optional, into)] disabled: Signal<bool>,
+    /// Characters at most (the server enforces the same limit).
+    #[prop(optional)] max: Option<u32>,
 ) -> impl IntoView {
     view! {
         <input
             class="input"
             class:mono=mono
+            maxlength=max
             type=kind
             placeholder=placeholder
             autocomplete=autocomplete
