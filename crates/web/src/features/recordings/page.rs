@@ -13,12 +13,14 @@ use super::dvr::DvrPlayer;
 use super::state::{State, View, ZOOMS};
 use super::timeline::{Scale, Timeline};
 use super::toolbar::Toolbar;
-use crate::api::{self, Recording, RecordingQuery, Topic, use_query};
+use crate::api::{self, EventQuery, EventType, Recording, RecordingQuery, Topic, use_query};
 use crate::features::cameras::NoCameras;
 use crate::format;
 use crate::ui::{EmptyState, ErrorBox, I, Page, Pager, Skeleton, keep_only_shown};
 
 const CLIPS_PAGE: u32 = 100;
+/// Events drawn on the timeline: what cameras see, and failed sign-ins.
+const MARKED: [EventType; 6] = [EventType::Motion, EventType::Person, EventType::Vehicle, EventType::Animal, EventType::Onvif, EventType::Security];
 
 #[component]
 pub fn RecordingsPage() -> impl IntoView {
@@ -33,6 +35,11 @@ pub fn RecordingsPage() -> impl IntoView {
         let s = state.get();
         let (from, to) = s.day_range();
         api::get_recordings(RecordingQuery { camera_ids: s.cameras, from: Some(from), to: Some(to) })
+    });
+    // The day's detections, drawn as dots on the timeline rows.
+    let events = use_query(Topic::Events, Some(Duration::from_secs(30)), move || {
+        let (from, to) = state.get().day_range();
+        api::get_events(EventQuery { from: Some(from), to: Some(to), kinds: MARKED.to_vec(), limit: Some(1000), ..Default::default() })
     });
     // Clips ticked for a bulk action; another day, camera or view starts over.
     let ticked = RwSignal::new(BTreeSet::<String>::new());
@@ -117,7 +124,7 @@ pub fn RecordingsPage() -> impl IntoView {
                         match s.view {
                             View::Timeline => {
                                 let (start, end) = s.day_range();
-                                view! { <Timeline cameras=shown recordings=list scale=Scale::new(start, end) zoom on_seek playhead /> }.into_any()
+                                view! { <Timeline cameras=shown recordings=list events=events.get().and_then(Result::ok).map(|p| p.events).unwrap_or_default() scale=Scale::new(start, end) zoom on_seek playhead /> }.into_any()
                             }
                             View::Clips if list.is_empty() => view! {
                                 <EmptyState icon=I::Film title="No recordings on this day" text="Pick another day or camera." />

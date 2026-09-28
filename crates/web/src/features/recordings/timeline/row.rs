@@ -1,9 +1,12 @@
 use leptos::prelude::*;
 
 use super::scale::Scale;
-use crate::api::Recording;
+use crate::api::{Event, Recording};
 use crate::features::recordings::labels;
 use crate::format;
+
+/// A click on an event dot plays from this long before the event.
+const LEAD_SECS: i64 = 3;
 
 /// Where along `row` a click landed, 0 to 1.
 fn fraction(row: &web_sys::Element, ev: &leptos::ev::MouseEvent) -> f64 {
@@ -19,7 +22,7 @@ fn element(target: Option<web_sys::EventTarget>) -> Option<web_sys::Element> {
 /// anywhere on the row plays from that moment (`on_seek`); a click on a
 /// clip plays that clip, even where it is drawn wider than it lasts.
 #[component]
-pub fn TrackRow(camera_id: String, recordings: Vec<Recording>, scale: Scale, zoom: u8, on_seek: Callback<(String, chrono::DateTime<chrono::Utc>)>) -> impl IntoView {
+pub fn TrackRow(camera_id: String, recordings: Vec<Recording>, events: Vec<Event>, scale: Scale, zoom: u8, on_seek: Callback<(String, chrono::DateTime<chrono::Utc>)>) -> impl IntoView {
     let empty = recordings.is_empty();
     let seek = {
         let camera_id = camera_id.clone();
@@ -64,6 +67,30 @@ pub fn TrackRow(camera_id: String, recordings: Vec<Recording>, scale: Scale, zoo
                         aria-label=tip
                     ></button>
                 })
+            }).collect_view()}
+            {events.into_iter().filter(|e| scale.contains(e.start_time)).map(|e| {
+                let at = e.start_time;
+                let tip = format!(
+                    "{} · {}{}",
+                    crate::features::events::title(e.kind),
+                    format::time_hms(at.with_timezone(&chrono::Local)),
+                    if e.end_time.is_some() { format!(" · {}", format::duration(e.duration)) } else { " · still going".into() }
+                );
+                let camera_id = camera_id.clone();
+                // From just before: the moment it starts is what you want to see.
+                let play = move |ev: leptos::ev::MouseEvent| {
+                    ev.stop_propagation();
+                    on_seek.run((camera_id.clone(), at - chrono::Duration::seconds(LEAD_SECS)));
+                };
+                view! {
+                    <button
+                        on:click=play
+                        class=format!("tl-mark evt-chip--{}", crate::features::events::kind_css(e.kind))
+                        style:left=format!("{:.4}%", scale.pct(at))
+                        title=tip.clone()
+                        aria-label=tip
+                    ></button>
+                }
             }).collect_view()}
             {empty.then(|| view! { <span class="tl-row__empty">"No recordings"</span> })}
         </div>

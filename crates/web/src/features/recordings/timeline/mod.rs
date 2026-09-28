@@ -1,6 +1,7 @@
-//! Day timeline: one row per camera, recordings as segments, zoomable. A
-//! click on a row plays that camera from that moment; the playing position
-//! is drawn as a line.
+//! Day timeline: one row per camera, recordings as segments and events as
+//! dots, zoomable. A click on a row plays that camera from that moment, a
+//! click on a dot from just before that event; the playing position is
+//! drawn as a line.
 
 mod row;
 mod scale;
@@ -10,7 +11,7 @@ use std::time::Duration;
 use leptos::html::Div;
 use leptos::prelude::*;
 
-use crate::api::{Camera, Recording};
+use crate::api::{Camera, Event, Recording};
 use crate::clock::use_now;
 use crate::features::recordings::labels::LEGEND;
 use row::TrackRow;
@@ -20,6 +21,8 @@ pub use scale::Scale;
 pub fn Timeline(
     cameras: Vec<Camera>,
     recordings: Vec<Recording>,
+    /// The day's detections, all cameras.
+    events: Vec<Event>,
     scale: Scale,
     #[prop(into)] zoom: Signal<u8>,
     on_seek: Callback<(String, chrono::DateTime<chrono::Utc>)>,
@@ -50,14 +53,15 @@ pub fn Timeline(
         });
     });
 
-    let rows: Vec<(Camera, Vec<Recording>)> = cameras
+    let rows: Vec<(Camera, Vec<Recording>, Vec<Event>)> = cameras
         .into_iter()
         .map(|c| {
             let mine = recordings.iter().filter(|r| r.camera_id == c.id).cloned().collect();
-            (c, mine)
+            let seen = events.iter().filter(|e| e.camera_id == c.id).cloned().collect();
+            (c, mine, seen)
         })
         .collect();
-    let names: Vec<(String, String)> = rows.iter().map(|(c, _)| (c.id.clone(), c.name.clone())).collect();
+    let names: Vec<(String, String)> = rows.iter().map(|(c, _, _)| (c.id.clone(), c.name.clone())).collect();
 
     view! {
         <div class="tl">
@@ -78,7 +82,7 @@ pub fn Timeline(
                     <div class="tl__rows">
                         {move || {
                             let z = zoom.get();
-                            rows.clone().into_iter().map(|(c, recs)| view! { <TrackRow camera_id=c.id recordings=recs scale zoom=z on_seek /> }).collect_view()
+                            rows.clone().into_iter().map(|(c, recs, evs)| view! { <TrackRow camera_id=c.id recordings=recs events=evs scale zoom=z on_seek /> }).collect_view()
                         }}
                         <div class="tl__grid" aria-hidden="true">
                             {move || scale.ticks(zoom.get()).into_iter().map(|(pct, _)| view! {
@@ -98,7 +102,8 @@ pub fn Timeline(
         </div>
         <div class="tl-legend">
             {LEGEND.iter().map(|(css, label)| view! { <span class=format!("tl-legend__item tl-legend__item--{css}")>{*label}</span> }).collect_view()}
-            <span class="tl-legend__hint">"Click a row to play from that moment · + / − to zoom"</span>
+            <span class="tl-legend__item tl-legend__item--event">"Event (dot)"</span>
+            <span class="tl-legend__hint">"Click a row to play from that moment, a dot to see that event · + / − to zoom"</span>
         </div>
     }
 }
