@@ -20,6 +20,7 @@ use watchgrid_model::{EventType, MotionSource, RecordingMode, RecordingReason, R
 use super::{Recorder, Spec};
 use crate::bus::{Bus, BusEvent};
 use crate::media::{MediaHub, StreamKind};
+use crate::motion::Detections;
 
 /// Pre-record is capped to bound memory (frames are kept in RAM).
 const MAX_PREROLL_SECS: u32 = watchgrid_model::MAX_PRE_RECORD_SECONDS;
@@ -31,18 +32,20 @@ pub struct AutoRecorders {
     hub: Arc<MediaHub>,
     bus: Bus,
     recorder: Arc<Recorder>,
+    /// The combined detection state, to catch up after missed bus messages.
+    detections: Arc<Detections>,
     tasks: Mutex<HashMap<String, JoinHandle<()>>>,
     enabled: bool,
 }
 
 impl AutoRecorders {
-    pub fn new(db: PgPool, hub: Arc<MediaHub>, bus: Bus, recorder: Arc<Recorder>) -> Self {
-        Self { db, hub, bus, recorder, tasks: Mutex::new(HashMap::new()), enabled: true }
+    pub fn new(db: PgPool, hub: Arc<MediaHub>, bus: Bus, recorder: Arc<Recorder>, detections: Arc<Detections>) -> Self {
+        Self { db, hub, bus, recorder, detections, tasks: Mutex::new(HashMap::new()), enabled: true }
     }
 
     #[cfg(test)]
-    pub fn inert(db: PgPool, hub: Arc<MediaHub>, bus: Bus, recorder: Arc<Recorder>) -> Self {
-        Self { enabled: false, ..Self::new(db, hub, bus, recorder) }
+    pub fn inert(db: PgPool, hub: Arc<MediaHub>, bus: Bus, recorder: Arc<Recorder>, detections: Arc<Detections>) -> Self {
+        Self { enabled: false, ..Self::new(db, hub, bus, recorder, detections) }
     }
 
     /// (Re)start after the camera was added or changed.
@@ -51,7 +54,14 @@ impl AutoRecorders {
             old.abort();
         }
         if exists && self.enabled {
-            let ctl = Controller { db: self.db.clone(), hub: self.hub.clone(), bus: self.bus.clone(), recorder: self.recorder.clone(), id: id.to_string() };
+            let ctl = Controller {
+                db: self.db.clone(),
+                hub: self.hub.clone(),
+                bus: self.bus.clone(),
+                recorder: self.recorder.clone(),
+                detections: self.detections.clone(),
+                id: id.to_string(),
+            };
             self.tasks.lock().expect("auto lock").insert(id.to_string(), tokio::spawn(ctl.run()));
         }
     }
@@ -62,7 +72,64 @@ pub(super) struct Controller {
     pub(super) hub: Arc<MediaHub>,
     pub(super) bus: Bus,
     pub(super) recorder: Arc<Recorder>,
+    pub(super) detections: Arc<Detections>,
     pub(super) id: String,
+}
+
+/// What an event-mode controller waits for. Changed by detections, whether
+/// heard on the bus or caught up after missed messages, and by the clock.
+#[derive(Debug)]
+struct Follow {
+    active: HashSet<EventType>,
+    /// The kind that began the current detection (names the clip's reason).
+    first_kind: EventType,
+    /// Recording starts once a detection has lasted `min_event`.
+    start_at: Option<Instant>,
+    stop_at: Option<Instant>,
+    clip_started: Option<Instant>,
+}
+
+impl Follow {
+    fn new() -> Self {
+        Self { active: HashSet::new(), first_kind: EventType::Motion, start_at: None, stop_at: None, clip_started: None }
+    }
+
+    /// `kind` began; `recording`: something already records this camera.
+    fn started(&mut self, kind: EventType, recording: bool, plan: &Plan, now: Instant) {
+        if self.active.is_empty() {
+            self.first_kind = kind;
+        }
+        self.active.insert(kind);
+        self.stop_at = None;
+        if !recording && self.start_at.is_none() && self.clip_started.is_none() {
+            self.start_at = Some(now + plan.min_event);
+        }
+    }
+
+    fn ended(&mut self, kind: EventType, plan: &Plan, now: Instant) {
+        self.active.remove(&kind);
+        if self.active.is_empty() {
+            // Too short to record, if it hadn't started yet.
+            self.start_at = None;
+            if self.clip_started.is_some() {
+                self.stop_at = Some(now + plan.hold);
+            }
+        }
+    }
+
+    /// Bus messages were missed (the bus holds 256): take what the camera
+    /// sees now as the truth, as if the missed starts and ends had arrived.
+    /// A lost start no longer misses a recording, a lost end no longer
+    /// keeps one running.
+    fn catch_up(&mut self, truth: &HashSet<EventType>, recording: bool, plan: &Plan, now: Instant) {
+        let gone: Vec<EventType> = self.active.difference(truth).copied().collect();
+        for kind in gone {
+            self.ended(kind, plan, now);
+        }
+        for kind in truth.difference(&self.active.clone()).copied().collect::<Vec<_>>() {
+            self.started(kind, recording, plan, now);
+        }
+    }
 }
 
 /// The settings that matter here, in usable units.
@@ -122,63 +189,49 @@ impl Controller {
         // Keeps the stream open and its pre-record buffer filled.
         let _keepalive = self.hub.subscribe_with_preroll(&self.id, plan.stream, plan.delayed_preroll() + 2);
         let mut events = self.bus.subscribe();
-        let mut active: HashSet<EventType> = HashSet::new();
-        let mut first_kind = EventType::Motion;
-        let mut stop_at: Option<Instant> = None;
-        // Recording starts once a detection has lasted `min_event`.
-        let mut start_at: Option<Instant> = None;
-        let mut clip_started: Option<Instant> = None;
+        let mut f = Follow::new();
+        // Detections already under way (the controller was just restarted).
+        f.catch_up(&self.detections.active_kinds(&self.id), self.recorder.running_reason(&self.id).is_some(), &plan, Instant::now());
         let far = Duration::from_secs(365 * 24 * 3600);
 
         loop {
-            let split_at = clip_started.map(|t| t + plan.max_clip);
-            let next = [stop_at, split_at, start_at].into_iter().flatten().min().unwrap_or_else(|| Instant::now() + far);
+            let split_at = f.clip_started.map(|t| t + plan.max_clip);
+            let next = [f.stop_at, split_at, f.start_at].into_iter().flatten().min().unwrap_or_else(|| Instant::now() + far);
             tokio::select! {
                 event = events.recv() => match event {
                     Ok(BusEvent::DetectionStarted { camera_id, kind, .. }) if camera_id == self.id => {
-                        if active.is_empty() {
-                            first_kind = kind;
-                        }
-                        active.insert(kind);
-                        stop_at = None;
-                        if self.recorder.running_reason(&self.id).is_none() && start_at.is_none() && clip_started.is_none() {
-                            start_at = Some(Instant::now() + plan.min_event);
-                        }
+                        f.started(kind, self.recorder.running_reason(&self.id).is_some(), &plan, Instant::now());
                     }
-                    Ok(BusEvent::DetectionEnded { camera_id, kind, .. }) if camera_id == self.id => {
-                        active.remove(&kind);
-                        if active.is_empty() {
-                            // Too short to record, if it hadn't started yet.
-                            start_at = None;
-                            if clip_started.is_some() {
-                                stop_at = Some(Instant::now() + plan.hold);
-                            }
-                        }
-                    }
+                    Ok(BusEvent::DetectionEnded { camera_id, kind, .. }) if camera_id == self.id => f.ended(kind, &plan, Instant::now()),
                     Ok(BusEvent::RecordingStopped { camera_id, .. }) if camera_id == self.id => {
                         // Stopped by someone else (STOP button, failure): forget it.
                         if self.recorder.running_reason(&self.id).is_none() {
-                            clip_started = None;
-                            stop_at = None;
+                            f.clip_started = None;
+                            f.stop_at = None;
                         }
                     }
-                    Ok(_) | Err(RecvError::Lagged(_)) => {}
+                    Ok(_) => {}
+                    Err(RecvError::Lagged(missed)) => {
+                        let truth = self.detections.active_kinds(&self.id);
+                        tracing::warn!(camera = %self.id, missed, active = ?truth, "auto recording missed bus messages; caught up from the detection state");
+                        f.catch_up(&truth, self.recorder.running_reason(&self.id).is_some(), &plan, Instant::now());
+                    }
                     Err(RecvError::Closed) => return,
                 },
                 _ = tokio::time::sleep_until(next) => {
-                    if start_at.is_some_and(|t| Instant::now() >= t) {
-                        start_at = None;
-                        if !active.is_empty() && self.recorder.running_reason(&self.id).is_none() && self.start(&plan, first_kind, plan.delayed_preroll()) {
-                            clip_started = Some(Instant::now());
+                    if f.start_at.is_some_and(|t| Instant::now() >= t) {
+                        f.start_at = None;
+                        if !f.active.is_empty() && self.recorder.running_reason(&self.id).is_none() && self.start(&plan, f.first_kind, plan.delayed_preroll()) {
+                            f.clip_started = Some(Instant::now());
                         }
-                    } else if stop_at.is_some_and(|t| Instant::now() >= t) {
+                    } else if f.stop_at.is_some_and(|t| Instant::now() >= t) {
                         self.recorder.stop_if(&self.id, &OWN).await;
-                        stop_at = None;
-                        clip_started = None;
+                        f.stop_at = None;
+                        f.clip_started = None;
                     } else if split_at.is_some_and(|t| Instant::now() >= t) {
                         // Long event: close this clip and continue in a new one.
                         self.recorder.stop_if(&self.id, &OWN).await;
-                        clip_started = (!active.is_empty() && self.start(&plan, first_kind, plan.preroll_secs)).then(Instant::now);
+                        f.clip_started = (!f.active.is_empty() && self.start(&plan, f.first_kind, plan.preroll_secs)).then(Instant::now);
                     }
                 }
             }
@@ -194,6 +247,63 @@ impl Controller {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn plan() -> Plan {
+        Plan::from_settings(&RecordingSettings { min_event_seconds: 2, post_record_seconds: 10, ..RecordingSettings::default() })
+    }
+
+    fn kinds(k: &[EventType]) -> HashSet<EventType> {
+        k.iter().copied().collect()
+    }
+
+    #[test]
+    fn a_lost_start_still_records() {
+        let (p, now) = (plan(), Instant::now());
+        let mut f = Follow::new();
+        f.catch_up(&kinds(&[EventType::Person]), false, &p, now);
+        assert_eq!(f.start_at, Some(now + p.min_event), "recording scheduled as if the start had arrived");
+        assert_eq!(f.first_kind, EventType::Person);
+    }
+
+    #[test]
+    fn a_lost_end_stops_the_recording() {
+        let (p, now) = (plan(), Instant::now());
+        let mut f = Follow::new();
+        f.started(EventType::Motion, false, &p, now);
+        f.start_at = None;
+        f.clip_started = Some(now); // it recorded
+        f.catch_up(&kinds(&[]), true, &p, now);
+        assert!(f.active.is_empty());
+        assert_eq!(f.stop_at, Some(now + p.hold), "stops after the usual hold, not never");
+    }
+
+    #[test]
+    fn a_lost_end_before_recording_cancels_it() {
+        let (p, now) = (plan(), Instant::now());
+        let mut f = Follow::new();
+        f.started(EventType::Motion, false, &p, now);
+        f.catch_up(&kinds(&[]), false, &p, now);
+        assert_eq!((f.start_at, f.stop_at), (None, None), "too short to record, as usual");
+    }
+
+    #[test]
+    fn nothing_missed_changes_nothing() {
+        let (p, now) = (plan(), Instant::now());
+        let mut f = Follow::new();
+        f.started(EventType::Motion, false, &p, now);
+        let before = (f.start_at, f.stop_at, f.clip_started);
+        f.catch_up(&kinds(&[EventType::Motion]), false, &p, now + Duration::from_secs(1));
+        assert_eq!((f.start_at, f.stop_at, f.clip_started), before, "the pending start keeps its time");
+    }
+
+    #[test]
+    fn a_caught_up_start_respects_a_running_recording() {
+        let (p, now) = (plan(), Instant::now());
+        let mut f = Follow::new();
+        f.catch_up(&kinds(&[EventType::Motion]), true, &p, now);
+        assert_eq!(f.start_at, None, "a manual or continuous recording already runs");
+        assert!(f.active.contains(&EventType::Motion));
+    }
 
     #[test]
     fn plan_uses_camera_settings_with_safe_bounds() {

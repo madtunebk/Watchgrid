@@ -86,11 +86,11 @@ impl AppState {
         };
         let recorder = Arc::new(Recorder::new(recorder::Deps { db: deps.db.clone(), hub: media.clone(), files: files.clone(), bus: deps.bus.clone(), live: Arc::default() }));
         let auto_record = if live {
-            AutoRecorders::new(deps.db.clone(), media.clone(), deps.bus.clone(), recorder.clone())
+            AutoRecorders::new(deps.db.clone(), media.clone(), deps.bus.clone(), recorder.clone(), onvif.detections())
         } else {
             #[cfg(test)]
             {
-                AutoRecorders::inert(deps.db.clone(), media.clone(), deps.bus.clone(), recorder.clone())
+                AutoRecorders::inert(deps.db.clone(), media.clone(), deps.bus.clone(), recorder.clone(), onvif.detections())
             }
             #[cfg(not(test))]
             unreachable!("only tests build inert state")

@@ -86,6 +86,12 @@ impl Detections {
         }
     }
 
+    /// What `camera` sees right now, whatever the source: the truth a bus
+    /// subscriber that missed messages catches up from.
+    pub fn active_kinds(&self, camera: &str) -> HashSet<EventType> {
+        self.active.lock().expect("detections lock").get(camera).map(|k| k.keys().copied().collect()).unwrap_or_default()
+    }
+
     fn badge(&self, camera: &str) {
         let on = self.active.lock().expect("detections lock").get(camera).is_some_and(|k| !k.is_empty());
         self.live.update(camera, |l| l.motion_active = on);
