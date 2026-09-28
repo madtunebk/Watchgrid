@@ -118,10 +118,13 @@ pub fn MotionTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
             </FormSection>
 
             <div class="motion-layout">
-                <FormSection title="Sensitivity" description="Higher values react to smaller movements.">
+                <FormSection title="Sensitivity" description="Software detection: higher values react to smaller movements.">
                     <Field label="Sensitivity">
                         <Slider value=sensitivity disabled=off />
                     </Field>
+                    {move || (source.get() == MotionSource::Onvif).then(|| view! {
+                        <p class="note">"Used when software detection stands in for the camera's events. It doesn't change the camera's own sensitivity: set that in the camera's app or web page."</p>
+                    })}
                 </FormSection>
                 <FormSection title="Detection zones" description="Drag on the picture to draw a zone; drag a zone to move it. Green zones limit detection to them, red zones are ignored.">
                     <ZoneEditor camera zones disabled=off />
