@@ -115,15 +115,30 @@ fn parse_memory(info: &str) -> Option<(u64, u64)> {
     Some(((total - available) * 1024, total * 1024))
 }
 
-/// Total (rx, tx) bytes of non-loopback interfaces.
+/// Total (rx, tx) bytes through the machine's network hardware. Virtual
+/// interfaces (Docker bridges and veths, VPN/ZeroTier tunnels, bonds) carry
+/// the same packets again, so counting them too doubled or tripled the
+/// figure. Where no hardware interface is visible (a container with its own
+/// network), every interface but loopback counts.
 fn read_net() -> (u64, u64) {
-    std::fs::read_to_string("/proc/net/dev").map(|s| parse_net(&s)).unwrap_or((0, 0))
+    let hardware = hardware_interfaces();
+    std::fs::read_to_string("/proc/net/dev").map(|s| parse_net(&s, &hardware)).unwrap_or((0, 0))
 }
 
-fn parse_net(dev: &str) -> (u64, u64) {
+/// Interfaces backed by a device (`/sys/class/net/<name>/device`).
+fn hardware_interfaces() -> Vec<String> {
+    let Ok(dir) = std::fs::read_dir("/sys/class/net") else { return Vec::new() };
+    dir.flatten().filter(|e| e.path().join("device").exists()).map(|e| e.file_name().to_string_lossy().into_owned()).collect()
+}
+
+/// Sum of the `hardware` interfaces, or of all but `lo` when there are none.
+fn parse_net(dev: &str, hardware: &[String]) -> (u64, u64) {
     dev.lines()
         .filter_map(|l| l.split_once(':'))
-        .filter(|(name, _)| name.trim() != "lo")
+        .filter(|(name, _)| {
+            let name = name.trim();
+            if hardware.is_empty() { name != "lo" } else { hardware.iter().any(|h| h == name) }
+        })
         .filter_map(|(_, rest)| {
             let v: Vec<u64> = rest.split_whitespace().filter_map(|x| x.parse().ok()).collect();
             Some((*v.first()?, *v.get(8)?))
@@ -141,7 +156,8 @@ mod tests {
         assert_eq!(cpu_percent((200, 1000), (300, 1200)), 50.0);
         assert_eq!(parse_memory("MemTotal:  1000 kB\nMemFree: 1 kB\nMemAvailable:  250 kB\n"), Some((750 * 1024, 1000 * 1024)));
         let dev = "Inter-| Receive\n face |bytes\n    lo: 999 1 0 0 0 0 0 0 999 1 0 0 0 0 0 0\n  eth0: 100 1 0 0 0 0 0 0 40 1 0 0 0 0 0 0\n  wg0: 5 1 0 0 0 0 0 0 6 1 0 0 0 0 0 0\n";
-        assert_eq!(parse_net(dev), (105, 46));
+        assert_eq!(parse_net(dev, &[]), (105, 46), "no hardware visible: all but lo");
+        assert_eq!(parse_net(dev, &["eth0".to_string()]), (100, 40), "the tunnel carries the same packets again");
         assert_eq!(parse_process_ticks("123 (watch grid) S 1 2 3 4 5 6 7 8 9 10 250 50 0 0"), Some(300));
         assert_eq!(parse_rss("Name:\twatchgrid\nVmRSS:\t   7788 kB\n"), Some(7788 * 1024));
     }
