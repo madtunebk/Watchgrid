@@ -33,3 +33,12 @@
 .cam-card--more:hover { color: var(--fg-strong); border-color: var(--accent); }
 .cam-card--more__count { font-size: 2.1333rem; font-weight: 600; color: var(--fg-strong); }
 .cam-card--more__trouble { color: var(--danger); font-size: 0.8667rem; }
+
+/* Armed surveillance in the title bar */
+.arm-status {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  padding: 0.2667rem 0.6667rem; border-radius: 999px;
+  background: var(--danger-soft); color: var(--danger);
+  font-size: 0.8667rem; font-weight: 600; white-space: nowrap;
+}
+.arm-list { display: grid; margin-top: 0.8rem; max-height: 18rem; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--radius); }

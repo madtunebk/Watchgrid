@@ -29,6 +29,7 @@
   --accent: #3d9bff;
   --accent-strong: #66b1ff;
   --accent-soft: rgb(61 155 255 / 0.12);
+  --danger-soft: rgb(239 68 68 / 0.12);
 
   /* Semantic NVR states */
   --online: #22c55e;

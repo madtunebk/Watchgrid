@@ -24,6 +24,7 @@ pub fn router(state: AppState, ui_dir: &Path) -> Router {
     let api = Router::new()
         .route("/health", get(health))
         .route("/ws", get(ws::upgrade))
+        .nest("/arm", crate::arm::router())
         .nest("/cameras", cameras::router().route("/{id}/live", get(media::upgrade)))
         .nest("/events", events::router().route("/{id}/export", axum::routing::post(exports::export_event)))
         .nest("/exports", exports::router())

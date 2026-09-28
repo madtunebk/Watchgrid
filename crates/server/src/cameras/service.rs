@@ -212,6 +212,24 @@ pub async fn update(state: &AppState, id: &str, mut input: CameraInput) -> ApiRe
     }
 }
 
+/// The settings arming changes on a camera; `None` when it's gone.
+pub async fn arm_settings(db: &PgPool, id: &str) -> sqlx::Result<Option<watchgrid_model::ArmSettings>> {
+    Ok(stored(db, id).await?.map(|c| watchgrid_model::ArmSettings { motion_enabled: c.motion.enabled, source: c.motion.source, mode: c.recording.mode }))
+}
+
+/// Change them, applied like an edit (detection and recording follow).
+pub async fn set_arm_settings(state: &AppState, id: &str, s: watchgrid_model::ArmSettings) -> ApiResult<()> {
+    let mut camera = stored(&state.db, id).await?.ok_or_else(|| ApiError::not_found("Camera"))?;
+    camera.motion.enabled = s.motion_enabled;
+    camera.motion.source = s.source;
+    camera.recording.mode = s.mode;
+    if !repo::set_detection(&state.db, id, &camera.motion, &camera.recording).await? {
+        return Err(ApiError::not_found("Camera"));
+    }
+    changed(state, id, Some(camera.enabled), false);
+    Ok(())
+}
+
 pub async fn set_enabled(state: &AppState, id: &str, enabled: bool) -> ApiResult<Camera> {
     if !repo::set_enabled(&state.db, id, enabled).await? {
         return Err(ApiError::not_found("Camera"));

@@ -174,6 +174,12 @@ pub async fn update(db: &PgPool, id: &str, i: &CameraInput, password: Secret, on
     Ok(done.rows_affected() == 1)
 }
 
+/// Motion and recording settings only (arming and disarming).
+pub async fn set_detection(db: &PgPool, id: &str, motion: &MotionSettings, recording: &RecordingSettings) -> sqlx::Result<bool> {
+    let done = sqlx::query("UPDATE cameras SET motion = $2, recording = $3, updated_at = now() WHERE id = $1").bind(id).bind(Json(motion)).bind(Json(recording)).execute(db).await?;
+    Ok(done.rows_affected() == 1)
+}
+
 pub async fn set_enabled(db: &PgPool, id: &str, enabled: bool) -> sqlx::Result<bool> {
     let done = sqlx::query("UPDATE cameras SET enabled = $2, updated_at = now() WHERE id = $1").bind(id).bind(enabled).execute(db).await?;
     Ok(done.rows_affected() == 1)

@@ -7,6 +7,7 @@
 //! Components call these functions through [`query`] hooks and never import
 //! the mock directly.
 
+mod arm;
 mod auth;
 mod backend;
 mod cameras;
@@ -30,6 +31,7 @@ mod settings;
 mod storage;
 mod system;
 
+pub use arm::*;
 pub use auth::*;
 pub use ptz::*;
 pub use cameras::*;

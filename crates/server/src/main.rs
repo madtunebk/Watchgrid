@@ -11,6 +11,7 @@
 //! User accounts exist only through this CLI; the web UI never creates,
 //! deletes or resets users.
 
+mod arm;
 mod auth;
 mod backup;
 mod bus;

@@ -3,6 +3,7 @@ use std::time::Duration;
 use leptos::prelude::*;
 use leptos_router::components::A;
 
+use super::arm::ArmControl;
 use super::camera_overview::CameraOverview;
 use super::recent_events::RecentEvents;
 use super::stats::StatsRow;
@@ -49,7 +50,8 @@ pub fn DashboardPage() -> impl IntoView {
     view! {
         <Page
             title="Dashboard"
-            actions=|| view! {
+            actions=move || view! {
+                {move || has_cameras.get().unwrap_or(false).then(|| view! { <ArmControl cameras /> })}
                 <A href="/cameras/new" attr:class="btn btn--primary btn--sm">
                     <Icon icon=I::Plus class="icon icon--sm" />"Add camera"
                 </A>

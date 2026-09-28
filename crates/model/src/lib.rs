@@ -12,6 +12,7 @@ use chrono::{DateTime, Utc};
 pub type Id = String;
 pub type Timestamp = DateTime<Utc>;
 
+mod arm;
 mod auth;
 mod camera;
 mod capacity;
@@ -27,6 +28,7 @@ mod settings;
 mod storage;
 mod system;
 
+pub use arm::*;
 pub use auth::*;
 pub use camera::*;
 pub use capacity::*;

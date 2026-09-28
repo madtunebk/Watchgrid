@@ -6,6 +6,7 @@
 //! `?mock=nostorage` (storage unavailable) or `?mock=large` (40 cameras)
 //! to the URL, then reload.
 
+pub mod arm;
 pub mod auth;
 pub mod capacity;
 pub mod cameras;
