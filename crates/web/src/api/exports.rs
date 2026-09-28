@@ -67,7 +67,7 @@ pub async fn check_export_target(id: Id) -> ApiResult<ConnectionProbe> {
     backend::exports::check(&id).await
 }
 
-/// POST /api/v1/exports/targets/{id}/reconnect — redo sign-in (OAuth).
+/// POST /api/v1/exports/targets/{id}/reconnect — test a saved destination again.
 pub async fn reconnect_export_target(id: Id) -> ApiResult<()> {
     backend::exports::reconnect(&id).await
 }

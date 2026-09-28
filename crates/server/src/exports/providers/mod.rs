@@ -30,7 +30,6 @@ impl Provider {
         match c.kind {
             ExportKind::S3 => s3::S3::new(c).map(Self::S3),
             ExportKind::Nextcloud => webdav::WebDav::new(c).map(Self::WebDav),
-            ExportKind::GoogleDrive | ExportKind::Dropbox => Err("Google Drive and Dropbox sign-in isn't available yet".into()),
         }
     }
 

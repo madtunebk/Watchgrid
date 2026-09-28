@@ -28,7 +28,7 @@ pub fn ExportsSection() -> impl IntoView {
                 {async_view(targets, || view! { <Skeleton lines=3 height="4rem" /> }.into_any(), move |list| {
                     if list.is_empty() {
                         return view! { <EmptyState icon=I::Cloud title="No destinations yet" compact=true
-                            text="Add Google Drive, an S3 / MinIO bucket, Nextcloud or Dropbox to keep copies of important clips off-site." /> }.into_any();
+                            text="Add an S3-compatible bucket (MinIO, AWS, Synology C2, Backblaze B2…) or a Nextcloud / WebDAV folder to keep copies of important clips off-site." /> }.into_any();
                     }
                     view! { <div class="dest-list">{list.into_iter().map(|target| {
                         let id = target.id.clone();

@@ -230,8 +230,8 @@ focus is on polishing the Linux version until it is stable. After that:
 - **More platforms** — Linux ARM64 (Raspberry Pi 4/5, ARM NAS), then a
   native **Windows** version. The web UI already runs in any browser; the
   server needs porting. Until then, Windows hosts can use Docker.
-- **Later** — AI object detection for cameras without their own, Google
-  Drive / Dropbox exports.
+- **Later** — AI object detection (person, vehicle, animal) on the cameras
+  you choose, run only when motion is seen.
 
 ## License
 

@@ -1,5 +1,5 @@
-//! Exporting clips to external storage (S3-compatible, Nextcloud/WebDAV;
-//! Google Drive and Dropbox later). Secrets are sealed with the credential
+//! Exporting clips to external storage (S3-compatible, Nextcloud/WebDAV).
+//! Secrets are sealed with the credential
 //! store and never leave the server.
 
 mod providers;

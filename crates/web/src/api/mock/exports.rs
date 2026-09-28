@@ -69,7 +69,6 @@ pub async fn job(id: &str) -> ApiResult<ExportJob> {
             _ => (ExportState::Done, 100.0),
         };
         if job.state == ExportState::Done && job.link.is_none() {
-            job.link = (job.target_id == "gdrive").then(|| "https://drive.google.com/".to_string());
         }
         Ok(job.clone())
     })

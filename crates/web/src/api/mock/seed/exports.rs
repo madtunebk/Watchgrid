@@ -11,8 +11,8 @@ pub fn targets() -> Vec<ExportTarget> {
         auto_upload,
     };
     vec![
-        t("gdrive", "Google Drive", ExportKind::GoogleDrive, "My Drive / Watchgrid", None, AutoUpload::Person),
         t("minio", "NAS backup (MinIO)", ExportKind::S3, "s3://nvr-backup/clips", None, AutoUpload::Protected),
-        t("nextcloud", "Nextcloud", ExportKind::Nextcloud, "cloud.example.home / Cameras", Some("Sign-in expired — reconnect in Settings"), AutoUpload::Off),
+        t("c2", "Synology C2", ExportKind::S3, "s3://watchgrid/clips", None, AutoUpload::Person),
+        t("nextcloud", "Nextcloud", ExportKind::Nextcloud, "cloud.example.home / Cameras", Some("The server refused the app password — check it in Settings"), AutoUpload::Off),
     ]
 }

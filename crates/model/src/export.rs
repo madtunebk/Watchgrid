@@ -1,4 +1,6 @@
-//! Exporting clips to external destinations (cloud drives, object storage).
+//! Exporting clips to external destinations: S3-compatible object storage
+//! and WebDAV (Nextcloud). Google Drive and Dropbox were planned and dropped
+//! (2026-09-28): these two cover NAS, self-hosted and cloud storage alike.
 //! Credentials live on the server only; the UI sees names and status.
 
 use serde::{Deserialize, Serialize};
@@ -8,12 +10,10 @@ use crate::{Id, Timestamp};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExportKind {
-    GoogleDrive,
     /// Any S3-compatible store: AWS S3, MinIO, Wasabi, Backblaze B2…
     S3,
     /// WebDAV (Nextcloud / ownCloud).
     Nextcloud,
-    Dropbox,
 }
 
 /// What gets uploaded without anyone clicking Export.
@@ -52,7 +52,7 @@ pub struct ExportTarget {
 pub struct ExportTargetInput {
     pub name: String,
     pub kind: ExportKind,
-    /// S3 / Nextcloud server URL. OAuth kinds leave it empty.
+    /// S3 / Nextcloud server URL.
     pub endpoint: String,
     /// Bucket (S3) or folder path.
     pub location: String,

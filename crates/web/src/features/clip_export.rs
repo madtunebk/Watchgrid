@@ -16,7 +16,6 @@ use crate::ui::{I, Icon, Popover, Tone, clipboard, use_toaster};
 
 fn icon(kind: ExportKind) -> I {
     match kind {
-        ExportKind::GoogleDrive | ExportKind::Dropbox => I::Cloud,
         ExportKind::S3 => I::Database,
         ExportKind::Nextcloud => I::Cloud,
     }

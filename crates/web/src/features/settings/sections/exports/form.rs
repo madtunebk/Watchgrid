@@ -6,11 +6,7 @@ use leptos::task::spawn_local;
 use super::labels;
 use crate::api::{self, AutoUpload, ConnectionProbe, ExportKind, ExportTargetInput, ExportTargetSettings, Id, Topic, invalidate};
 use crate::ui::form::{Choice, Field, FormSection, RadioCards, TextInput};
-use crate::ui::{I, Icon, Skeleton, async_view};
-
-/// Google Drive / Dropbox sign-in works on the real server only once OAuth
-/// is implemented; the demo (mock) build simulates it.
-const OAUTH_READY: bool = cfg!(not(feature = "live-api"));
+use crate::ui::{Skeleton, async_view};
 
 #[component]
 pub fn AddDestination(on_done: Callback<()>) -> impl IntoView {
@@ -32,11 +28,7 @@ pub fn EditDestination(id: Id, on_done: Callback<()>) -> impl IntoView {
 fn DestinationForm(saved: Option<(Id, ExportTargetSettings)>, on_done: Callback<()>) -> impl IntoView {
     let editing = saved.as_ref().map(|(id, _)| id.clone());
     let has_secret = saved.as_ref().is_some_and(|(_, s)| s.has_secret);
-    let kind = RwSignal::new(match &saved {
-        Some((_, s)) => s.kind,
-        None if OAUTH_READY => ExportKind::GoogleDrive,
-        None => ExportKind::S3,
-    });
+    let kind = RwSignal::new(saved.as_ref().map_or(ExportKind::S3, |(_, s)| s.kind));
     let field = |f: fn(&ExportTargetSettings) -> &String| RwSignal::new(saved.as_ref().map(|(_, s)| f(s).clone()).unwrap_or_default());
     let name = field(|s| &s.name);
     let endpoint = field(|s| &s.endpoint);
@@ -44,7 +36,6 @@ fn DestinationForm(saved: Option<(Id, ExportTargetSettings)>, on_done: Callback<
     let username = field(|s| &s.username);
     let secret = RwSignal::new(String::new());
     let auto = RwSignal::new(saved.as_ref().map_or(AutoUpload::Off, |(_, s)| s.auto_upload));
-    let signed_in = RwSignal::new(editing.is_some());
     let probe = RwSignal::new(None::<ConnectionProbe>);
     let busy = RwSignal::new(false);
     let error = RwSignal::new(None::<String>);
@@ -55,11 +46,9 @@ fn DestinationForm(saved: Option<(Id, ExportTargetSettings)>, on_done: Callback<
             let k = kind.get();
             name.set(labels::kind(k).split(" (").next().unwrap_or("").to_string());
             location.set(match k {
-                ExportKind::GoogleDrive | ExportKind::Dropbox => "/Watchgrid".into(),
                 ExportKind::S3 => "nvr-backup/clips".into(),
                 ExportKind::Nextcloud => "/Cameras".into(),
             });
-            signed_in.set(false);
             probe.set(None);
         });
     }
@@ -72,11 +61,6 @@ fn DestinationForm(saved: Option<(Id, ExportTargetSettings)>, on_done: Callback<
         username: username.get().trim().into(),
         secret: Some(secret.get()).filter(|s| !s.is_empty()),
         auto_upload: auto.get(),
-    };
-    let sign_in = move |_| {
-        busy.set(true);
-        // Real flow: open the provider's consent page, receive the token on the server.
-        set_timeout(move || { signed_in.set(true); busy.set(false); }, std::time::Duration::from_millis(900));
     };
     // A test result is about the details it tested: editing them clears it.
     Effect::new(move || {
@@ -122,15 +106,11 @@ fn DestinationForm(saved: Option<(Id, ExportTargetSettings)>, on_done: Callback<
             });
         }
     };
-    let oauth = move || labels::uses_oauth(kind.get());
-    let can_save = move || !busy.get() && (!oauth() || signed_in.get());
+    let can_save = move || !busy.get();
 
-    let oauth_choice = |c: Choice<ExportKind>| if OAUTH_READY { c } else { c.tag("Soon").disabled_because("Sign-in with this service arrives in a later version") };
     let kinds = vec![
-        oauth_choice(Choice::new(ExportKind::GoogleDrive, "Google Drive").describe("Sign in with Google; clips go to a Drive folder.")),
-        Choice::new(ExportKind::S3, "S3 / MinIO").describe("Any S3-compatible bucket: AWS, MinIO, Wasabi, Backblaze B2."),
+        Choice::new(ExportKind::S3, "S3 / MinIO").describe("Any S3-compatible bucket: AWS, MinIO, Wasabi, Backblaze B2, Synology C2."),
         Choice::new(ExportKind::Nextcloud, "Nextcloud / WebDAV").describe("Nextcloud with an app password, or any WebDAV folder URL."),
-        oauth_choice(Choice::new(ExportKind::Dropbox, "Dropbox").describe("Sign in with Dropbox; clips go to an app folder.")),
     ];
     let secret_hint = if has_secret { "Leave empty to keep the saved one. Needed again if the server URL changes." } else { "" };
 
@@ -144,24 +124,12 @@ fn DestinationForm(saved: Option<(Id, ExportTargetSettings)>, on_done: Callback<
                 false => view! { <Field label="Service"><RadioCards value=kind options=kinds name="export-kind" /></Field> }.into_any(),
             }}
             <div class="form-grid">
-                <Field label="Name"><TextInput value=name placeholder="Google Drive" /></Field>
+                <Field label="Name"><TextInput value=name placeholder="MinIO" /></Field>
                 <Field label=Signal::derive(move || if kind.get() == ExportKind::S3 { "Bucket / prefix" } else { "Folder" })>
                     <TextInput value=location mono=true />
                 </Field>
             </div>
-            {move || if oauth() {
-                view! {
-                    <div class="oauth">
-                        <button class="btn btn--secondary" disabled=busy on:click=sign_in>
-                            <Icon icon=I::ExternalLink class="icon icon--sm" />
-                            {move || format!("Sign in with {}", labels::kind(kind.get()))}
-                        </button>
-                        {move || signed_in.get().then(|| view! { <span class="text-online"><Icon icon=I::Check class="icon icon--sm" />"Signed in (mock)"</span> })}
-                    </div>
-                }.into_any()
-            } else {
-                view! {
-                    <div class="form-grid">
+            <div class="form-grid">
                         <div class="form-grid__wide">
                             <Field label="Server URL"><TextInput value=endpoint mono=true
                                 placeholder=Signal::derive(move || if kind.get() == ExportKind::S3 { "https://minio.local:9000".to_string() } else { "https://cloud.example.com".to_string() }) /></Field>
@@ -171,9 +139,7 @@ fn DestinationForm(saved: Option<(Id, ExportTargetSettings)>, on_done: Callback<
                             <TextInput value=secret kind="password" autocomplete="new-password"
                                 placeholder=if has_secret { "Saved (unchanged)" } else { "" } />
                         </Field>
-                    </div>
-                }.into_any()
-            }}
+            </div>
             <Field label="Upload automatically">
                 <select class="select" on:change=move |ev| {
                     let key = event_target_value(&ev);
@@ -190,8 +156,7 @@ fn DestinationForm(saved: Option<(Id, ExportTargetSettings)>, on_done: Callback<
                 <button class="btn btn--secondary" disabled=busy on:click=test>"Test"</button>
                 <span class="toolbar__spacer"></span>
                 <button class="btn btn--secondary" on:click=move |_| on_done.run(())>"Cancel"</button>
-                <button class="btn btn--primary" disabled=move || !can_save() on:click=save
-                    title=move || if oauth() && !signed_in.get() { "Sign in first" } else { "" }>
+                <button class="btn btn--primary" disabled=move || !can_save() on:click=save>
                     {if editing.is_some() { "Save changes" } else { "Save destination" }}
                 </button>
             </div>

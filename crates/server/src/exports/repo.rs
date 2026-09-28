@@ -6,18 +6,14 @@ use watchgrid_model::{AutoUpload, ExportJob, ExportKind, ExportState, ExportTarg
 
 pub fn kind_name(k: ExportKind) -> &'static str {
     match k {
-        ExportKind::GoogleDrive => "google_drive",
         ExportKind::S3 => "s3",
         ExportKind::Nextcloud => "nextcloud",
-        ExportKind::Dropbox => "dropbox",
     }
 }
 
 fn parse_kind(s: &str) -> ExportKind {
     match s {
-        "google_drive" => ExportKind::GoogleDrive,
         "nextcloud" => ExportKind::Nextcloud,
-        "dropbox" => ExportKind::Dropbox,
         _ => ExportKind::S3,
     }
 }

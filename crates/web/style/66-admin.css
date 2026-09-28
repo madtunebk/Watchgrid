@@ -86,8 +86,6 @@
 .dest__auto-label { font-size: 0.8rem; color: var(--muted); }
 .dest__actions { display: flex; gap: 0.4rem; }
 @media (max-width: 800px) { .dest { grid-template-columns: 2.6667rem minmax(0, 1fr); } .dest__auto, .dest__actions { grid-column: 2; } }
-.oauth { display: flex; align-items: center; gap: 0.9333rem; }
-.oauth .text-online { display: inline-flex; align-items: center; gap: 0.4rem; }
 
 /* Account management happens on the server: show the commands. */
 .cli-help { margin-top: 0.8rem; }
