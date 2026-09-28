@@ -190,6 +190,7 @@ pub async fn create(state: &AppState, mut input: CameraInput) -> ApiResult<Camer
         }
     };
     tracing::info!(camera = %id, "camera added");
+    state.media.set_single_stream(&id, no_substream(&input));
     changed(state, &id, Some(input.enabled), true);
     get(state, &id).await
 }
@@ -219,6 +220,7 @@ pub async fn update(state: &AppState, id: &str, mut input: CameraInput) -> ApiRe
             // Renaming or tuning motion/recording must not drop the stream.
             let reconnect = before != connection_key(state, id).await?;
             tracing::info!(camera = %id, reconnect, "camera updated");
+            state.media.set_single_stream(id, no_substream(&input));
             changed(state, id, Some(input.enabled), reconnect);
             get(state, id).await
         }
@@ -243,6 +245,20 @@ pub async fn set_arm_settings(state: &AppState, id: &str, s: watchgrid_model::Ar
     Ok(())
 }
 
+/// A camera with only a main stream (its substream requests join the main feed).
+fn no_substream(input: &CameraInput) -> bool {
+    input.sub_stream_url.as_deref().is_none_or(|u| u.trim().is_empty())
+}
+
+/// At startup: tell the media hub which cameras have only one stream.
+pub async fn load_stream_layout(state: &AppState) -> ApiResult<()> {
+    for row in repo::list(&state.db).await? {
+        let camera = row.into_model();
+        state.media.set_single_stream(&camera.id, camera.sub_stream.is_none());
+    }
+    Ok(())
+}
+
 pub async fn set_enabled(state: &AppState, id: &str, enabled: bool) -> ApiResult<Camera> {
     if !repo::set_enabled(&state.db, id, enabled).await? {
         return Err(ApiError::not_found("Camera"));
@@ -257,6 +273,7 @@ pub async fn delete(state: &AppState, id: &str) -> ApiResult<()> {
         return Err(ApiError::not_found("Camera"));
     }
     tracing::info!(camera = %id, "camera deleted");
+    state.media.set_single_stream(id, false);
     changed(state, id, None, true);
     Ok(())
 }

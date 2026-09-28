@@ -1,7 +1,7 @@
 //! Registry of running feeds, one per (camera, stream). A feed starts with
 //! its first viewer and stops shortly after its last one leaves.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use sqlx::PgPool;
@@ -46,16 +46,36 @@ pub struct MediaHub {
     pub(super) feeds: Mutex<HashMap<Key, Arc<Channels>>>,
     /// Last known facts per stream, kept after a feed closes.
     pub(super) facts: FactsCache,
+    /// Cameras with only one stream: whoever asks for their substream
+    /// joins their main feed (one RTSP session per camera, not two).
+    single: Mutex<HashSet<String>>,
 }
 
 impl MediaHub {
     pub fn new(db: PgPool, credentials: Arc<CredentialStore>) -> Self {
-        Self { db, credentials, feeds: Mutex::new(HashMap::new()), facts: FactsCache::default() }
+        Self { db, credentials, feeds: Mutex::new(HashMap::new()), facts: FactsCache::default(), single: Mutex::default() }
+    }
+
+    /// Whether a camera has only a main stream (set when cameras load or change).
+    pub fn set_single_stream(&self, camera_id: &str, single: bool) {
+        let mut all = self.single.lock().expect("media hub lock");
+        if single {
+            all.insert(camera_id.to_string());
+        } else {
+            all.remove(camera_id);
+        }
+    }
+
+    /// The feed that serves `kind` for a camera: a camera without a
+    /// substream serves everything from its main feed.
+    fn key(&self, camera_id: &str, kind: StreamKind) -> Key {
+        let single = kind == StreamKind::Sub && self.single.lock().expect("media hub lock").contains(camera_id);
+        (camera_id.to_string(), if single { StreamKind::Main } else { kind })
     }
 
     /// Join the feed for a camera stream, starting it if needed.
     pub fn subscribe(self: &Arc<Self>, camera_id: &str, kind: StreamKind) -> Subscription {
-        let key = (camera_id.to_string(), kind);
+        let key = self.key(camera_id, kind);
         let mut feeds = self.feeds.lock().expect("media hub lock");
         let channels = feeds.entry(key.clone()).or_insert_with(|| {
             let channels = Arc::new(Channels {
@@ -74,7 +94,7 @@ impl MediaHub {
     /// Join a feed and keep `keep_secs` of recent frames for pre-record.
     pub fn subscribe_with_preroll(self: &Arc<Self>, camera_id: &str, kind: StreamKind, keep_secs: u32) -> Subscription {
         let sub = self.subscribe(camera_id, kind);
-        if let Some(ch) = self.feeds.lock().expect("media hub lock").get(&(camera_id.to_string(), kind)) {
+        if let Some(ch) = self.feeds.lock().expect("media hub lock").get(&self.key(camera_id, kind)) {
             ch.preroll.set_keep(keep_secs);
         }
         sub
@@ -83,19 +103,19 @@ impl MediaHub {
     /// The last `secs` of frames (from a keyframe), if pre-record is kept.
     pub fn preroll(&self, camera_id: &str, kind: StreamKind, secs: u32) -> Vec<Frame> {
         let feeds = self.feeds.lock().expect("media hub lock");
-        feeds.get(&(camera_id.to_string(), kind)).map(|ch| ch.preroll.snapshot(secs)).unwrap_or_default()
+        feeds.get(&self.key(camera_id, kind)).map(|ch| ch.preroll.snapshot(secs)).unwrap_or_default()
     }
 
     /// Pre-record audio from `from_pts` on (the clip's first video frame).
     pub fn preroll_audio(&self, camera_id: &str, kind: StreamKind, from_pts: i64) -> Vec<AudioFrame> {
         let feeds = self.feeds.lock().expect("media hub lock");
-        feeds.get(&(camera_id.to_string(), kind)).map(|ch| ch.preroll.audio_since(from_pts)).unwrap_or_default()
+        feeds.get(&self.key(camera_id, kind)).map(|ch| ch.preroll.audio_since(from_pts)).unwrap_or_default()
     }
 
     /// A running feed's state; `None` when nobody uses that stream.
     pub fn feed_state(&self, camera_id: &str, kind: StreamKind) -> Option<FeedState> {
         let feeds = self.feeds.lock().expect("media hub lock");
-        feeds.get(&(camera_id.to_string(), kind)).map(|ch| ch.state.borrow().clone())
+        feeds.get(&self.key(camera_id, kind)).map(|ch| ch.state.borrow().clone())
     }
 
     /// Put a stream's state and facts on a camera's `stream`: `Active` with
@@ -105,7 +125,7 @@ impl MediaHub {
     /// carry this stream, first choice first (a camera without a substream
     /// serves its main stream on the substream feed too).
     pub fn overlay_stream(&self, camera_id: &str, kinds: &[StreamKind], stream: &mut watchgrid_model::Stream) {
-        let key = |k: StreamKind| (camera_id.to_string(), k);
+        let key = |k: StreamKind| self.key(camera_id, k);
         let open = kinds.iter().find_map(|k| self.feed_state(camera_id, *k).map(|s| (*k, s)));
         let known = open.as_ref().and_then(|(k, _)| self.facts.get(&key(*k))).or_else(|| kinds.iter().find_map(|k| self.facts.get(&key(*k))));
         stream.status = match &open {
@@ -220,5 +240,21 @@ mod tests {
         let mut main = Stream::unprobed("rtsp://h/1");
         hub.overlay_stream("cam", &[StreamKind::Main, StreamKind::Sub], &mut main);
         assert_eq!((main.status, main.width), (StreamStatus::Active, Some(1920)));
+    }
+
+    #[tokio::test]
+    async fn a_camera_with_one_stream_uses_one_feed() {
+        let db = sqlx::postgres::PgPoolOptions::new().connect_lazy("postgres://unused").unwrap();
+        let hub = Arc::new(MediaHub::new(db, Arc::new(CredentialStore::from_key(&[1u8; 32]))));
+        hub.set_single_stream("single", true);
+        let _health = hub.subscribe("single", StreamKind::Sub);
+        let _live = hub.subscribe("single", StreamKind::Main);
+        let _a = hub.subscribe("both", StreamKind::Sub);
+        let _b = hub.subscribe("both", StreamKind::Main);
+        let keys: Vec<Key> = hub.feeds.lock().unwrap().keys().cloned().collect();
+        assert!(keys.contains(&("single".into(), StreamKind::Main)) && !keys.contains(&("single".into(), StreamKind::Sub)), "one session: {keys:?}");
+        assert_eq!(keys.iter().filter(|(id, _)| id == "both").count(), 2, "with a substream: two feeds");
+        hub.set_single_stream("single", false);
+        assert_eq!(hub.key("single", StreamKind::Sub), ("single".into(), StreamKind::Sub), "a substream was added");
     }
 }

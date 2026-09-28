@@ -298,6 +298,8 @@ async fn serve(logs: system::logs::LogBuffer) -> Result<(), String> {
     // Before the supervisor starts, so no transition is missed.
     events::start_journal(state.db.clone(), state.bus.clone(), state.onvif.detections());
     notifications::start(state.db.clone(), state.bus.clone(), config.bind, state.recording_files.clone());
+    // Cameras with only a main stream share one feed for everything.
+    cameras::load_stream_layout(&state).await.map_err(|_| "cannot list cameras".to_string())?;
     // Start supervising every configured camera.
     for (id, enabled) in cameras::all_ids(&state).await.map_err(|_| "cannot list cameras".to_string())? {
         state.supervisor.apply(&id, enabled);
