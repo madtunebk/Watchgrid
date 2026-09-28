@@ -5,19 +5,12 @@ use std::collections::HashMap;
 use std::sync::RwLock;
 
 use chrono::{DateTime, Utc};
-use watchgrid_model::{Camera, CameraStatus, StreamStatus};
+use watchgrid_model::{Camera, CameraStatus};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CameraLive {
     pub status: CameraStatus,
     pub connected_since: Option<DateTime<Utc>>,
-    pub codec: Option<String>,
-    pub width: Option<u32>,
-    pub height: Option<u32>,
-    pub fps: Option<f32>,
-    /// kbit/s over the last measuring window.
-    pub bitrate: Option<u32>,
-    pub audio_codec: Option<String>,
     pub last_error: Option<String>,
     /// The camera reports motion right now (ONVIF).
     pub motion_active: bool,
@@ -32,12 +25,6 @@ impl CameraLive {
         Self {
             status: CameraStatus::Connecting,
             connected_since: None,
-            codec: None,
-            width: None,
-            height: None,
-            fps: None,
-            bitrate: None,
-            audio_codec: None,
             last_error: None,
             motion_active: false,
             motion_fallback: false,
@@ -76,17 +63,6 @@ impl LiveRegistry {
         camera.motion_active = live.motion_active;
         camera.motion_fallback = live.motion_fallback;
         camera.software_motion = live.software_motion.clone();
-        let s = &mut camera.main_stream;
-        s.status = match live.status {
-            CameraStatus::Online => StreamStatus::Active,
-            CameraStatus::Error => StreamStatus::Error,
-            _ => StreamStatus::Idle,
-        };
-        s.codec = live.codec;
-        s.width = live.width;
-        s.height = live.height;
-        s.fps = live.fps;
-        s.bitrate = live.bitrate;
-        s.audio_codec = live.audio_codec;
+        // The streams' own states and facts come from the media hub.
     }
 }

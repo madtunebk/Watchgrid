@@ -5,6 +5,7 @@
 pub mod audio;
 pub(crate) mod boxes;
 pub mod dump;
+mod facts;
 mod feed;
 mod fmp4;
 mod fragmenter;

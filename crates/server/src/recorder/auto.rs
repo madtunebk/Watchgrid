@@ -19,7 +19,7 @@ use watchgrid_model::{EventType, MotionSource, RecordingMode, RecordingReason, R
 
 use super::{Recorder, Spec};
 use crate::bus::{Bus, BusEvent};
-use crate::media::{MediaHub, StreamKind};
+use crate::media::{MediaHub, StreamKind, Subscription};
 use crate::motion::Detections;
 
 /// Pre-record is capped to bound memory (frames are kept in RAM).
@@ -208,8 +208,13 @@ impl Controller {
             return;
         }
         let plan = Plan::from_settings(&camera.recording);
-        // Keeps the stream open and its pre-record buffer filled.
-        let _keepalive = self.hub.subscribe_with_preroll(&self.id, plan.stream, plan.delayed_preroll() + 2);
+        // The substream is open anyway (camera health): keep its pre-record
+        // buffer filled. The main stream is opened only from the moment
+        // motion starts (`warm`, below): nothing is pulled from the camera
+        // while nothing happens, and a clip starts about when the motion
+        // did, not the configured seconds before.
+        let _keepalive = (plan.stream == StreamKind::Sub).then(|| self.hub.subscribe_with_preroll(&self.id, StreamKind::Sub, plan.delayed_preroll() + 2));
+        let mut warm: Option<Subscription> = None;
         let mut events = self.bus.subscribe();
         let mut f = Follow::new();
         // Detections already under way (the controller was just restarted).
@@ -217,6 +222,15 @@ impl Controller {
         let far = Duration::from_secs(365 * 24 * 3600);
 
         loop {
+            if plan.stream == StreamKind::Main {
+                // Open while a detection lasts, a start is pending or a clip runs.
+                let wanted = !f.active.is_empty() || f.start_at.is_some() || f.clip_started.is_some();
+                if wanted && warm.is_none() {
+                    warm = Some(self.hub.subscribe_with_preroll(&self.id, StreamKind::Main, plan.delayed_preroll() + 2));
+                } else if !wanted {
+                    warm = None;
+                }
+            }
             let split_at = f.clip_started.map(|t| t + plan.max_clip);
             let next = [f.stop_at, split_at, f.start_at].into_iter().flatten().min().unwrap_or_else(|| Instant::now() + far);
             tokio::select! {

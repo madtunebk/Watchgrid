@@ -20,6 +20,8 @@ const LINGER: Duration = Duration::from_secs(5);
 /// connection at PLAY once audio is set up) is retried without audio.
 const AUDIO_TRIAL: Duration = Duration::from_secs(15);
 const TICK: Duration = Duration::from_secs(1);
+/// Frame rate and bitrate are measured over this long.
+const RATE_WINDOW: Duration = Duration::from_secs(2);
 
 pub async fn run(hub: Arc<MediaHub>, key: Key, ch: Arc<Channels>) {
     let (id, kind) = (&key.0, key.1);
@@ -108,6 +110,8 @@ async fn pump(hub: &MediaHub, key: &Key, ch: &Channels, mut opened: Opened, idle
     });
     let audio_track = audio.as_ref().map(|(_, _, t)| t.track());
     let mut ticker = tokio::time::interval(TICK);
+    // This stream's own frame rate and bitrate (kept by the hub).
+    let (mut frames, mut bytes, mut window) = (0u32, 0u64, Instant::now());
     loop {
         tokio::select! {
             item = opened.stream.next() => match item {
@@ -116,7 +120,11 @@ async fn pump(hub: &MediaHub, key: &Key, ch: &Channels, mut opened: Opened, idle
                 Some(Ok(CodecItem::VideoFrame(f))) if f.stream_id() == opened.video => {
                     if f.has_new_parameters() || !matches!(*ch.state.borrow(), FeedState::Streaming(_)) {
                         match track_info(&opened, audio_track) {
-                            Ok(Some(info)) => { ch.state.send_replace(FeedState::Streaming(Arc::new(info))); }
+                            Ok(Some(info)) => {
+                                let info = Arc::new(info);
+                                hub.facts.info(key, info.clone());
+                                ch.state.send_replace(FeedState::Streaming(info));
+                            }
                             Ok(None) => continue, // parameters not known yet
                             Err(e) => return PumpEnd::Failed(e),
                         }
@@ -129,6 +137,8 @@ async fn pump(hub: &MediaHub, key: &Key, ch: &Channels, mut opened: Opened, idle
                         _ => continue,
                     };
                     let data = super::nal::prepare(f.into_data(), codec);
+                    frames += 1;
+                    bytes += data.len() as u64;
                     let frame = Frame { pts, keyframe, data: data.into() };
                     // Cache first, then send: a new recorder that subscribes and
                     // then snapshots can't miss a frame (duplicates are skipped by pts).
@@ -147,8 +157,16 @@ async fn pump(hub: &MediaHub, key: &Key, ch: &Channels, mut opened: Opened, idle
                 Some(Ok(_)) => {}
             },
             _ = ch.reload.notified() => return PumpEnd::Reload,
-            _ = ticker.tick() => if idle.expired(hub, key, ch) {
-                return PumpEnd::Idle;
+            _ = ticker.tick() => {
+                if idle.expired(hub, key, ch) {
+                    return PumpEnd::Idle;
+                }
+                let elapsed = window.elapsed();
+                if elapsed >= RATE_WINDOW {
+                    let secs = elapsed.as_secs_f64();
+                    hub.facts.rate(key, (f64::from(frames) / secs) as f32, (bytes as f64 * 8.0 / 1000.0 / secs).round() as u32);
+                    (frames, bytes, window) = (0, 0, Instant::now());
+                }
             }
         }
     }

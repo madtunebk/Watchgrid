@@ -98,7 +98,13 @@ fn with_live(state: &AppState, row: repo::CameraRow, extras: &Extras) -> Camera 
     camera.last_event = extras.last_events.get(&camera.id).cloned();
     state.live.overlay(&mut camera);
     state.recorder.overlay(&mut camera);
-    state.media.overlay_sub(&camera.id, camera.sub_stream.as_mut());
+    // A camera without a substream serves its main stream on both feeds.
+    use crate::media::StreamKind;
+    let main_feeds: &[StreamKind] = if camera.sub_stream.is_some() { &[StreamKind::Main] } else { &[StreamKind::Main, StreamKind::Sub] };
+    state.media.overlay_stream(&camera.id, main_feeds, &mut camera.main_stream);
+    if let Some(sub) = camera.sub_stream.as_mut() {
+        state.media.overlay_stream(&camera.id, &[StreamKind::Sub], sub);
+    }
     camera.onvif_events = state.onvif.links().status(&camera.id);
     camera
 }
@@ -352,6 +358,8 @@ fn changed(state: &AppState, id: &str, enabled: Option<bool>, reconnect: bool) {
             None => state.supervisor.stop(id),
         }
         state.media.reload(id);
+        // Other URLs or another camera: what its streams were no longer holds.
+        state.media.forget_facts(id);
     }
     state.onvif.apply(id, enabled.is_some());
     state.motion.apply(id, enabled.is_some());

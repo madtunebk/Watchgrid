@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use sqlx::PgPool;
 use tokio::sync::{Notify, broadcast, watch};
 
+use super::facts::FactsCache;
 use super::preroll::Preroll;
 use super::audio::AudioFrame;
 use super::{FeedState, Frame, StreamKind, feed};
@@ -43,11 +44,13 @@ pub struct MediaHub {
     pub(super) db: PgPool,
     pub(super) credentials: Arc<CredentialStore>,
     pub(super) feeds: Mutex<HashMap<Key, Arc<Channels>>>,
+    /// Last known facts per stream, kept after a feed closes.
+    pub(super) facts: FactsCache,
 }
 
 impl MediaHub {
     pub fn new(db: PgPool, credentials: Arc<CredentialStore>) -> Self {
-        Self { db, credentials, feeds: Mutex::new(HashMap::new()) }
+        Self { db, credentials, feeds: Mutex::new(HashMap::new()), facts: FactsCache::default() }
     }
 
     /// Join the feed for a camera stream, starting it if needed.
@@ -95,22 +98,34 @@ impl MediaHub {
         feeds.get(&(camera_id.to_string(), kind)).map(|ch| ch.state.borrow().clone())
     }
 
-    /// Put the substream's state on a camera's `sub`: active while motion
-    /// detection or a live preview uses it (the main stream's state comes
-    /// from the camera's supervisor).
-    pub fn overlay_sub(&self, camera_id: &str, sub: Option<&mut watchgrid_model::Stream>) {
-        let Some(sub) = sub else { return };
-        match self.feed_state(camera_id, StreamKind::Sub) {
-            Some(FeedState::Streaming(info)) => {
-                sub.status = watchgrid_model::StreamStatus::Active;
-                sub.codec = Some(info.codec_label());
-                sub.width = Some(info.track.width);
-                sub.height = Some(info.track.height);
-                sub.audio_codec = info.audio_codec.clone();
-            }
-            Some(FeedState::Failed(_)) => sub.status = watchgrid_model::StreamStatus::Error,
-            Some(FeedState::Connecting) | None => {}
+    /// Put a stream's state and facts on a camera's `stream`: `Active` with
+    /// its measured rate while a feed delivers it, `Error` when that feed
+    /// fails, else `Idle` with what it was last seen to be (the main stream
+    /// is only opened while something uses it). `kinds`: the feeds that
+    /// carry this stream, first choice first (a camera without a substream
+    /// serves its main stream on the substream feed too).
+    pub fn overlay_stream(&self, camera_id: &str, kinds: &[StreamKind], stream: &mut watchgrid_model::Stream) {
+        let key = |k: StreamKind| (camera_id.to_string(), k);
+        let open = kinds.iter().find_map(|k| self.feed_state(camera_id, *k).map(|s| (*k, s)));
+        let known = open.as_ref().and_then(|(k, _)| self.facts.get(&key(*k))).or_else(|| kinds.iter().find_map(|k| self.facts.get(&key(*k))));
+        stream.status = match &open {
+            Some((_, FeedState::Streaming(_))) => watchgrid_model::StreamStatus::Active,
+            Some((_, FeedState::Failed(_))) => watchgrid_model::StreamStatus::Error,
+            _ => watchgrid_model::StreamStatus::Idle,
+        };
+        if let Some(f) = known {
+            stream.codec = Some(f.info.codec_label());
+            stream.width = Some(f.info.track.width);
+            stream.height = Some(f.info.track.height);
+            stream.audio_codec = f.info.audio_codec.clone();
+            stream.fps = f.fps;
+            stream.bitrate = f.kbps;
         }
+    }
+
+    /// The camera was changed or removed: its streams may be different now.
+    pub fn forget_facts(&self, camera_id: &str) {
+        self.facts.forget(camera_id);
     }
 
     /// Feeds currently open (live viewers and recordings).
@@ -162,21 +177,48 @@ mod tests {
         hub
     }
 
+    fn info(width: u32) -> Arc<TrackInfo> {
+        Arc::new(TrackInfo { codec: "avc1.4d001e".into(), track: VideoTrack { codec: crate::media::VideoCodec::H264, width, height: 432, decoder_config: vec![] }, audio_codec: None, audio: None })
+    }
+
     #[tokio::test]
-    async fn the_substream_shows_what_its_feed_is_doing() {
-        let info = TrackInfo { codec: "avc1.4d001e".into(), track: VideoTrack { codec: crate::media::VideoCodec::H264, width: 768, height: 432, decoder_config: vec![] }, audio_codec: None, audio: None };
+    async fn a_stream_shows_what_its_feed_is_doing() {
+        let key = ("cam".to_string(), StreamKind::Sub);
+        let hub = hub_with_sub(FeedState::Streaming(info(768)));
+        hub.facts.info(&key, info(768));
+        hub.facts.rate(&key, 15.0, 480);
         let mut sub = Stream::unprobed("rtsp://h/2");
-        hub_with_sub(FeedState::Streaming(Arc::new(info))).overlay_sub("cam", Some(&mut sub));
-        assert_eq!((sub.status, sub.codec.as_deref(), sub.width, sub.height), (StreamStatus::Active, Some("H264"), Some(768), Some(432)));
+        hub.overlay_stream("cam", &[StreamKind::Sub], &mut sub);
+        assert_eq!((sub.status, sub.codec.as_deref(), sub.width, sub.fps, sub.bitrate), (StreamStatus::Active, Some("H264"), Some(768), Some(15.0), Some(480)));
 
         let mut sub = Stream::unprobed("rtsp://h/2");
-        hub_with_sub(FeedState::Failed("no".into())).overlay_sub("cam", Some(&mut sub));
+        hub_with_sub(FeedState::Failed("no".into())).overlay_stream("cam", &[StreamKind::Sub], &mut sub);
         assert_eq!(sub.status, StreamStatus::Error);
+    }
 
-        let mut sub = Stream::unprobed("rtsp://h/2");
+    #[tokio::test]
+    async fn a_closed_main_stream_is_idle_with_what_it_was() {
         let hub = hub_with_sub(FeedState::Connecting);
         hub.feeds.lock().unwrap().clear();
-        hub.overlay_sub("cam", Some(&mut sub));
-        assert_eq!(sub.status, StreamStatus::Idle, "no feed: idle, opened on demand");
+        let main = ("cam".to_string(), StreamKind::Main);
+        hub.facts.info(&main, info(2560));
+        hub.facts.rate(&main, 25.0, 4000);
+        let mut stream = Stream::unprobed("rtsp://h/1");
+        hub.overlay_stream("cam", &[StreamKind::Main], &mut stream);
+        assert_eq!((stream.status, stream.width, stream.bitrate), (StreamStatus::Idle, Some(2560), Some(4000)), "opened on demand; the capacity estimate still has its bitrate");
+
+        hub.forget_facts("cam");
+        let mut stream = Stream::unprobed("rtsp://h/1");
+        hub.overlay_stream("cam", &[StreamKind::Main], &mut stream);
+        assert_eq!(stream.width, None, "other settings: nothing known yet");
+    }
+
+    #[tokio::test]
+    async fn without_a_substream_the_main_stream_is_the_watched_feed() {
+        let hub = hub_with_sub(FeedState::Streaming(info(1920)));
+        hub.facts.info(&("cam".to_string(), StreamKind::Sub), info(1920));
+        let mut main = Stream::unprobed("rtsp://h/1");
+        hub.overlay_stream("cam", &[StreamKind::Main, StreamKind::Sub], &mut main);
+        assert_eq!((main.status, main.width), (StreamStatus::Active, Some(1920)));
     }
 }

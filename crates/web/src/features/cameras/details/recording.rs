@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 
 use super::save;
-use crate::api::{Camera, MotionSource, RecordingMode, ScheduleWindow};
+use crate::api::{Camera, MotionSource, RecordingMode, ScheduleWindow, StreamRole};
 use crate::ui::{SaveBar, SaveState};
 use crate::ui::form::{Choice, Field, FormSection, NumberInput, RadioCards, Switch};
 
@@ -104,6 +104,9 @@ pub fn RecordingTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
                     <Field label="Pre-record" hint="Video kept from before the event started (up to 30 s)">
                         <NumberInput value=pre min=0 max=30 suffix="seconds" disabled=Signal::derive(move || !event_based()) />
                     </Field>
+                    {move || (event_based() && camera.get().recording.stream != StreamRole::Sub).then(|| view! {
+                        <p class="note">"The main stream is only opened when motion starts, so clips begin with the motion (about a second in), not before it. Pre-record applies when recording the substream (Stream tab)."</p>
+                    })}
                     <Field label="Post-record" hint="Keep recording after the event ends">
                         <NumberInput value=post min=0 max=300 suffix="seconds" disabled=Signal::derive(move || !event_based()) />
                     </Field>
