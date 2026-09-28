@@ -77,10 +77,9 @@ pub fn RecordingTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
             <FormSection title="Recording mode" description="Manual recording from the Record button always works, whatever the mode.">
                 <RadioCards value=mode options=modes name="recording-mode" />
                 <Show when=move || event_based() && !has_detection()>
-                    <p class="note note--warn">
-                        "This camera has no motion source yet, so in Events mode it will never record by itself. "
-                        "Turn on motion detection in the Motion tab: ONVIF events if the camera supports them, "
-                        "otherwise Software detection."
+                    <p class="note">
+                        "Motion detection is off on this camera, so in Events mode it records only while armed "
+                        "(the lock in the header), or once you turn detection on in the Motion tab."
                     </p>
                 </Show>
             </FormSection>

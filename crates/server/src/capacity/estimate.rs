@@ -115,7 +115,7 @@ fn advice(cams: &[CameraLoad], bottleneck: Resource, memory_pct: f32) -> Vec<Str
     let mut out = Vec::new();
     let silent = names(&|c| c.events_without_source);
     if !silent.is_empty() {
-        out.push(format!("{} use Events mode but have no motion source, so they never record by themselves (turn on ONVIF or software detection in Camera → Motion).", join_names(&silent)));
+        out.push(format!("{} use Events mode with motion detection off: they record only while armed (the lock in the header) or once detection is on in Camera → Motion.", join_names(&silent)));
     }
     let continuous = names(&|c| c.continuous);
     if !continuous.is_empty() {
@@ -167,6 +167,6 @@ mod tests {
         let mut silent = cam("ezviz", 8000, 0.0, false);
         silent.events_without_source = true;
         let e = estimate(hw(), &[silent], Measured { process_cpu: 1.0, process_memory: 20 << 20 });
-        assert!(e.advice[0].contains("never record by themselves"));
+        assert!(e.advice[0].contains("record only while armed"));
     }
 }
