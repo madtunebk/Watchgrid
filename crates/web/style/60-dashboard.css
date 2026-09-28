@@ -33,4 +33,3 @@
 .cam-card--more:hover { color: var(--fg-strong); border-color: var(--accent); }
 .cam-card--more__count { font-size: 2.1333rem; font-weight: 600; color: var(--fg-strong); }
 .cam-card--more__trouble { color: var(--danger); font-size: 0.8667rem; }
-

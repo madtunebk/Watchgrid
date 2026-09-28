@@ -132,5 +132,5 @@
 .arm-menu__armed { display: inline-flex; align-items: center; gap: 0.4rem; color: var(--danger); }
 .arm-menu__text { margin: 0; padding: 0.5333rem 0.8rem; color: var(--muted); font-size: 0.8667rem; }
 .arm-menu__list { margin: 0; padding: 0 0.8rem 0.5333rem 2rem; }
-.arm-menu__actions { display: flex; justify-content: flex-end; gap: 0.5333rem; padding: 0.5333rem 0.8rem 0.8rem; }
+.arm-menu__actions { display: flex; justify-content: center; gap: 0.5333rem; padding: 0.5333rem 0.8rem 0.8rem; }
 .arm-list { display: grid; margin-top: 0.8rem; max-height: 18rem; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--radius); }
