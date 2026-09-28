@@ -44,6 +44,7 @@ pub fn SettingsPage() -> impl IntoView {
                         }
                         let s: Signal<Settings> = Signal::derive(move || current.get().expect("loaded"));
                         match section.get() {
+                            "cameras" => view! { <sections::CamerasSection /> }.into_any(),
                             "recording" => view! { <sections::RecordingSection settings=s /> }.into_any(),
                             "storage" => view! { <sections::StorageSection /> }.into_any(),
                             "network" => view! { <sections::NetworkSection settings=s /> }.into_any(),

@@ -2,6 +2,7 @@
 
 mod advanced;
 mod auth;
+mod cameras;
 mod exports;
 mod general;
 mod network;
@@ -19,6 +20,7 @@ pub struct Section {
 
 pub const ALL: &[Section] = &[
     Section { key: "general", label: "General", icon: I::Settings },
+    Section { key: "cameras", label: "Cameras", icon: I::Cctv },
     Section { key: "recording", label: "Recording", icon: I::RecordDot },
     Section { key: "storage", label: "Storage", icon: I::HardDrive },
     Section { key: "network", label: "Network", icon: I::Wifi },
@@ -30,6 +32,7 @@ pub const ALL: &[Section] = &[
 
 pub use advanced::AdvancedSection;
 pub use auth::AuthSection;
+pub use cameras::CamerasSection;
 pub use exports::ExportsSection;
 pub use general::GeneralSection;
 pub use network::NetworkSection;

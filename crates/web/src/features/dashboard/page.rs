@@ -1,7 +1,6 @@
 use std::time::Duration;
 
 use leptos::prelude::*;
-use leptos_router::components::A;
 
 use super::arm::ArmControl;
 use super::camera_overview::CameraOverview;
@@ -11,7 +10,7 @@ use crate::api::{self, EventQuery, NvrDays, Topic, use_query};
 use crate::features::cameras::NoCameras;
 use crate::features::storage::StorageSummary;
 use crate::features::system::{CapacitySummary, SystemSummary};
-use crate::ui::{I, Icon, Page, Panel, Skeleton, async_view};
+use crate::ui::{Page, Panel, Skeleton, async_view};
 
 /// Owns the dashboard's queries and hands data to the sections.
 #[component]
@@ -52,9 +51,6 @@ pub fn DashboardPage() -> impl IntoView {
             title="Dashboard"
             actions=move || view! {
                 {move || has_cameras.get().unwrap_or(false).then(|| view! { <ArmControl cameras /> })}
-                <A href="/cameras/new" attr:class="btn btn--primary btn--sm">
-                    <Icon icon=I::Plus class="icon icon--sm" />"Add camera"
-                </A>
             }
         >
             {move || match has_cameras.get() {

@@ -5,14 +5,13 @@ mod table;
 mod toolbar;
 
 use leptos::prelude::*;
-use leptos_router::components::A;
 use leptos_router::hooks::{use_navigate, use_query_map};
 
 use crate::api::{self, ApiError, Topic, use_query};
 use crate::features::cameras::render_key;
 use crate::features::cameras::widgets::{CameraCard, NoCameras};
 use crate::prefs;
-use crate::ui::{EmptyState, ErrorBox, I, Icon, Page, Skeleton};
+use crate::ui::{EmptyState, ErrorBox, I, Page, Skeleton};
 use filter::StatusFilter;
 use table::CameraTable;
 use toolbar::Toolbar;
@@ -83,11 +82,6 @@ pub fn CamerasPage() -> impl IntoView {
         <Page
             title="Cameras"
             subtitle=subtitle
-            actions=|| view! {
-                <A href="/cameras/new" attr:class="btn btn--primary btn--sm">
-                    <Icon icon=I::Plus class="icon icon--sm" />"Add camera"
-                </A>
-            }
         >
             {move || match phase.get() {
                 Phase::Loading => view! { <Skeleton lines=6 height="2.5rem" /> }.into_any(),

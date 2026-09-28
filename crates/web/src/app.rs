@@ -30,7 +30,8 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("") view=DashboardPage />
 
                     <Route path=path!("cameras") view=CamerasPage />
-                    <Route path=path!("cameras/new") view=CameraFormPage />
+                    // Adding a camera is a setup step: it lives under Settings.
+                    <Route path=path!("settings/cameras/new") view=CameraFormPage />
                     <Route path=path!("cameras/:id/edit") view=CameraFormPage />
                     <Route path=path!("cameras/:id") view=CameraDetailsPage />
                     <Route path=path!("cameras/:id/:tab") view=CameraDetailsPage />

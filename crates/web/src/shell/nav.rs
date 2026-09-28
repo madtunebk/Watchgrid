@@ -30,7 +30,6 @@ pub fn crumbs(path: &str) -> Vec<(String, String)> {
 
     match segs.as_slice() {
         [] => vec![top("Dashboard", "/")],
-        ["cameras", "new"] => vec![top("Cameras", "/cameras"), top("Add camera", path)],
         ["cameras", id, "edit"] => {
             vec![top("Cameras", "/cameras"), top("Camera", &format!("/cameras/{id}")), top("Edit", path)]
         }
@@ -38,6 +37,7 @@ pub fn crumbs(path: &str) -> Vec<(String, String)> {
         ["events", _] => vec![top("Events", "/events"), top("Event", path)],
         // Reached from the bell, not the sidebar.
         ["notifications"] => vec![top("Notifications", path)],
+        ["settings", "cameras", "new"] => vec![top("Settings", "/settings"), top("Cameras", "/settings/cameras"), top("Add camera", path)],
         ["settings", sub, ..] => {
             let label = crate::features::settings::section_label(sub).map(String::from).unwrap_or_else(|| title_case(sub));
             vec![top("Settings", "/settings"), top(&label, path)]

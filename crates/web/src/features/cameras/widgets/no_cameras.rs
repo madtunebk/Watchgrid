@@ -11,9 +11,9 @@ pub fn NoCameras() -> impl IntoView {
             <EmptyState
                 icon=I::Cctv
                 title="No cameras configured"
-                text="Add a camera with its RTSP address. It starts working immediately, without restarting the NVR. A substream is optional."
+                text="Cameras are added in Settings → Cameras, with their RTSP address. Each starts working immediately, without restarting the NVR."
             >
-                <A href="/cameras/new" attr:class="btn btn--primary">
+                <A href="/settings/cameras" attr:class="btn btn--primary">
                     <Icon icon=I::Plus class="icon icon--sm" />"Add your first camera"
                 </A>
             </EmptyState>

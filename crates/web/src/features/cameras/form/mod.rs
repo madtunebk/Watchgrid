@@ -23,7 +23,7 @@ use onvif::OnvifSection;
 use streams::StreamsSection;
 use validate::Errors;
 
-/// `/cameras/new` and `/cameras/:id/edit`.
+/// `/settings/cameras/new` and `/cameras/:id/edit`.
 #[component]
 pub fn CameraFormPage() -> impl IntoView {
     let params = use_params_map();
@@ -80,7 +80,7 @@ fn CameraForm(draft: Draft, camera_id: Option<String>) -> impl IntoView {
     let saving = RwSignal::new(false);
     let save_error = RwSignal::new(None::<String>);
     let navigate = use_navigate();
-    let cancel_href = camera_id.as_ref().map(|id| format!("/cameras/{id}")).unwrap_or_else(|| "/cameras".into());
+    let cancel_href = camera_id.as_ref().map(|id| format!("/cameras/{id}")).unwrap_or_else(|| "/settings/cameras".into());
 
     let submit = {
         let camera_id = camera_id.clone();

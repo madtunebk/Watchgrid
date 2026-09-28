@@ -108,3 +108,9 @@
 .pending__what .muted { font-size: 0.8667rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dest__check { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.6667rem; margin-top: 0.2667rem; font-size: 0.8667rem; }
 .dest__check .dest__problem { margin: 0; }
+
+/* Settings → Cameras: the short list */
+.settings-cameras { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.2667rem; }
+.settings-cameras__row { display: flex; align-items: center; gap: 1.0667rem; padding: 0.5333rem 0; border-bottom: 1px solid var(--line); }
+.settings-cameras__row:last-child { border-bottom: 0; }
+.settings-cameras__host { flex: 1; color: var(--muted); font-family: var(--font-mono); font-size: 0.8667rem; }
