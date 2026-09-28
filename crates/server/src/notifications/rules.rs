@@ -91,6 +91,45 @@ pub fn draft(event: &BusEvent, s: &NotificationSettings, camera: &CameraFacts) -
     }
 }
 
+/// Cameras that went offline (or came back) within a few seconds of each
+/// other — a switch or power cut — as one notification instead of one per
+/// camera. `items`: each camera's name and its own notification.
+pub fn burst(kind: &'static str, items: &[(String, Draft)]) -> Draft {
+    let n = items.len();
+    let offline = kind == "camera_offline";
+    let names: Vec<&str> = items.iter().map(|(name, _)| name.as_str()).collect();
+    let message = if offline {
+        // Grouped by reason: "Hall, Yard: connection refused; Gate: timed out".
+        let mut groups: Vec<(&str, Vec<&str>)> = Vec::new();
+        for (name, d) in items {
+            match groups.iter_mut().find(|(why, _)| *why == d.message) {
+                Some((_, names)) => names.push(name),
+                None => groups.push((&d.message, vec![name])),
+            }
+        }
+        groups.iter().map(|(why, names)| format!("{}: {why}", some(names))).collect::<Vec<_>>().join("; ")
+    } else {
+        format!("{}. Live view and recording work again.", some(&names))
+    };
+    Draft {
+        kind,
+        camera_id: None,
+        level: items[0].1.level,
+        title: if offline { format!("{n} cameras are offline") } else { format!("{n} cameras are back online") },
+        message,
+        link: Some(if offline { "/cameras?status=offline".into() } else { "/cameras".into() }),
+    }
+}
+
+/// Up to ten names, then how many more.
+fn some(names: &[&str]) -> String {
+    const SHOWN: usize = 10;
+    match names.len() {
+        0..=SHOWN => names.join(", "),
+        n => format!("{} and {} more", names[..SHOWN].join(", "), n - SHOWN),
+    }
+}
+
 /// Low disk space, if the settings ask for it.
 pub fn storage_low(s: &NotificationSettings, free: u64, threshold: u64) -> Option<Draft> {
     (s.storage_low && free < threshold).then(|| Draft {
@@ -164,5 +203,19 @@ mod tests {
         assert_eq!((d.kind, d.level, d.title.as_str()), ("security", NotificationLevel::Warning, "Failed sign-in on Hall"));
         assert_eq!(d.cooldown(), Duration::from_secs(600));
         assert!(draft(&alert, &NotificationSettings { camera_security: false, ..all_on() }, &cam("Hall", false)).is_none());
+    }
+
+    #[test]
+    fn a_burst_of_outages_is_one_notification() {
+        let off = |name: &str, why: &str| (name.to_string(), camera_draft("camera_offline", "x", NotificationLevel::Error, format!("{name} is offline"), why.into()));
+        let d = burst("camera_offline", &[off("Hall", "connection refused"), off("Gate", "timed out"), off("Yard", "connection refused")]);
+        assert_eq!(d.title, "3 cameras are offline");
+        assert_eq!(d.message, "Hall, Yard: connection refused; Gate: timed out");
+        assert_eq!((d.camera_id, d.level, d.link.as_deref()), (None, NotificationLevel::Error, Some("/cameras?status=offline")));
+
+        let on: Vec<(String, Draft)> = (1..=12).map(|i| (format!("cam{i}"), camera_draft("camera_online", "x", NotificationLevel::Success, String::new(), String::new()))).collect();
+        let d = burst("camera_online", &on);
+        assert_eq!(d.title, "12 cameras are back online");
+        assert!(d.message.starts_with("cam1, cam2") && d.message.contains("and 2 more"), "{}", d.message);
     }
 }

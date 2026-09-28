@@ -99,6 +99,25 @@ async fn the_running_notifier_stores_a_camera_offline(db: PgPool) {
 }
 
 #[sqlx::test(migrations = "./migrations")]
+async fn cameras_dropping_together_make_one_notification(db: PgPool) {
+    use crate::bus::{Bus, BusEvent};
+    let bus = Bus::new();
+    let files = std::sync::Arc::new(crate::recordings::RecordingFiles::new(std::env::temp_dir().join("watchgrid-notifier-burst")));
+    super::start(db.clone(), bus.clone(), "127.0.0.1:8090".parse().unwrap(), files);
+    for cam in ["cam-a", "cam-b", "cam-c"] {
+        bus.publish(BusEvent::CameraOffline { camera_id: cam.into(), reason: "connection refused".into(), at: chrono::Utc::now() });
+    }
+    for _ in 0..60 {
+        if repo::page(&db, 0, &unread(false), 10, 0).await.unwrap().total > 0 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(1500)).await; // nothing else may follow
+    assert_eq!(titles(&db, 0, false).await, ["3 cameras are offline"]);
+}
+
+#[sqlx::test(migrations = "./migrations")]
 async fn filters_by_camera_and_problems(db: PgPool) {
     let me = user(&db, "ana").await;
     repo::insert(&db, &draft("a down", NotificationLevel::Error)).await.unwrap();
