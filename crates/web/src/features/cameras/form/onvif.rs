@@ -36,9 +36,9 @@ pub fn OnvifSection(draft: Draft, errors: Signal<Errors>, editing: bool) -> impl
     };
 
     view! {
-        <FormSection title="ONVIF events" description="Optional. Uses the camera's own motion and object detection.">
-            <Switch checked=draft.onvif_enabled label="Receive events from the camera (ONVIF)"
-                description="Without ONVIF, Watchgrid detects motion itself from the video." />
+        <FormSection title="ONVIF" description="Optional. For pan / tilt, the camera's security alerts, and its own events if you choose them in the Motion tab.">
+            <Switch checked=draft.onvif_enabled label="Connect to the camera over ONVIF"
+                description="Motion detection doesn't need it: Watchgrid detects motion itself from the video." />
             <Show when=move || draft.onvif_enabled.get()>
                 <div class="form-grid">
                     <div class="form-grid__wide">

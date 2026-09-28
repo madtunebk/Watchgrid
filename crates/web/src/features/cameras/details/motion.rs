@@ -43,12 +43,12 @@ pub fn MotionTab(#[prop(into)] camera: Signal<Camera>) -> impl IntoView {
 
     save::follow_server(move || (enabled.get(), source.get(), sensitivity.get(), zones.get(), notify.get()), saved, on_revert);
 
-    let onvif = Choice::new(MotionSource::Onvif, "Camera / ONVIF").tag("Recommended")
-        .describe("The camera reports motion, people and vehicles itself. Lightest on the NAS. If its events stop working, Watchgrid detects motion itself until they are back.");
+    let onvif = Choice::new(MotionSource::Onvif, "Camera / ONVIF")
+        .describe("The camera reports motion, people and vehicles itself. Depends on the camera's firmware: some stop sending events. While they don't arrive, Watchgrid detects motion itself.");
     let sources = vec![
         if has_onvif { onvif } else { onvif.disabled_because("Add ONVIF details in Edit camera to use this") },
         Choice::new(MotionSource::Software, "Software detection")
-            .describe("Watchgrid analyses the substream itself. For cameras without ONVIF events; motion only, a little CPU."),
+            .tag("Recommended").describe("Watchgrid analyses the substream itself. Works the same with every camera; motion only, a little CPU."),
         Choice::new(MotionSource::Ai, "AI object detection").tag("Future")
             .disabled_because("Person / vehicle / animal detection arrives in a later version"),
     ];

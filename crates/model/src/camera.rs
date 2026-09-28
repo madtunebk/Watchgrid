@@ -248,9 +248,12 @@ pub struct MotionSettings {
     pub notify: bool,
 }
 
+/// New cameras: Watchgrid's own detection on the substream. It works the
+/// same with every camera; ONVIF events depend on the camera's firmware
+/// (some accept a subscription and never deliver).
 impl Default for MotionSettings {
     fn default() -> Self {
-        Self { enabled: true, source: MotionSource::Onvif, sensitivity: 60, stream: StreamRole::Main, zones: Vec::new(), notify: false }
+        Self { enabled: true, source: MotionSource::Software, sensitivity: 60, stream: StreamRole::Sub, zones: Vec::new(), notify: false }
     }
 }
 
