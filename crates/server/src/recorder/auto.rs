@@ -139,6 +139,17 @@ impl Follow {
         Some(wait)
     }
 
+    /// Take over an event clip that is already recording (the controller
+    /// was restarted): it ends as usual once the detection is over — right
+    /// away plus the hold if it already is.
+    fn adopt(&mut self, now: Instant, plan: &Plan) {
+        self.clip_started = Some(now);
+        self.start_at = None;
+        if self.active.is_empty() {
+            self.stop_at = Some(now + plan.hold);
+        }
+    }
+
     /// Bus messages were missed (the bus holds 256): take what the camera
     /// sees now as the truth, as if the missed starts and ends had arrived.
     /// A lost start no longer misses a recording, a lost end no longer
@@ -189,13 +200,11 @@ impl Controller {
     async fn run(self) {
         let camera = match crate::cameras::repo_get(&self.db, &self.id).await {
             Ok(Some(c)) if c.enabled => c,
-            _ => return,
+            _ => {
+                self.recorder.stop_if(&self.id, &OWN).await;
+                return;
+            }
         };
-        match camera.recording.mode {
-            RecordingMode::Events => {}
-            RecordingMode::Continuous | RecordingMode::Scheduled => return super::timed::run(&self, &camera).await,
-            RecordingMode::Disabled | RecordingMode::Manual => return,
-        }
         // Only cameras that can produce detections: ONVIF events or
         // Watchgrid's own software motion detection.
         let detects = camera.motion.enabled
@@ -204,6 +213,17 @@ impl Controller {
                 MotionSource::Software => true,
                 MotionSource::Ai => false,
             };
+        // An event clip the previous controller left running (settings
+        // saved, disarmed…): if events no longer drive this camera, nothing
+        // would ever end it. Manual recordings are never touched.
+        if camera.recording.mode != RecordingMode::Events || !detects {
+            self.recorder.stop_if(&self.id, &OWN).await;
+        }
+        match camera.recording.mode {
+            RecordingMode::Events => {}
+            RecordingMode::Continuous | RecordingMode::Scheduled => return super::timed::run(&self, &camera).await,
+            RecordingMode::Disabled | RecordingMode::Manual => return,
+        }
         if !detects {
             return;
         }
@@ -219,6 +239,10 @@ impl Controller {
         let mut f = Follow::new();
         // Detections already under way (the controller was just restarted).
         f.catch_up(&self.detections.active_kinds(&self.id), self.recorder.running_reason(&self.id).is_some(), &plan, Instant::now());
+        // …and an event clip still running from before becomes this one's.
+        if self.recorder.running_reason(&self.id).is_some_and(|r| OWN.contains(&r)) {
+            f.adopt(Instant::now(), &plan);
+        }
         let far = Duration::from_secs(365 * 24 * 3600);
 
         loop {
@@ -329,6 +353,21 @@ mod tests {
         f.ended(EventType::Motion, &p, now);
         assert_eq!(f.failed(now), None);
         assert_eq!((f.start_at, f.stop_at, f.clip_started), (None, None, None));
+    }
+
+    #[test]
+    fn an_adopted_clip_still_ends() {
+        let (p, now) = (plan(), Instant::now());
+        let mut f = Follow::new();
+        f.adopt(now, &p);
+        assert_eq!((f.clip_started, f.stop_at), (Some(now), Some(now + p.hold)), "motion already over: it ends after the hold");
+
+        let mut f = Follow::new();
+        f.catch_up(&kinds(&[EventType::Motion]), true, &p, now);
+        f.adopt(now, &p);
+        assert_eq!(f.stop_at, None, "motion still going: it keeps recording");
+        f.ended(EventType::Motion, &p, now);
+        assert_eq!(f.stop_at, Some(now + p.hold), "and ends when the motion does");
     }
 
     #[test]
