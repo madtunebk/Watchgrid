@@ -2,6 +2,42 @@
 
 Each version's section here becomes the notes of its GitHub Release.
 
+## v0.3.0
+
+Much lighter on the network and the CPU, tested with 40 cameras, and a
+round of fixes found by that test.
+
+- **Main stream only when needed** — cameras are watched on their substream
+  (always on, cheap); the main stream opens only for a full-screen view or a
+  recording, including when motion starts one. With 40 idle cameras: network
+  in ~85 % lower, CPU from ~15 % to ~3 %, memory from ~300 MB to ~20 MB.
+  A camera with only one stream uses one connection for everything.
+- **Motion detection only where you choose** — new cameras start with it off;
+  arming turns it on. A camera whose stream has B-frames gets a clear reason
+  (turn off Smart Codec / H.264+) instead of a decoder error.
+- **Recordings** — a clip left running when a camera is disarmed or its
+  settings are saved now ends properly (it recorded until a restart).
+- **Notifications** — cameras going offline or back online together make one
+  notification ("12 cameras are back online"), not one per camera.
+- **Health** — the same problem on many cameras is said once; network traffic
+  is counted once (it was doubled or tripled by Docker bridges and tunnels);
+  a backlog of exports that doesn't drain is shown.
+- **Exports** — WebDAV is now tested against a real Nextcloud. An upload that
+  hasn't started 24 h after it was queued is skipped, so it can't keep
+  retention from freeing space. Google Drive and Dropbox are dropped from the
+  plan: S3 and WebDAV cover it.
+- **Cameras** — host, stream and ONVIF addresses are checked properly on the
+  server; names and descriptions have length limits; "Add camera" lives in
+  Settings → Cameras.
+- **Live View** — no longer freezes the browser when there are no cameras.
+- **Updates** — the web app reloads itself after an update (no hard refresh).
+- **Command line** — a command run without sudo says it can't read the
+  configuration, instead of "DATABASE_URL is not set".
+
+Upgrading: install over v0.2.0 as usual; the database is updated when the
+service starts. New cameras start with motion detection off; existing ones
+keep their settings.
+
 ## v0.2.0
 
 Armed mode, event dots on the timeline, HEVC, and a long list of fixes that

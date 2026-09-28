@@ -51,11 +51,12 @@ Everything builds with Cargo.
 - **CPU:** about 1.3 % of a J4125 per camera, stream handling and software
   motion detection on the substream included. On such a box the network
   and the disk run out long before the CPU.
-- **Measured:** 40 cameras (720p main stream + 360p substream, 15 fps,
-  software motion detection on each substream) on an Intel i5-8400: about
-  15 % CPU and 300 MB of memory for Watchgrid itself. Those were test
-  streams, almost still pictures: real cameras send 2–6 Mb/s each, so
-  plan the network and the disk for that.
+- **Measured** on an Intel i5-8400 with 40 cameras (720p main stream + 360p
+  substream, 15 fps): idle, about 3 % CPU and 20 MB of memory for Watchgrid
+  itself (only the substreams are open); all 40 detecting motion and
+  recording at once, about 60 % CPU and 750 MB. Those were test streams:
+  real cameras send 2–6 Mb/s each, so plan the network and the disk for
+  that.
 - **Disk:** recording is steady sequential writing, 24/7. A hard disk does
   that well and cheaply; NVMe speed isn't needed, and constant writing wears
   SSDs out. An SSD for the system and the database is a nice extra, not a
