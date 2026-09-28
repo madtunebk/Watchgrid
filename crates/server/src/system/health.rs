@@ -51,15 +51,35 @@ pub fn motion(cams: &[Camera]) -> Option<HealthCheck> {
     }
     let failing = |c: &&&Camera| c.software_motion.as_ref().is_some_and(|s| s.state == DetectorState::Failing);
     let why = |c: &Camera| c.software_motion.as_ref().and_then(|s| s.detail.clone()).unwrap_or_default();
-    let blind: Vec<String> = detecting.iter().filter(failing).map(|c| format!("{} ({})", c.name, why(c))).collect();
+    let blind: Vec<(&str, String)> = detecting.iter().filter(failing).map(|c| (c.name.as_str(), why(c))).collect();
     if !blind.is_empty() {
-        return Some(check(NAME, CheckLevel::Error, format!("Not detecting on {}", blind.join(", "))));
+        return Some(check(NAME, CheckLevel::Error, format!("Not detecting on {}", by_reason(&blind))));
     }
     let standing_in: Vec<&str> = detecting.iter().filter(|c| c.motion_fallback).map(|c| c.name.as_str()).collect();
     Some(match standing_in.as_slice() {
         [] => check(NAME, CheckLevel::Ok, format!("Working on {}", detecting.len())),
-        names => check(NAME, CheckLevel::Warning, format!("{}: camera events fail, Watchgrid detects motion itself", names.join(", "))),
+        names => check(NAME, CheckLevel::Warning, format!("{}: camera events fail, Watchgrid detects motion itself", some_names(names))),
     })
+}
+
+/// Cameras with the same problem said once: "Hall, Yard: why; Gate: other".
+fn by_reason(items: &[(&str, String)]) -> String {
+    let mut groups: Vec<(&str, Vec<&str>)> = Vec::new();
+    for (name, why) in items {
+        match groups.iter_mut().find(|(w, _)| *w == why.as_str()) {
+            Some((_, names)) => names.push(name),
+            None => groups.push((why.as_str(), vec![name])),
+        }
+    }
+    groups.iter().map(|(why, names)| if why.is_empty() { some_names(names) } else { format!("{}: {why}", some_names(names)) }).collect::<Vec<_>>().join("; ")
+}
+
+/// Up to three names; beyond that the count and the first three.
+fn some_names(names: &[&str]) -> String {
+    match names.len() {
+        0..=3 => names.join(", "),
+        n => format!("{n} cameras ({} and {} more)", names[..3].join(", "), n - 3),
+    }
 }
 
 /// Destinations that can't take uploads (rejected credentials…); `None`
@@ -97,6 +117,11 @@ mod tests {
         assert_eq!(ServerHealth::of(&[ok, recordings(&dir, Some(97.0)), gone]), ServerHealth::Stopped);
 
         assert!(exports(&[], 0).is_none(), "no destinations: nothing to report");
+
+        let why = |s: &str| s.to_string();
+        let forty: Vec<(&str, String)> = ["c1", "c2", "c3", "c4", "c5"].iter().map(|n| (*n, why("can't decode"))).collect();
+        assert_eq!(by_reason(&forty), "5 cameras (c1, c2, c3 and 2 more): can't decode", "one reason said once");
+        assert_eq!(by_reason(&[("Hall", why("no video")), ("Gate", why("can't decode")), ("Yard", why("no video"))]), "Hall, Yard: no video; Gate: can't decode");
         assert_eq!(exports(&["MinIO".into()], 2).unwrap().detail, "MinIO needs attention");
     }
 }
