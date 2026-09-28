@@ -43,7 +43,7 @@ Everything builds with Cargo.
 | | Minimum | Recommended |
 |---|---|---|
 | CPU | 64-bit x86 (x86-64), 2 cores (Celeron J3455 class) | 4 cores, Celeron J4125 / N100 class |
-| RAM (Watchgrid + PostgreSQL) | 2 GB | 8 GB |
+| RAM (whole machine: OS, PostgreSQL, Watchgrid) | 4 GB | 8 GB |
 | Recording disk | any disk with enough space | HDD, surveillance grade (e.g. WD Purple, Seagate SkyHawk) |
 | Network | 100 Mb/s, wired preferred | Gigabit Ethernet, cameras wired |
 | Operating system | 64-bit Linux, with Docker or systemd | same |
