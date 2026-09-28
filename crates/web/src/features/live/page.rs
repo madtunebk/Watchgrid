@@ -69,11 +69,17 @@ pub fn LiveViewPage() -> impl IntoView {
 
     // First visit (or nothing left to show): place cameras in order and pick
     // a layout that fits them. Otherwise only drop cameras that were deleted.
+    // Runs on camera list changes only: with no cameras, arranging placed
+    // nothing, the tracked "nothing placed" re-ran this effect, and the
+    // browser tab froze in that loop.
     let first_run = StoredValue::new(!arranged_before);
     Effect::new(move || {
         let Some(list) = list.get() else { return };
         slots.forget_missing(&list);
-        if first_run.get_value() || slots.placed().is_empty() {
+        if list.is_empty() {
+            return;
+        }
+        if first_run.get_value() || slots.is_empty_untracked() {
             first_run.set_value(false);
             slots.arrange(&list);
             if saved_layout.is_none() {
@@ -104,6 +110,9 @@ pub fn LiveViewPage() -> impl IntoView {
     });
     on_cleanup(move || keys.remove());
 
+    // Controls and the load footer mean nothing without cameras.
+    let has_cameras = Signal::derive(move || list.get().is_some_and(|l| !l.is_empty()));
+
     let subtitle = Signal::derive(move || {
         list.get().map(|l| {
             let n = l.iter().filter(|c| c.streaming()).count();
@@ -116,7 +125,7 @@ pub fn LiveViewPage() -> impl IntoView {
             title="Live View"
             subtitle
             flush=true
-            actions=move || view! {
+            actions=move || view! { {move || has_cameras.get().then(|| view! {
                 <Segmented value=layout label="Grid layout"
                     options=GridLayout::ALL.into_iter().map(|l| (l, view! {
                         <Icon icon=l.icon() class="icon icon--sm" /><span>{l.label()}</span>
@@ -129,7 +138,7 @@ pub fn LiveViewPage() -> impl IntoView {
                     on:click=move |_| view.toggle_wall_fullscreen()>
                     <Icon icon=I::Maximize class="icon icon--sm" />"Fullscreen"
                 </button>
-            }
+            })} }
         >
             <div class="live-wall" node_ref=wall>
                 {move || match list.get() {
@@ -138,7 +147,9 @@ pub fn LiveViewPage() -> impl IntoView {
                     Some(_) => view! { <Grid layout page slots cameras=by_id view /> }.into_any(),
                 }}
                 <CameraOverlay view cameras=by_id />
-                <WallFooter page pages cycle load />
+                <Show when=move || has_cameras.get()>
+                    <WallFooter page pages cycle load />
+                </Show>
             </div>
         </Page>
     }

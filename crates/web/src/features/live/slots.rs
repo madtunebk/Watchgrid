@@ -88,6 +88,12 @@ impl Slots {
         self.0.with(|s| s.iter().flatten().cloned().collect())
     }
 
+    /// No camera placed anywhere, read without subscribing (for effects that
+    /// then arrange: reading tracked would make them re-run themselves).
+    pub fn is_empty_untracked(self) -> bool {
+        self.0.with_untracked(|s| s.iter().all(Option::is_none))
+    }
+
     /// One past the last used tile.
     pub fn extent(self) -> usize {
         self.0.with(|s| s.iter().rposition(Option::is_some).map_or(0, |i| i + 1))
