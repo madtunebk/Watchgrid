@@ -26,6 +26,10 @@ use crate::motion::Detections;
 const MAX_PREROLL_SECS: u32 = watchgrid_model::MAX_PRE_RECORD_SECONDS;
 /// Reasons this controller starts, and therefore may stop.
 const OWN: [RecordingReason; 2] = [RecordingReason::Motion, RecordingReason::Event];
+/// A clip that fails while the detection goes on is started again after
+/// 5 s, then 10 s, then 15 s; after that, only the next detection retries.
+const RETRY_AFTER: Duration = Duration::from_secs(5);
+const MAX_RETRIES: u32 = 3;
 
 pub struct AutoRecorders {
     db: PgPool,
@@ -87,11 +91,13 @@ struct Follow {
     start_at: Option<Instant>,
     stop_at: Option<Instant>,
     clip_started: Option<Instant>,
+    /// Failed clips restarted during the current detection.
+    retries: u32,
 }
 
 impl Follow {
     fn new() -> Self {
-        Self { active: HashSet::new(), first_kind: EventType::Motion, start_at: None, stop_at: None, clip_started: None }
+        Self { active: HashSet::new(), first_kind: EventType::Motion, start_at: None, stop_at: None, clip_started: None, retries: 0 }
     }
 
     /// `kind` began; `recording`: something already records this camera.
@@ -111,10 +117,26 @@ impl Follow {
         if self.active.is_empty() {
             // Too short to record, if it hadn't started yet.
             self.start_at = None;
+            self.retries = 0;
             if self.clip_started.is_some() {
                 self.stop_at = Some(now + plan.hold);
             }
         }
+    }
+
+    /// Our clip failed (camera dropped, disk error…) while the detection may
+    /// still go on: start it again soon, a few times per detection. Returns
+    /// the wait, or `None` when nothing is retried.
+    fn failed(&mut self, now: Instant) -> Option<Duration> {
+        self.clip_started = None;
+        self.stop_at = None;
+        if self.active.is_empty() || self.retries >= MAX_RETRIES {
+            return None;
+        }
+        self.retries += 1;
+        let wait = RETRY_AFTER * self.retries;
+        self.start_at = Some(now + wait);
+        Some(wait)
     }
 
     /// Bus messages were missed (the bus holds 256): take what the camera
@@ -203,11 +225,22 @@ impl Controller {
                         f.started(kind, self.recorder.running_reason(&self.id).is_some(), &plan, Instant::now());
                     }
                     Ok(BusEvent::DetectionEnded { camera_id, kind, .. }) if camera_id == self.id => f.ended(kind, &plan, Instant::now()),
-                    Ok(BusEvent::RecordingStopped { camera_id, .. }) if camera_id == self.id => {
-                        // Stopped by someone else (STOP button, failure): forget it.
+                    Ok(BusEvent::RecordingStopped { camera_id, error, .. }) if camera_id == self.id => {
                         if self.recorder.running_reason(&self.id).is_none() {
-                            f.clip_started = None;
-                            f.stop_at = None;
+                            let ours = f.clip_started.is_some();
+                            match error {
+                                // Our clip failed: retry while the detection lasts.
+                                Some(e) if ours => match f.failed(Instant::now()) {
+                                    Some(wait) => tracing::warn!(camera = %self.id, attempt = f.retries, retry_in_s = wait.as_secs(), "event recording failed while the detection continues, starting it again: {e}"),
+                                    None if !f.active.is_empty() => tracing::warn!(camera = %self.id, "event recording failed again; the next detection will try: {e}"),
+                                    None => {}
+                                },
+                                // Stopped by someone else (STOP button): forget it.
+                                _ => {
+                                    f.clip_started = None;
+                                    f.stop_at = None;
+                                }
+                            }
                         }
                     }
                     Ok(_) => {}
@@ -254,6 +287,34 @@ mod tests {
 
     fn kinds(k: &[EventType]) -> HashSet<EventType> {
         k.iter().copied().collect()
+    }
+
+    #[test]
+    fn a_failed_clip_is_retried_while_the_detection_lasts() {
+        let (p, now) = (plan(), Instant::now());
+        let mut f = Follow::new();
+        f.started(EventType::Motion, false, &p, now);
+        f.clip_started = Some(now);
+        assert_eq!(f.failed(now), Some(Duration::from_secs(5)));
+        assert_eq!(f.start_at, Some(now + Duration::from_secs(5)));
+        assert_eq!(f.failed(now), Some(Duration::from_secs(10)), "waits longer each time");
+        assert_eq!(f.failed(now), Some(Duration::from_secs(15)));
+        assert_eq!(f.failed(now), None, "three retries per detection");
+        // The detection ends: the next one gets its own retries.
+        f.ended(EventType::Motion, &p, now);
+        f.started(EventType::Motion, false, &p, now);
+        assert_eq!(f.failed(now), Some(Duration::from_secs(5)));
+    }
+
+    #[test]
+    fn a_failure_after_the_detection_ended_is_not_retried() {
+        let (p, now) = (plan(), Instant::now());
+        let mut f = Follow::new();
+        f.started(EventType::Motion, false, &p, now);
+        f.clip_started = Some(now);
+        f.ended(EventType::Motion, &p, now);
+        assert_eq!(f.failed(now), None);
+        assert_eq!((f.start_at, f.stop_at, f.clip_started), (None, None, None));
     }
 
     #[test]
