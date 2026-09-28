@@ -1,6 +1,5 @@
 //! Dashboard: at-a-glance state of the whole NVR.
 
-mod arm;
 mod camera_overview;
 mod page;
 mod recent_events;

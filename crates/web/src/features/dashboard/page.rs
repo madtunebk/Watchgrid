@@ -2,7 +2,6 @@ use std::time::Duration;
 
 use leptos::prelude::*;
 
-use super::arm::ArmControl;
 use super::camera_overview::CameraOverview;
 use super::recent_events::RecentEvents;
 use super::stats::StatsRow;
@@ -49,9 +48,6 @@ pub fn DashboardPage() -> impl IntoView {
     view! {
         <Page
             title="Dashboard"
-            actions=move || view! {
-                {move || has_cameras.get().unwrap_or(false).then(|| view! { <ArmControl cameras /> })}
-            }
         >
             {move || match has_cameras.get() {
                 Some(false) => view! {

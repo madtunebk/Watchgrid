@@ -1,6 +1,7 @@
 //! NVR features. Each module owns its pages and domain widgets and talks to
 //! the backend only through `crate::api`.
 
+pub mod arm;
 pub mod auth;
 pub mod cameras;
 pub mod clip_export;

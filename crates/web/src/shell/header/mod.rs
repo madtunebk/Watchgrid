@@ -23,6 +23,7 @@ pub fn Header(on_open_menu: impl Fn() + Send + Sync + 'static) -> impl IntoView 
                 <status::ConnectionIndicator />
                 <status::Clock />
                 <div class="header__divider"></div>
+                <crate::features::arm::ArmMenu />
                 <notifications::Notifications />
                 <user_menu::UserMenu />
             </div>
