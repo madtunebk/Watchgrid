@@ -6,7 +6,7 @@ default-members = ["crates/model", "crates/server", "xtask"]
 
 [workspace.package]
 edition = "2024"
-version = "0.1.0"
+version = "0.2.0"
 license = "AGPL-3.0-or-later"
 rust-version = "1.88"
 
