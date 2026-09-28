@@ -167,8 +167,8 @@ watchgrid user disable <username>     # or enable / delete
 ```
 
 Then open `http://<server>:8090`, sign in and add your cameras
-(**Cameras → Add camera**: RTSP address, user, password; optionally the
-substream and ONVIF).
+(**Settings → Cameras → Add camera**: RTSP address, user, password;
+optionally the substream and ONVIF).
 
 ## Configuration
 

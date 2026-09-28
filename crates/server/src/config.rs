@@ -30,7 +30,7 @@ pub struct Config {
 /// directory — even a source checkout with its own `.env` — manages the
 /// installed server, not a development one.
 pub fn load_env_files() {
-    let system = std::env::var("WATCHGRID_CONFIG").unwrap_or_else(|_| SYSTEM_CONFIG.into());
+    let system = system_config();
     if !is_dev_build() {
         let _ = dotenvy::from_path(&system);
         return;
@@ -38,6 +38,23 @@ pub fn load_env_files() {
     let _ = dotenvy::dotenv();
     if std::path::Path::new(&system).exists() {
         let _ = dotenvy::from_path(&system);
+    }
+}
+
+fn system_config() -> String {
+    std::env::var("WATCHGRID_CONFIG").unwrap_or_else(|_| SYSTEM_CONFIG.into())
+}
+
+/// Why there is no `DATABASE_URL`. The usual reason on an installed server
+/// is a command run without `sudo`: the file (it holds the database
+/// password) is readable by root only.
+fn missing_database_url(system: &str) -> String {
+    match std::fs::File::open(system) {
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+            format!("cannot read {system}: permission denied (it holds the database password). Run the command with sudo.")
+        }
+        Ok(_) => format!("DATABASE_URL is not set in {system}"),
+        Err(_) => format!("DATABASE_URL is not set (see .env or {system})"),
     }
 }
 
@@ -49,7 +66,7 @@ fn is_dev_build() -> bool {
 impl Config {
     pub fn from_env() -> Result<Self, String> {
         let var = |k: &str| std::env::var(k).ok().filter(|v| !v.trim().is_empty());
-        let database_url = var("DATABASE_URL").ok_or(format!("DATABASE_URL is not set (see .env or {SYSTEM_CONFIG})"))?;
+        let database_url = var("DATABASE_URL").ok_or_else(|| missing_database_url(&system_config()))?;
         let bind = var("WATCHGRID_BIND")
             .unwrap_or_else(|| "127.0.0.1:8090".into())
             .parse()
@@ -64,5 +81,27 @@ impl Config {
             ui_dir: var("WATCHGRID_UI_DIR").unwrap_or_else(|| "dist".into()).into(),
             backup_dir: var("WATCHGRID_BACKUP_DIR").map_or_else(|| data_dir.join("backups"), PathBuf::from),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::missing_database_url;
+
+    #[test]
+    fn an_unreadable_config_says_to_use_sudo() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("watchgrid-config-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("watchgrid.env");
+        std::fs::write(&file, "DATABASE_URL=postgres://x\n").unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let msg = missing_database_url(file.to_str().unwrap());
+        // Root reads it anyway: nothing to check then.
+        if std::fs::File::open(&file).is_err() {
+            assert!(msg.contains("permission denied") && msg.contains("sudo"), "{msg}");
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(missing_database_url("/nonexistent/watchgrid.env").contains("is not set"));
     }
 }
