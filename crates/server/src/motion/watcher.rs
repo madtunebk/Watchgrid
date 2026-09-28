@@ -328,6 +328,8 @@ fn decode_loop(id: &str, queue: Receiver<Work>, mut analyzer: Analyzer, report: 
     let mut last_analysed: Option<i64> = None;
     let mut errors = 0u32;
     let mut pictures = 0u32;
+    // The stream carries B-frames (they explain a decoder that fails).
+    let mut b_frames = false;
     while let Ok(work) = queue.recv() {
         let frame = match work {
             Work::Track(avcc) => {
@@ -353,6 +355,7 @@ fn decode_loop(id: &str, queue: Receiver<Work>, mut analyzer: Analyzer, report: 
             }
         };
         let Some(h264) = decoder.as_mut() else { continue };
+        b_frames = b_frames || super::slices::has_b_slice(&frame.data);
         match h264.decode(&frame.data, |p| cells(p.y, p.width, p.height, p.stride)) {
             Ok(Some(grid)) => {
                 errors = 0;
@@ -385,13 +388,17 @@ fn decode_loop(id: &str, queue: Receiver<Work>, mut analyzer: Analyzer, report: 
                 if errors == 1 || errors.is_multiple_of(500) {
                     tracing::debug!(camera = %id, "motion detection: cannot decode a frame: {e}");
                 }
-                if errors == DECODE_FAILURES && report.send(Report::Failing(format!("frames can't be decoded ({e})"))).is_err() {
+                let why = if b_frames { B_FRAMES.to_string() } else { format!("frames can't be decoded ({e})") };
+                if errors == DECODE_FAILURES && report.send(Report::Failing(why)).is_err() {
                     return;
                 }
             }
         }
     }
 }
+
+/// Why detection fails on a stream with B-frames, and what to do about it.
+const B_FRAMES: &str = "the camera sends B-frames, which software motion detection can't decode. Turn off B-frames in the camera's video settings for this stream (often called Smart Codec or H.264+)";
 
 /// Recording and live video matter more than motion analysis: run the
 /// decoder at a lower CPU priority (nice 10, this thread only).

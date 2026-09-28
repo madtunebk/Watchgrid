@@ -7,6 +7,7 @@ mod analyzer;
 pub mod sources;
 #[cfg(target_env = "musl")]
 mod cxxrt;
+mod slices;
 pub(crate) mod decoder;
 mod watcher;
 
